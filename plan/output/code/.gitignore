@@ -1,0 +1,16 @@
+# External git repos (clone separately)
+libOTe/
+circuitPSU/
+dujiajun-PSU/
+
+# Build artifacts
+cpp/build/
+py/__pycache__/
+*.o
+*.pyc
+
+# OS files
+.DS_Store
+
+# LaTeX artifacts
+*.log
