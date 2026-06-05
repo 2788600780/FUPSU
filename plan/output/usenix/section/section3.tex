@@ -191,7 +191,7 @@ independent 256-bit PRF key.
 	\smallskip\noindent\textbf{OT-masked deletion.}
 	The critical insight of F-PSU is that deletions need not trigger IBLT
 	cascade. Before modifying any IBLT cell, each party runs a 2-bit OT-based
-	membership check for every deletion candidate (Step~5, Fig.~\ref{fig:protocol}).
+	membership check for every deletion candidate (Step~4, Fig.~\ref{fig:protocol}).
 	The other party replies with (i)~whether it holds the element, and
 	(ii)~whether it also intends to delete it. Three cases arise:
 	\begin{itemize}
@@ -212,7 +212,7 @@ independent 256-bit PRF key.
 	\cup \Delta^+_C \cup \Delta^+_S \cup V_{\mathsf{main}}$, where
 	$\Delta^-_{\mathsf{Case1}}$ are unique deletions and $V_{\mathsf{main}}$
 	is the (usually empty) set of elements resolved from Case~3 IBLT cells
-	(Step~6).  If the output type is $\mathsf{PSI}$, only Case~3 elements of
+	(Step~5).  If the output type is $\mathsf{PSI}$, only Case~3 elements of
 	the original $\uPeel$ definition (equal sums in both IBLTs) are retained.
 
 	\smallskip\noindent\textbf{Key evolution and forward privacy.}
@@ -224,93 +224,110 @@ independent 256-bit PRF key.
 	recover $K^b_{t<\tau}$ or decrypt prior-epoch IBLT ciphertexts.
 
 	\begin{figure*}[p]
-\fbox{\footnotesize\begin{minipage}{\dimexpr\textwidth-2\fboxsep-2\fboxrule\relax}
+\footnotesize
+\noindent\textbf{Protocol $\Pi_{\mathsf{fpsu}}$ (Epoch $t \geq 1$)}
+
 \smallskip
-\noindent\textbf{Protocol $\Pi_{\mathsf{fpsu}}$ (Epoch $t$)}
+\noindent\textbf{Parameters:}
+Two parties $P_0, P_1$;
+IBLT parameters $\mathsf{prm} = (M, k, \ell, H)$ with $k = 5$;
+security parameter $\kappa$;
+$\PRF : \{0,1\}^\kappa \times \{0,1\}^* \to \{0,1\}^\kappa$;
+$\SE = (\SE.\Enc, \SE.\Dec)$;
+ideal functionalities $\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}}$.
+VOLE state set up once at Epoch~0 and reused across all epochs.
 
-\smallskip\noindent\textbf{Input of $C$:}
-Encrypted IBLT $\mathsf{CT}_C$, set $X_{t-1}$, key $K^C_{t-1}$,
-deltas $\Delta^+_C, \Delta^-_C$.
+\smallskip
+\noindent\textbf{Input:}
+Each party $P_b$ ($b \in \{0,1\}$) provides:
+encrypted IBLT $\mathsf{CT}_{b}$,
+current set $S_{b}$,
+key $K_{b}$,
+deltas $\Delta^+_{b}, \Delta^-_{b}$.
 
-\noindent\textbf{Input of $S$:}
-Encrypted IBLT $\mathsf{CT}_S$, set $Y_{t-1}$, key $K^S_{t-1}$,
-deltas $\Delta^+_S, \Delta^-_S$.
-
-\noindent\textbf{Common:}
-IBLT parameters $\mathsf{prm}_t = (M, k, \ell_t, H)$ with $k=5$, $e \in [1.5,4.5]$;
-VOLE state $\sigma_{\mathsf{VOLE}}$ (setup once, reused across all epochs).
-
-\noindent\textbf{Output:}
-Both parties output $X_{\cup,t}$. (By filtering in Step~8, also yields
-PSI, PSU-CA, PSI-CA.)
-
-\smallskip\noindent\textbf{Protocol:}
+\smallskip
+\noindent\textbf{Protocol:}
 \begin{enumerate}
-\item $C$ decrypts $\mathsf{IBLT}_C \leftarrow \SE.\mathsf{Dec}(K^C_{t-1}, \mathsf{CT}_C)$;
-      $S$ decrypts $\mathsf{IBLT}_S \leftarrow \SE.\mathsf{Dec}(K^S_{t-1}, \mathsf{CT}_S)$.
-
-\item $C$ encodes additions: $\mathsf{IBLT}^+_C \leftarrow \Encode(\Delta^+_C)$;
-      $S$ encodes additions: $\mathsf{IBLT}^+_S \leftarrow \Encode(\Delta^+_S)$,
-      each with $m_{\Delta} = c_k \cdot k \cdot \max(|\Delta^+_C|, |\Delta^+_S|)$ cells.
-      \emph{(Do not merge into main IBLT yet.)}
-\end{enumerate}
-\begin{enumerate}\setcounter{enumi}{2}
-\item \textbf{[Mini UnionPeel --- additions.]}
-      $C$ and $S$ run $\Pi_{\mathsf{UnionPeel}}(\mathsf{IBLT}^+_C, \mathsf{IBLT}^+_S)$
-      (Fig.~\ref{fig:unionpeel}), scanning all $m_{\Delta}$ cells. The addition IBLT
-      is fresh --- zero cascade, deterministic output $V_{\Delta^+}$.
-
-\item \textbf{[Merge additions.]} [local]
-      Shared additions go to both IBLTs; unique additions go only to the owning party's IBLT.
-\end{enumerate}
-\begin{enumerate}\setcounter{enumi}{4}
-\item \textbf{[OT-masked deletion.]}
-      For each $x \in \Delta^-_C$, $C$ and $S$ run a batched OPRF query. $S$ replies with $F(k,x)$ and two bits:
-      $S$ replies with $(b_1, b_2)$ where $b_1 = \mathbf{1}[x \in Y_{t-1}]$ and
-      $b_2 = \mathbf{1}[x \in \Delta^-_S]$. Three cases:
-      \begin{itemize}
-        \item[Case~1:] $b_1=0$: $x$ unique to $C$, local deletion only.
-        \item[Case~2:] $b_1=1, b_2=0$: $x$ shared, $S$ keeps it ---
-          $\mathsf{IBLT}_C \leftarrow \mathsf{IBLT}_C \ominus \Encode(\{x\})$ (local, $k$ cells, no cascade).
-        \item[Case~3:] $b_1=1, b_2=1$: both delete $x$ --- $\mathsf{IBLT}_C \leftarrow \mathsf{IBLT}_C \ominus \Encode(\{x\})$, record cell to $Q_{\mathsf{del}}$.
-      \end{itemize}
-      $S$ performs the symmetric check for each $y \in \Delta^-_S$.
-      Most deletions are Case~1 or Case~2
-      eliminating cascade propagation.
-
-\item \textbf{[Resolve Case~3 deletions.]}
-      If $Q_{\mathsf{del}} \neq \emptyset$: run $\Pi_{\mathsf{UnionPeel}}$ on $Q_{\mathsf{del}}$.
-      By Lemma~\ref{lem:cascade}, $\leq 2k|\Delta^-_{\mathsf{Case3}}|$ cells examined
-      w.h.p.
-
-\item \textbf{[Transmit recovered elements.]} [$S \to C$]
-      $S$ sends $V_{\mathsf{main}}$ (resolved elements from Steps~4--6, if any) to $C$.
-\end{enumerate}
-
-\begin{enumerate}\setcounter{enumi}{7}
-\item \textbf{[Output.]}
-      $X_{\cup, t} \leftarrow (X_{t-1} \setminus \Delta^-_{\mathsf{Case1}}) \cup
-      \Delta^+_C \cup \Delta^+_S \cup V_{\mathsf{main}}$.
-      Both parties output $X_{\cup, t}$.
-
-\item \textbf{[Key evolution.]}
-      $C$: $K^C_t \leftarrow \PRF(K^C_{t-1}, \text{``evolve-C''})$;\;
-      $S$: $K^S_t \leftarrow \PRF(K^S_{t-1}, \text{``evolve-S''})$.
-
-\item \textbf{[Re-encrypt and erase.]}
-      $C$: $\mathsf{CT}_C \leftarrow \SE.\mathsf{Enc}(K^C_t, \mathsf{IBLT}_C)$,
-      $\mathsf{secure\_erase}(K^C_{t-1})$;
-      $S$: $\mathsf{CT}_S \leftarrow \SE.\mathsf{Enc}(K^S_t, \mathsf{IBLT}_S)$,
-      $\mathsf{secure\_erase}(K^S_{t-1})$.
-\end{enumerate}
+\item \textbf{[Decrypt and prepare.]} \hfill \textit{(local)}
 \smallskip
-\end{minipage}}
-\caption{The F-PSU epoch protocol. Steps~2--4: Mini UnionPeel for additions
-(deterministic, zero cascade). Steps~5--7: OT-masked deletion with three-case
-classification.
-Steps~8--10: output, key evolution, and secure erasure. Per-epoch cells
-scanned: $O(|\Delta^+|)$ (MiniPeel) $+$ $O(|\Delta^-_{\mathsf{Case3}}|)$
-(Case~3 cleanup). Forward privacy overhead: $<1$~ms.}
+
+$P_b$ decrypts $\mathsf{IBLT}_{b} \leftarrow \SE.\Dec(K_{b}, \mathsf{CT}_{b})$.
+$P_b$ encodes additions into a fresh compact IBLT:
+$\mathsf{IBLT}^+_{b} \leftarrow \Encode(\Delta^+_{b})$
+with $m_{\Delta} = c_k \cdot k \cdot \max(|\Delta^+_0|, |\Delta^+_1|)$ cells.
+\emph{(Do not merge into $\mathsf{IBLT}_{b}$ yet.)}
+
+\item \textbf{[Mini UnionPeel --- additions.]} \hfill \textit{(interactive)}
+\smallskip
+
+$P_0$ and $P_1$ run $\Pi_{\mathsf{UnionPeel}}(\mathsf{IBLT}^+_0, \mathsf{IBLT}^+_1)$
+(Fig.~\ref{fig:unionpeel}) on all $m_{\Delta}$ cells. The addition IBLT
+is fresh---deterministic, zero cascade.
+Recover $V_{\Delta^+} \leftarrow \{ v \mid \uPeel(\cdot) \neq \bot \}$.
+
+\item \textbf{[Merge additions.]} \hfill \textit{(local)}
+\smallskip
+
+For each $v \in V_{\Delta^+}$:
+if $v \in \Delta^+_0 \cap \Delta^+_1$, both parties add $v$ to their IBLT;
+if $v \in \Delta^+_b \setminus \Delta^+_{1-b}$, only $P_b$ adds $v$ to $\mathsf{IBLT}_{b}$.
+
+\item \textbf{[OT-masked deletion.]} \hfill \textit{(interactive)}
+\smallskip
+
+For each $x \in \Delta^-_b$ (both parties symmetrically):
+$P_b$ queries $x$ via batched $\cF_{\mathsf{OPRF}}$.
+$P_{1-b}$ responds with $F(k, x)$ and two classification bits:
+\[
+b_1 \leftarrow \mathbf{1}[x \in S_{1-b}], \qquad
+b_2 \leftarrow \mathbf{1}[x \in \Delta^-_{1-b}].
+\]
+Three cases:
+\begin{itemize}
+  \item[Case~1] $b_1 = 0$:
+    $x$ unique to $P_b$. No IBLT modification.
+  \item[Case~2] $b_1 = 1, b_2 = 0$:
+    $x$ shared, $P_{1-b}$ retains it.
+    $P_b$: $\mathsf{IBLT}_{b} \leftarrow \mathsf{IBLT}_{b} \ominus \Encode(\{x\})$
+    ($k$ cell updates, no cascade).
+  \item[Case~3] $b_1 = 1, b_2 = 1$:
+    both parties independently delete $x$.
+    $P_b$: $\mathsf{IBLT}_{b} \leftarrow \mathsf{IBLT}_{b} \ominus \Encode(\{x\})$;
+    record modified cells to $Q_{\mathsf{del}}$.
+\end{itemize}
+In practice, $<2\%$ of deletions fall into Case~3,
+eliminating cascade amplification.
+
+\item \textbf{[Resolve Case~3 deletions.]} \hfill \textit{(interactive, conditional)}
+\smallskip
+
+If $Q_{\mathsf{del}} \neq \emptyset$: run $\Pi_{\mathsf{UnionPeel}}$ on $Q_{\mathsf{del}}$.
+By Lemma~\ref{lem:cascade}, $\leq 2k|\Delta^-_{\mathsf{Case3}}|$ cells examined
+w.h.p.\ Recover $V_{\mathsf{del}} \leftarrow \{ v \mid \uPeel(\cdot) \neq \bot \}$.
+
+\item \textbf{[Output.]} \hfill \textit{(local)}
+\smallskip
+
+$P_b$ computes:
+$S_{\cup} \leftarrow (S_{b} \setminus \Delta^-_{\mathsf{Case1}}) \;\cup\;
+\Delta^+_0 \cup \Delta^+_1 \;\cup\; V_{\mathsf{del}}$.
+Both parties output $S_{\cup}$.
+(Filtering by membership also yields $\mathsf{PSI}$, $\mathsf{PSU}\text{-}\mathsf{CA}$, $\mathsf{PSI}\text{-}\mathsf{CA}$.)
+
+\item \textbf{[Key evolution and re-encryption.]} \hfill \textit{(local)}
+\smallskip
+
+$P_b$: $K'_{b} \leftarrow \PRF(K_{b}, \text{``evolve-}b\text{''})$.
+$P_b$: $\mathsf{CT}'_{b} \leftarrow \SE.\Enc(K'_{b}, \mathsf{IBLT}_{b})$.
+$P_b$ securely erases $K_{b}$.
+\end{enumerate}
+
+\caption{The F-PSU incremental-epoch protocol ($t \geq 1$). Steps~1--3 prepare
+additions via Mini UnionPeel ($O(|\Delta^+|)$ cells, deterministic).
+Steps~4--5 execute OT-masked deletion: deletions are classified into
+three cases via a single batched OPRF round, with only Case~3
+($<2\%$) entering the IBLT cascade path. Steps~6--7 finalize the
+output and evolve keys for forward privacy ($<1$~ms overhead).}
 \label{fig:protocol}
 \end{figure*}
 
