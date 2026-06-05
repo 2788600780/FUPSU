@@ -1,0 +1,1521 @@
+         Fast Enhanced Private Set Union in the Balanced and
+                        Unbalanced Scenarios
+
+                 Binbin Tu1 , Yujie Bai1 , Cong Zhang2 , Yang Cao1 , and Yu Chen1(B)
+             1
+                 School of Cyber Science and Technology, Shandong University, Qingdao 266237, China
+                     2
+                         Institute for Advanced Study, BNRist, Tsinghua University, Beijing, China
+     {tubinbin,yuchen}@sdu.edu.cn, {baiyujie,caoyang24}@mail.sdu.edu.cn, zhangcong@mail.tsinghua.edu.cn
+
+
+
+                                                        Abstract
+         Private set union (PSU) allows two parties to compute the union of their sets without revealing
+     anything else. It can be categorized into balanced and unbalanced scenarios depending on the size of
+     the set on both sides. Recently, Jia et al. (USENIX Security 2024) highlight that existing scalable
+     PSU solutions suffer from during-execution leakage and propose a PSU with enhanced security for the
+     balanced setting. However, their protocol’s complexity is superlinear with the size of the set. Thus, the
+     problem of constructing a linear enhanced PSU remains open, and no unbalanced enhanced PSU exists.
+     In this work, we address these two open problems:
+        • Balanced case: We propose the first linear enhanced PSU. Compared to the state-of-the-art
+          enhanced PSU (Jia et al., USENIX Security 2024), our protocol achieves a 2.2 - 8.8× reduction in
+          communication cost and a 1.2 - 8.6× speedup in running time, depending on set sizes and network
+          environments.
+        • Unbalanced case: We present the first unbalanced enhanced PSU, which achieves sublinear
+          communication complexity in the size of the large set. Experimental results demonstrate that the
+          larger the difference between the two set sizes, the better our protocol performs. For unbalanced
+          set sizes (210 , 220 ) with single thread in 1Mbps bandwidth, our protocol requires only 2.322 MB
+          of communication. Compared with the state-of-the-art enhanced PSU, there is 38.1× shrink in
+          communication and roughly 17.6× speedup in the running time.
+
+
+1    Introduction
+Private set union (PSU) is a cryptographic protocol that allows two parties, a sender and a receiver with
+respective input sets X and Y , to compute the union X ∪Y , without revealing anything else. It has numerous
+applications, such as cyber risk assessment [33, 28, 32], privacy-preserving data aggregation [11], and private
+ID [23] etc.
+    Early PSU constructions are mainly based on additively homomorphic encryption (AHE), resulting in
+excessive computational overhead, due to the heavy public key operations. Kolesnikov et al. [32] introduce
+a new cryptographic primitive named the reversed private membership test (RPMT) and provide the first
+scalable PSU construction based on symmetric-key primitives. After that, a series of works [23, 30, 48, 45, 16]
+have further explored the efficiency of PSU. Recently, Zhang et al. [48] formalize an ideal functionality named
+multi-query RPMT (mqRPMT) and construct PSU protocols whose complexity is linear in the size of both
+sets. Considering the unbalanced case, Tu et al. [45, 46] propose a new functionality called permuted
+multi-point private equality test (pmpPEQT) and combine it with fully homomorphic encryption (FHE) to
+construct an unbalanced mqRPMT and obtain an efficient PSU whose communication is sublinear in the
+size of the large set. Currently, efficient PSU protocols are mainly based on mqRPMT and oblivious transfer
+(OT).
+    However, Jia et al. [29] point out that the PSU framework based on mqRPMT and OT suffers from
+during-execution leakage. More specifically, both parties input their sets X and Y and run mqRPMT to let
+the receiver learn whether each item in X belongs to the set Y . Then, the receiver obtains the items in X\Y
+by invoking the underlying OT instances with the membership information. Thus, the mqRPMT-based PSU
+framework above leaks the membership information (mqRPMT outputs the indication vector to indicate the
+membership of X) before the execution of the protocol is completed. To remedy the leakage issue, they
+define a new PSU functionality with enhanced security and construct an enhanced PSU protocol based on
+symmetric-key operations. However, the complexity of their protocol scaled superlinearly with the size of
+the set.
+Influence of during-execution leakage. As pointed out by Jia et al. [29]: Guo et al. [27] launched attacks
+on protocols that aim to hide intersections, but allow leakage of intersection sizes. They implemented the
+attack on practical datasets to obtain tokens of COVID-19 patients and the interest of the person associated
+with a specific personal id. Due to the leakage of indication bits (i.e., the intersection size) during the
+execution of the PSU using mqRPMT, an attacker can exploit the attack from [27] on the mqRPMT-based
+PSU, repeatedly interact with the sender, and interrupt the execution to obtain more intersection sizes and
+infer the intersection.
+
+Motivation. Based on the discussions so far, existing scalable PSU protocols suffer from the following
+problems:
+
+   • In the balanced setting, the existing PSU protocols either have superlinear complexity [29] or suffer
+     from during-execution leakage [48, 16].
+   • In the unbalanced setting, PSU [45, 47] suffer from during-execution leakage.
+
+   Motivated by the above discussions, we ask the following questions and try to achieve the “best of both
+worlds”.
+   Is it possible to design an enhanced PSU protocol in the balanced setting, whose complexity is linear in
+the size of the set? Is it possible to design an enhanced PSU protocol in the unbalanced setting, whose
+communication complexity is sublinear in the size of the large set?
+
+1.1    Our contribution
+In this paper, we give an affirmative answer to the above questions through the following results.
+
+A new framework of enhanced PSU. All mqRPMT-based PSU protocols leak indication bits (mem-
+bership information of X) to the receiver and then the receiver aggregates the non-intersection items X\Y
+by OT. In this work, we formalize a new ideal functionality named permuted non-membership conditional
+randomness generation (pnMCRG). Combined with the standard hash-to-bin technique (cuckoo/simple hash-
+ing), we propose a generic construction of enhanced PSU (ePSU) from pnMCRG. Compared with mqRPMT,
+pnMCRG hides the indication bits (avoiding during-execution leakage) and outputs the corresponding in-
+dication values: For membership x ∈ Y , it outputs unequal random values. For non-membership x ∈      / Y,
+it outputs equal random values. Indication values can be used as one-time pads to encrypt and decrypt
+non-intersection items X\Y for constructing the PSU.
+Two constructions in balanced/unbalanced settings. We first present a generic construction of per-
+muted non-membership conditional randomness generation (pnMCRG) from newly introduced protocols
+called permuted membership conditional randomness generation (pMCRG) and non-equality conditional ran-
+domness generation (nECRG). nECRG could be constructed in turn from the secret-shared private equality
+test (ssPEQT) [34, 20] and random oblivious transfer (ROT). In the balanced case, permuted membership
+conditional randomness generation (pMCRG) could be constructed based on batched OPRF (bOPRF) [31],
+oblivious key-value store (OKVS) [42, 8], and a new protocol called permuted equality conditional ran-
+domness generation (pECRG), achieving linear complexity. In the unbalanced case, permuted membership
+conditional randomness generation (pMCRG) could be constructed based on bOPRF [31], FHE [15, 13, 17],
+and permuted equality conditional randomness generation (pECRG), achieving sublinear communication in
+the size of the larger set. Finally, we realize pECRG from the DDH assumption and achieve linear complex-
+ity. Combined with linear non-equality conditional randomness generation (nECRG), pnMCRG-based PSU
+inherits the complexity of permuted membership conditional randomness generation (pMCRG). Therefore,
+we obtain two constructions of enhanced PSU:
+
+   • In the balanced setting, our enhanced PSU achieves linear complexity in the size of both sets.
+   • In the unbalanced setting, our enhanced PSU achieves sublinear communication in the size of the larger
+     set.
+
+    Table 1 provides a comparison of our protocols with existing scalable PSU protocols. In the balanced
+setting, n represents the size of both sets. In the unbalanced setting, m and n denote the sizes of the small
+set and large set, respectively, where m ≪ n. We ignore the pub-key cost of κ base OTs.
+
+                  Protocols   Communication        Computation          Enhanced Security
+                  PSU [32]      O(n log n)       O(n log n log log n)          ×
+                  PSU [23]      O(n log n)          O(n log n)                 ×
+                  PSU [30]      O(n log n)          O(n log n)                 ×
+                  PSU [48]        O(n)                 O(n)                    ×
+                  PSU [16]        O(n)                 O(n)                    ×
+                  PSU [29]      O(n log n)          O(n log n)                 ✓
+                  Our PSU         O(n)                 O(n)                    ✓
+                  PSU [45]      O(m log n)        O(n + m log n)               ×
+                  Our PSU       O(m log n)        O(n + m log n)               ✓
+
+                          Table 1: Comparisons of PSU in the semi-honest model
+
+
+Evaluations. We implement and compare our balanced enhanced PSU with the state-of-the-art enhanced
+PSU [29]. Experiments show that our protocol achieves a 2.2 - 8.8× reduction in communication cost and a
+1.2 - 8.6× speedup in running time, depending on set sizes and network environments. Since the complexity
+of our PSU is linear, the larger the set size, the more significant our advantage becomes.
+     Since the implementation of PSU [29] does not support running in unbalanced settings, we compare
+our unbalanced ePSU (eUPSU) with our balanced ePSU in the unbalanced setting. Experimental results
+demonstrate that our unbalanced ePSU reduces communication costs by a factor of 1.2 to 38.1, with the
+small set size fixed at 210 and the large set size ranging from 214 to 220 . Especially, for set sizes (|X| =
+210 , |Y | = 220 ) with T = 1 thread in 1Mbps bandwidth, our protocol requires only 2.322 MB and 42.734
+seconds, there are 38.1× shrink in communication and roughly 17.6× speedup in the running time.
+     We compare our balanced/unbalanced ePSU with efficient PSU [48, 45, 47], which suffers from during-
+execution leakage. Our protocols resolve their issue of during-execution leakage with only a minor efficiency
+trade-off. Specifically, in the unbalanced setting, our ePSU also demonstrates an advantage in terms of
+communication overhead.
+
+1.2    Technical Overview
+We provide a high-level technical overview of our enhanced PSU protocol depicted in Figure 1. First,
+we formalize an ideal functionality named permuted non-membership conditional randomness generation
+(pnMCRG) and present a framework of enhanced PSU (ePSU). Then, we propose a generic construction
+of pnMCRG from permuted membership conditional randomness generation (pMCRG) and non-equality
+conditional randomness generation (nECRG), where nECRG could be constructed from secret-shared private
+equality test (ssPEQT) and random oblivious transfer (ROT). In the balanced case, pMCRG could be
+constructed from bOPRF, OKVS, and permuted equality conditional randomness generation (pECRG). In
+                                                       enhanced PSU
+              bOPRF
+                                                          Section 7
+                 +
+                                                                        hiding indication bits
+              OKVS                                        pnMCRG                                   mqRPMT
+
+                 +          balanced case                 Section 6
+              pECRG          Section 4.1
+
+                                             pMCRG            +         nECRG
+
+              bOPRF        unbalanced case                             Section 5
+                 +           Section 4.2
+
+                FHE                                       ssPEQT            +         ROT
+                 +
+              pECRG
+
+
+Figure 1: Technical overview of our frameworks. The rectangle with dotted lines denotes the previous
+notions. The rectangles with solid lines denote new notions, including permuted non-membership conditional
+randomness generation (pnMCRG), permuted membership conditional randomness generation (pMCRG),
+permuted equality conditional randomness generation (pECRG), and non-equality conditional randomness
+generation (nECRG).
+
+
+the unbalanced case, pMCRG could be constructed from bOPRF, FHE, and pECRG. For convenience, we
+denote the parties in our PSU as the sender S and the receiver R, and their respective input sets as X and
+Y with |X| = m, |Y | = n, where m = n in the balanced setting, m ≪ n in the unbalanced setting.
+
+1.2.1    Enhanced PSU from pnMCRG
+We start with a special case that the sender S has only one item x, and the receiver R has a set Y =
+{y1 , · · · , yn }. First, we formalize a new functionality named single-point nMCRG: S inputs an item x and
+R inputs a set Y , the result is that S and R obtain their indication values u and v, respectively, such that
+if x ∈/ Y , u = v, otherwise u ̸= v. (1, n)-PSU1 can be constructed from single-point nMCRG as follows: The
+sender uses u as one-time pads to encrypt the item c = u ⊕ x2 , and the receiver can decrypt c by computing
+c ⊕ v. For non-membership x ∈         / Y , we have u = v. Thus, the receiver obtains a non-intersection item
+c ⊕ v = u ⊕ x ⊕ v = x. For membership x ∈ Y , we have u ̸= v, and the receiver can only learn a random
+value.
+    Now, we show how to extend the special case to a general case of |X| = m > 1. Intuitively, one can simply
+execute the above process for each xi ∈ X. However, in this simple method, each item xi requires to be
+compared to the entire set Y , causing a significant overhead. We utilize the standard hash-to-bin technique
+to reduce the costs. Specifically, S assigns each of its items x||γ (concatenated with one hash function index
+γ ∈ [3]) to one of the bins h1 (x), h2 (x), h3 (x) by cuckoo hashing [35], where the cuckoo hash table has mc
+bins and each bin contains at most one item. R assigns each of its items y||γ (concatenated with all hash
+  1 (1, n)-PSU denotes the sender holds one item and the receiver holds n items.
+  2 To constructing PSU, the sender could encode its item x concatenating a hash value x||h(x) by a pre-agreed hash function
+
+h, or padding x with 64-bit 0 strings so that the receiver could check whether the item belongs to the union or is a random
+value [34, 20]. For convenience, we omit the encoded operations.
+function indices γ ∈ [3] to ensure that there are no identical items in the hash table.) to all of the bins
+h1 (y), h2 (y), h3 (y). Let Yi , i ∈ [mc ] denote the i-th bin. Then, the parties perform the above single-point
+nMCRG on each bin. Although this method greatly reduces the input size of R from the entire set |Y | to a
+small hash bin, it cannot be used directly to construct the PSU, because it leaks additional information on
+the sender’s items to R. That is, whether the sender’s i-th item belongs to the i-th bin (subset of Y ). Note
+that PSU can only allow R to know if xi belongs to the entire set Y , rather than some small subsets (i-th
+bin), which narrows the range of xi .
+
+
+
+                                                                    Y1   Y2    Y3   Y4
+                               S    x1    x2   x3   x4                                    R
+
+
+                                π   u1    u2   u3   u4              v1    v2   v3   v4
+
+
+Figure 2: Illustration of pnMCRG. π(1) = 2, π(2) = 3, π(3) = 4, π(4) = 1. xπ−1 (1) ∈ Yπ−1 (1) ⇒ u1 ̸= v1 ;
+xπ−1 (2) ∈
+         / Yπ−1 (2) ⇒ u2 = v2 ; xπ−1 (3) ∈ Yπ−1 (3) ⇒ u3 ̸= v3 ; xπ−1 (4) ∈
+                                                                          / Yπ−1 (4) ⇒ u4 = v4 .
+
+    To remedy the above leakage, we employ the shuffling technique and introduce a new cryptographic proto-
+col named permuted non-membership conditional randomness generation (pnMCRG), depicted in Figure 23 .
+Roughly speaking, pnMCRG is a two-party protocol between a sender holding a set X = {x1 , · · · , xm }
+and a permutation π over [m], and a receiver holding m sets {Y1 , · · · , Ym }. After execution, the sender
+and the receiver obtain random vectors u = (u1 , · · · , um ) and v = (v1 , · · · , vm ), respectively, such that if
+xπ−1 (i) ∈
+         / Yπ−1 (i) , ui = vi , otherwise ui ̸= vi . To construct the PSU, for all i ∈ [m], the sender uses each
+ui as one-time pads to encrypt the corresponding items ci = ui ⊕ xπ−1 (i) 4 , and the receiver can decrypt ci
+by computing ci ⊕ vi . Therefore, for non-membership xπ−1 (i) ∈     / Yπ−1 (i) , we have ui = vi , and the receiver
+obtains non-intersection items ci ⊕ vi = ui ⊕ xπ−1 (i) ⊕ vi = xπ−1 (i) . For membership xπ−1 (i) ∈ Yπ−1 (i) , we
+have ui ̸= vi , and it obtains random values.
+
+pnMCRG vs. mqRPMT. Multi-query reversed private membership test (mqRPMT) [48] is a two-party
+protocol between a sender holding a vector X = (x1 , · · · , xm ) and a receiver holding a set Y . After execution,
+the receiver obtains an indication bit vector (e1 , · · · , em ) such that ei = 1 if and only if xi ∈ Y but without
+knowing xi , while the sender obtains nothing. In the construction of PSU, the receiver can retrieve the
+non-intersection items X\Y by OT. As discussed above, due to the leakage of indication bits (membership
+information of X) in mqRPMT, mqRPMT-based PSU protocols suffer from during-execution leakage [29].
+    Permuted non-membership conditional randomness generation (pnMCRG) can be seen as a weak notion
+of mqRPMT, where both parties obtain two indication values (hiding membership information of X) instead
+of indication bits in mqRPMT. Thus, pnMCRG-based PSU avoids the during-execution leakage.
+
+1.2.2   Generic Constructions of pnMCRG
+Here, we present a generic construction of permuted non-membership conditional randomness generation
+(pnMCRG) from pMCRG and nECRG.
+
+pnMCRG from pMCRG and nECRG. Starting with the single-point case, where S has only one
+item and the receiver R has a set, we formalize the functionality of single-point membership conditional
+randomness generation (MCRG): S inputs an item x and R inputs a set Y , the result is that S and R
+obtains indication values s and t, respectively. For membership x ∈ Y , we have s = t, otherwise, s ̸= t.
+Then, following the ideas of [34, 29], we introduce a functionality named non-equality conditional randomness
+  3 The white color represents non-membership and non-equality, and the same other color represents membership and equality.
+  4 For convenience, we omit the concatenation of hash value.
+                                S    s1   s2   s3   s4              t1   t2    t3   t4   R
+
+
+                                     u1   u2   u3   u4              v1   v2    v3   v4
+
+
+Figure 3: Illustration of nECRG. s1 = t1 ⇒ u1 ̸= v1 ; s2 ̸= t2 ⇒ u2 = v2 ; s3 = t3 ⇒ u3 ̸= v3 ; s4 ̸= t4 ⇒
+u4 = v4 .
+
+
+generation (nECRG), depicted in Figure 3, in which both parties input s and t, the result is outputting new
+random values u and v, such that if s = t, u ̸= v, otherwise u = v. That is, nECRG could exchange
+the equality and non-equality conditions. So far, we can obtain a single-point non-membership conditional
+randomness generation (nMCRG), from single-point MCRG and nECRG.
+    Now, we formalize a new functionality of permuted membership conditional randomness generation (pM-
+CRG), depicted in Figure 4, to extend the special case to a general case of |X| = m > 1. In the pMCRG,
+the sender inputs a set X = {x1 , x2 , · · · , xm } and a permutation π over [m] and the receiver inputs a series
+of sets (Y1 , Y2 , · · · , Ym ). As a result, the sender and the receiver obtain random vectors s = (s1 , s2 , · · · , sm )
+and t = (t1 , t2 , · · · , tm ), respectively. If xπ−1 (i) ∈ Yπ−1 (i) , si = ti , otherwise si ̸= ti .
+
+
+
+                                                                    Y1   Y2   Y3    Y4
+                                S    x1   x2   x3   x4                                   R
+
+
+                                π    s1   s2   s3   s4              t1   t2    t3   t4
+
+Figure 4: Illustration of pMCRG. π(1) = 2, π(2) = 3, π(3) = 4, π(4) = 1. xπ−1 (1) ∈ Yπ−1 (1) ⇒ s1 = t1 ;
+xπ−1 (2) ∈
+         / Yπ−1 (2) ⇒ s2 ̸= t2 ; xπ−1 (3) ∈ Yπ−1 (3) ⇒ s3 = t3 ; xπ−1 (4) ∈
+                                                                          / Yπ−1 (4) ⇒ s4 ̸= t4 .
+
+     So far, we obtain a generic construction of permuted non-membership conditional randomness generation
+(pnMCRG) from permuted membership conditional randomness generation (pMCRG) and non-equality
+conditional randomness generation (nECRG): pMCRG generates shuffled equal indication values si = ti of
+memberships xπ−1 (i) ∈ Yπ−1 (i) and shuffled unequal indication values si ̸= ti of non-memberships xπ−1 (i) ∈  /
+Yπ−1 (i) , and then nECRG exchanges the equality conditions (si = ti ⇒ ui ̸= vi ) and non-equality conditions
+(si ̸= ti ⇒ ui = vi ). Thus, for non-membership xπ−1 (i) ∈ / Yπ−1 (i) , both parties obtains equal random values
+ui = vi . For membership xπ−1 (i) ∈ Yπ−1 (i) , both parties obtain unequal random values ui ̸= vi .
+
+1.2.3    Constructions of pMCRG
+Here, we give two constructions of permuted membership conditional randomness generation (pMCRG) in
+balanced and unbalanced settings, respectively.
+
+Balanced pMCRG. The first construction based on bOPRF, OKVS, and permuted equality conditional
+randomness generation (pECRG) in the balanced case is as follows.
+    First, both parties input (x1 , x2 , · · · , xm ) and (Y1 , Y2 , · · · , Ym ), and then invoke FbOPRF . The result
+is that the sender obtains all PRF values F (ki , xi ) and the receiver obtains all PRF keys k1 , k2 , · · · , km .
+The receiver then computes all PRF values F (ki , Yi [j]) by the PRF key ki , where Yi [j] denotes the j-
+th item in the i-th set Yi . Subsequently, the receiver chooses m random indication values di , i ∈ [m]
+and encodes all key-value pairs {(Yi [j], di ⊕ F (ki , Yi [j]))}i∈[m],j∈[|Yi |] into a OKVS data structure D. The
+receiver sends D to the sender. For each i ∈ [m], the sender inputs F (ki , xi ) and runs Decode to output
+ei = F (ki , xi ) ⊕ Decode(xi ). According to the correctness of bOPRF and OKVS, we obtain a batched
+membership conditional randomness generation (MCRG): For each i ∈ [m], if xi ∈ Yi , we have ei =
+F (ki , xi ) ⊕ Decode(xi ) = F (ki , xi ) ⊕ di ⊕ F (ki , xi ) = di , otherwise, ei ̸= di .
+    Given the above, it remains to investigate how to realize the shuffled operation. Here, we formalize a new
+functionality called permuted equality conditional randomness generation (pECRG), depicted in Figure 5.
+In the pECRG, the sender inputs a vector (e1 , e2 , · · · , em ) and the receiver inputs a vector (d1 , d2 , · · · , dm ).
+As a result, both parties output permuted equality and non-equality conditions, where the sender outputs a
+random vector (s1 , s2 , · · · , sm ) and the receiver outputs a random vector (t1 , t2 , · · · , tm ), so that if eπ−1 (i) =
+dπ−1 (i) , si = ti , otherwise, si ̸= ti . In Section 3, we show that pECRG can be realized from the DDH
+assumption and achieves linear complexity.
+
+
+                                S    e1    e2   e3   e4              d1   d2    d3   d4    R
+
+
+                                π    s1    s2   s3   s4              t1    t2   t3   t4
+
+Figure 5: Illustration of pECRG. π(1) = 2, π(2) = 3, π(3) = 4, π(4) = 1. eπ−1 (1) = dπ−1 (1) ⇒ s1 = t1 ;
+eπ−1 (2) ̸= dπ−1 (2) ⇒ s2 ̸= t2 ; eπ−1 (3) = dπ−1 (3) ⇒ s3 = t3 ; eπ−1 (4) ̸= dπ−1 (4) ⇒ s4 ̸= t4 .
+
+   Therefore, we obtain a construction of pMCRG from bOPRF, OKVS, and pECRG: For membership
+xπ−1 (i) ∈ Yπ−1 (i) , we have eπ−1 (i) = dπ−1 (i) and si = ti . For non-membership xπ−1 (i) ∈
+                                                                                            / Yπ−1 (i) , we have
+eπ−1 (i) ̸= dπ−1 (i) and si ̸= ti . Note that pMCRG inherits the linear complexity of bOPRF, OKVS, and
+pECRG.
+
+Unbalanced pMCRG. The second construction based on bOPRF, FHE, and permuted equality conditional
+randomness generation (pECRG) in the unbalanced case is as follows.
+   Here, we use the polynomial randomization method following [13, 45] to encode each set Yi , i ∈ [m] of
+the receiver, so that fi (y) = ΠBj=1 (y − Yi [j]) + ri , where Bi = |Yi | and ri is a random value. The sender sends
+                                  i
+
+
+a FHE ciphertext of encrypting xi , denoted as [[xi ]] to the receiver. Then, the receiver homomorphically
+computes and returns [[fi (xi )]]. Finally, the sender decrypts [[fi (xi )]] and outputs ei = fi (xi ). The receiver
+outputs di = ri .5 As discussed above, we obtain a batched membership conditional randomness generation
+(MCRG) in the unbalanced case: For each i ∈ [m], if xi ∈ Yi , we have fi (xi ) = ΠB         j=1 (xi − Yi [j]) + ri = ri ,
+                                                                                             i
+
+
+and ei = ri = di , otherwise, ei ̸= di .
+   Therefore, we obtain an unbalanced construction of pMCRG from bOPRF, FHE, and pECRG: For
+membership xπ−1 (i) ∈ Yπ−1 (i) , we have eπ−1 (i) = dπ−1 (i) and si = ti . For non-membership xπ−1 (i) ∈      / Yπ−1 (i) ,
+we have eπ−1 (i) ̸= dπ−1 (i) and si ̸= ti . Note that similar to the frameworks of [13, 17, 45], pMCRG achieves
+sublinear communication in the size of the larger set.
+
+1.2.4    Constructions of nECRG
+Following [34], we construct non-equality conditional randomness generation (nECRG), based on secret-
+shared private equality test (ssPEQT) and random oblivious transfer (ROT), achieving linear complexity.
+
+nECRG from ssPEQT and ROT. First, both parties input their vectors (s1 , s2 , · · · , sm ) and (t1 , t2 , · · · , tm ),
+and then invoke the functionality of ssPEQT FssPEQT . The result is that both parties obtain bit vectors
+(a1 , a2 , · · · , am ) and (b1 , b2 , · · · , bm ), so that if si = ti , ai ⊕ bi = 0, otherwise, ai ⊕ bi = 1. Next, for each
+i ∈ [m], the receiver inputs a bit bi and invokes the functionality of ROT FROT with the sender, so that the
+receiver obtains ri,bi and the sender obtains (ri,0 , ri,1 ). Finally, the sender outputs ui = ri,(ai ⊕1) , and the
+receiver outputs vi = ri,bi .
+   5 Following [13, 17, 45], we can use a bOPRF to compute the items on both sides before engaging in the pMCRG, which
+
+prevents the sender from learning anything about the original items and allows efficient FHE parameters.
+     As a result, we obtain the construction of nECRG: For si ̸= ti , we have ai ⊕ bi = 1, and ui = ri,(ai ⊕1) =
+ri,bi = vi . For si = ti , we have ai ⊕ bi = 0, and ui = ri,(ai ⊕1) ̸= ri,bi = vi . Note that nECRG inherits the
+linear complexity of ssPEQT and ROT.
+
+1.3    Related Work
+Here, we review previous scalable PSU protocols that are relevant to our work. Kolesnikov et al. [32]
+propose the notion of reverse private membership test (RPMT), then use it to build a PSU protocol whose
+performance is much better than AHE-based PSU [19]. Garimella et al. [23] present a framework for all
+private set operations from permuted characteristics, which could be viewed as a variant of RPMT. After that,
+Jia et al. [30] also employ the shuffling technique to develop a generalized reversed private membership test
+(gRPMT) and give a PSU construction. Recently, Zhang et al. [48] extend the notion of RPMT [32] to multi-
+query RPMT (mqRPMT), and propose a generic construction of mqRPMT from the oblivious key-value
+store (OKVS) [24], set-membership encryption and the vector oblivious decryption-then-matching protocol.
+By instantiating their generic construction from symmetric-key and public-key encryption, respectively, they
+obtain two concrete mqRPMT protocols with linear complexity, yielding two linear PSU protocols. However,
+their two mqRPMT protocols have a large multiplicative constant (the statistical security parameter) in
+computation complexity, and so do the resulting PSU protocols. Then, Chen et al. [16] present two generic
+constructions of mqRPMT from commutative weak PRF (cwPRF) and permuted oblivious PRF (pOPRF),
+respectively. Both can be realized from DDH-like assumptions, yielding mqRPMT constructions with linear
+complexity. Thus, their PSU protocols inherit the linear complexity. Considering the unbalanced case, Tu
+et al. [45, 46] introduce a permuted multi-point private equality test (pmpPEQT) and combine it with fully
+homomorphic encryption (FHE) to construct an unbalanced mqRPMT, yielding the PSU protocol whose
+communication is linear in the small set, and logarithmic in the large set. Jia et al. [29] point out that
+all mqRPMT-based PSU protocols are limited by the underlying mqRPMT leaking member information
+and suffer from during-execution leakage. Then, they define an enhanced PSU functionality and give a
+construction based on oblivious programmable PRF, batched equality conditional random generation, and
+permuted + share. However, the complexity of their PSU scales superlinearly with the size of the set.
+
+
+2     Preliminaries
+2.1    Notation
+For n ∈ N, let [n] denote the set {1, 2, · · · , n}. 1λ denotes the string of λ ones. We use κ and λ to indicate
+the computational and statistical security parameters, respectively. If S is a set, s ← S indicates sampling
+s from S at random. We denote vectors by lowercase bold letters, e.g. s.
+
+2.2    Enhanced Private Set Union
+An enhanced PSU (ePSU) [29] can be seen as a PSU with enhanced security. We review the ideal functionality
+of ePSU in Figure 6.
+
+2.3    Building Blocks
+Random oblivious transfer. Oblivious transfer (OT) [41] is a central cryptographic primitive in the area
+of MPC. In random oblivious transfer (ROT), the sender outputs random messages, rather than selecting
+them as in standard OT. We recall the 1-out-of-2 random oblivious transfer functionality FROT in Figure 7.
+
+Batched oblivious pseudorandom function. Oblivious pseudorandom function (OPRF) [22] is a central
+primitive in the area of PSO. A batched OPRF (bOPRF) allows a receiver to input {xi }i∈[m] and obtains
+all PRF values {F (ki , xi )}i∈[m] , and the keys {ki }i∈[m] is known to a sender. Kolesnikov et al. [31] propose
+  Parameters: The functionality interacts with two parties, the sender S with input X = {x1 , · · · , xm } ⊆
+  {0, 1}∗ and the receiver R with input Y = {y1 , · · · , yn } ⊆ {0, 1}∗ , and the simulator Sim.
+                    m,n
+  Functionality FePSU    :
+    1. Initialize an ideal state stateU = ∅ for party U where U ∈ {S, R}; if U is corrupted, the simulator
+       Sim is allowed to access stateU .
+    2. Upon receiving input X = {x1 , · · · , xm } from the sender S, abort if |X| ̸= m; otherwise, update
+       state stateS = ⟨X⟩, and send ⟨Request, S⟩ to Sim.
+
+    3. Upon receiving input Y = {y1 , · · · , yn } from the receiver R, abort if |Y | ̸= n; otherwise, update
+       state stateR = ⟨Y ⟩, and send ⟨Request, R⟩ to Sim.
+    4. Upon receiving ⟨Response, OK⟩ from Sim, compute Z = X ∪ Y , and add ⟨Finished⟩ to the sender’s
+       state stateS and ⟨Z⟩ to the receiver’s state stateR .
+
+    5. Output Z to R, and ⟨Finished⟩ to S.
+
+
+
+                        Figure 6: Ideal functionality for enhanced private set union
+
+  Parameters: Two parties: S and R. The message length l.
+  Functionality FROT :
+
+    1. Wait for input b from R.
+    2. Send ⟨Request⟩ to the simulator Sim.
+    3. Upon receiving ⟨Response, OK⟩ from Sim, sample r0 , r1 ← {0, 1}l . Give (r0 , r1 ) to S and give rb to
+       R.
+
+
+                        Figure 7: 1-out-of-2 random oblivious transfer functionality
+
+an efficient bOPRF and give a construction of private set intersection. We recall the bOPRF functionality
+FbOPRF in Figure 8.
+
+
+  Parameters: A PRF F . Two parties: S and R.
+  Functionality FbOPRF :
+    1. Wait for input {x1 , · · · , xm } from R.
+    2. Sample random PRF keys {k1 , · · · , km } and compute {F (k1 , x1 ), · · · , F (km , xm )}.
+    3. Send ⟨Request⟩ to the simulator Sim.
+
+    4. Upon receiving ⟨Response, OK⟩ from Sim, send the keys {k1 , · · · , km } to S and send {F (k1 , x1 ),
+       · · · , F (km , xm )} to R.
+
+
+
+                     Figure 8: Batched oblivious pseudorandom function functionality
+
+
+Secret-shared private equality test. Secret-Shared Private Equality Test (ssPEQT) can be seen as a
+     Parameters: Two parties: S and R.
+     Functionality FssPEQT :
+       1. Wait for the input x0 from S.
+
+       2. Wait for the input x1 from R.
+       3. Generate two random bits a and b such that if x0 = x1 , a ⊕ b = 0, otherwise, a ⊕ b = 1.
+       4. Send ⟨Request⟩ to the simulator Sim.
+       5. Upon receiving ⟨Response, OK⟩ from Sim, send a to S, and b to R.
+
+
+
+                               Figure 9: Secret-shared private equality test functionality
+
+
+secret share of private equality test (PEQT). More concretely, the two parties S and R hold strings x0 and
+x1 , respectively. ssPEQT outputs random bits a to S and b to R such that if x0 = x1 , a ⊕ b = 0, otherwise
+a ⊕ b = 1. Existing works [12, 18, 34, 20] design linear ssPEQT protocols. We give the functionality FssPEQT
+in Figure 9.
+
+Oblivious key-value stores. The oblivious key-value store [37, 24, 42, 8] is a data structure that compactly
+represents a desired mapping from a set of keys to corresponding values. The definition is as follows:
+Definition 1. An OKVS is parameterized by a set K of keys, a set V of values, and consists of two algorithms:
+
+      • Encode({(k1 , v1 ), · · · , (kn , vn )}): On input key-value pairs {(ki , vi )}i∈[n] ⊆ K × V, outputs an object D
+        (or, with statistically small probability, an error ⊥).
+      • Decode(D, k): On input D and a key k, outputs v ∈ V.
+      Correctness. For all A ⊆ K×V with distinct keys: (k, v) ∈ A and ⊥ ̸= D ← Encode(A) ⇒ Decode(D, k) =
+v.
+    Obliviousness. For all distinct {k10 , · · · , kn0 } and all distinct {k11 , · · · , kn1 }, if Encode does not output ⊥ for
+{k1 , · · · , kn0 } and {k11 , · · · , kn1 }, then the distribution of {D|vi ← V, i ∈ [n], Encode((k10 , v1 ), · · · , (kn0 , vn ))} is
+  0
+
+computationally indistinguishable to {D|vi ← V, i ∈ [n], Encode((k11 , v1 ), · · · , (kn1 , vn ))}.
+   Randomness. We also require an additional randomness property [48] from the OKVS. For any A =
+{(k1 , v1 ), · · · , (kn , vn )} and k ∗ ∈
+                                         / {k1 , · · · , kn }, the output of Decode(D, k ∗ ) is indistinguishable to that of
+uniform distribution over V , where D ← Encode(A).
+
+Hash-to-bin from cuckoo/simple hash. The hash-to-bin from cuckoo/simple hash technique was intro-
+duced by Pinkas et al. [40, 38], which is originally applied to construct PSI [31, 15, 13, 36, 39, 37, 17, 42] and
+PSU [23, 30, 45, 29]. At the high level, the sender uses hash functions h1 , h2 , h3 : {0, 1}∗ → [mc ] to assign its
+items X = {xi }i∈[m] to mc bins {Xc [1], · · · , Xc [mc ]} via cuckoo hashing [35], such that each bin has at most
+one item, where for each xi there is some γ ∈ {1, 2, 3} such that Xc [hγ (xi )] = xi ||γ. The receiver uses the
+same hash functions h1 , h2 , h3 : {0, 1}∗ → [mc ] to assign its items Y = {yj }j∈[n] to mc bins {Y1 , · · · , Ymc }
+via simple hashing, where for j ∈ [n], all items are concatenated with hash function indices (yj ||1, yj ||2,
+yj ||3) and are inserted to the bins (Yh1 (yj ) , Yh2 (yj ) , Yh3 (yj ) ), respectively. Therefore, if xi ∈ Y , ∃ j ∈ [n],
+xi = yj , and ∃ γ ∈ {1, 2, 3}, such that hγ (xi ) ∈ {h1 (yj ), h2 (yj ), h3 (yj )} and xi ||γ ∈ {yj ||1, yj ||2, yj ||3}.6
+Following [15, 13, 45], we use three hash functions and adjust the number of items and table size to reduce
+the stash size to 0 while achieving a hashing failure probability of 2−λ .
+  6 Appending the index of the hash function is helpful for dealing with edge cases like h (y) = h (y), which happen with
+                                                                                               1  2
+non-negligible probability [23], ensuring that there are no identical items in the hash table.
+Fully homomorphic encryption. Fully homomorphic encryption (FHE) is a family of encryption schemes
+that allow arbitrary operations to be performed on encrypted data without decryption. The leveled fully
+homomorphic encryption supports circuits of a certain bounded depth. In this work, we use an array of
+optimization techniques of FHE as [15, 13, 17, 45], such as batching (SIMD), windowing, and partitioning
+to significantly reduce the depth of the homomorphic circuit.
+
+
+3      Permuted Equality Conditional Randomness Generation
+In this section, we introduce a new cryptographic protocol named permuted equality conditional randomness
+generation (pECRG). In the pECRG, S inputs a vector s = [si ]i∈[m] and a permutation π over [m], and
+R inputs a vector t = [ti ]i∈[m] . The result is that S and R obtain two random vectors u = [ui ]i∈[m] and
+v = [vi ]i∈[m] , respectively, where for i ∈ [m], if sπ−1 (i) = tπ−1 (i) , we have ui = vi , otherwise, ui ̸= vi . In
+Figure 10, we define the functionality of pECRG, denoted as FpECRG .
+
+    Parameters: Two parties: S and R.
+    Functionality FpECRG :
+
+      1. Initialize an ideal state stateU = ∅ for party U where U ∈ {S, R}; if U is corrupted, the simulator
+         Sim is allowed to access stateU .
+      2. Upon receiving input s = [si ]i∈[m] and a permutation π over [m] from S and update state stateS =
+         ⟨s, π⟩, and send ⟨Request, S⟩ to Sim.
+      3. Upon receiving input t = [ti ]i∈[m] from R and update state stateR = ⟨t⟩, and send ⟨Request, R⟩
+         to Sim.
+      4. Upon receiving ⟨Response, OK⟩ from Sim, generate two random vectors u = [ui ]i∈[m] and v =
+         [vi ]i∈[m] , where for i ∈ [m], if sπ−1 (i) = tπ−1 (i) , ui = vi , otherwise ui ̸= vi .
+      5. Add ⟨u⟩ to the state stateS and ⟨v⟩ to the state stateR .
+
+      6. Output u = [ui ]i∈[m] to S. Output v = [vi ]i∈[m] to R.
+
+
+
+                Figure 10: Permuted equality conditional randomness generation functionality
+
+     We give a construction of pECRG from the DDH assumption, as described in Figure 11.
+
+    Input: S inputs a vector s and a permutation π over [m]. R inputs a vector t. G is a cyclic group with
+    order q.
+    Output: S outputs a vector u. R output a vector v.
+
+      1. R chooses a random value b ← Zq and computes t̂i = H(ti )b for all i ∈ [m], where H(·) is modeled
+         as a random oracle and the output is a group element in G, and sends t̂ = [t̂i ]i∈[m] to S.
+
+      2. S chooses a random value a ← Zq and computes t′i = (t̂i )a for all i ∈ [m] and s′i = H(si )a Then,
+         S shuffles t′ = [t′i ]i∈[m] and s′ = [s′i ]i∈[m] by same permutation π and sends π([s′i ]i∈[m] ) to R.
+
+      3. S sets and outputs u = [ui ]i∈[m] = π([t′i ]i∈[m] ). R sets and outputs v = [vi ]i∈[m] = π([s′i ]i∈[m] )b .
+
+
+
+                                           Figure 11: DDH-based pECRG
+Theorem 1. The construction of Figure 11 UC realizes the functionality FpECRG based on DDH in the
+random oracle model, in the presence of semi-honest adversaries.
+Proof. We exhibit simulators Sim to simulate corrupt S and corrupt R respectively and argue the indistin-
+guishability of the produced transcript from the real execution.
+
+Corrupted S. Sim simulates the view of corrupt S as follows: It chooses random group elements di , i ∈ [m],
+to simulate the view. We argue that the outputs of Sim are indistinguishable from the real view of S by the
+following hybrids:
+Hyb0 : S’s view in the real protocol consists of H(ti )b , i ∈ [m], where b ← Zq .
+Hyb1 : Same as Hyb0 except that Sim chooses random group elements di , i ∈ [m] instead of H(ti )b , i ∈ [m],
+where b ← Zq . The hybrid is the view output by Sim.
+    We argue that the views in Hyb0 and Hyb1 are computationally indistinguishable. Let A be a probabilistic
+polynomial-time (PPT) adversary against the DDH assumption. Given the DDH challenge g x , g yi , g zi , where
+x, yi ← Zq , A is asked to distinguish if zi = x · yi or random values. A implicitly sets b = x, and simulates
+(with the knowledge of t) the view as follows:
+
+   • RO queries: Sim honestly emulates random oracle (RO) H. For queries ti , if ti ∈
+                                                                                    / t, it picks a random
+     group element to assign H(ti ), otherwise, it assigns H(ti ) = g yi .
+
+   • Outputs g zi , i ∈ [m].
+
+   Clearly, if zi = x · yi , A simulates Hyb0 . Otherwise, it simulates Hyb1 (without the knowledge of t),
+because it responds to all RO queries with random group elements without knowing whether the inputs
+belong to t or not. Therefore, the outputs of Sim are computationally indistinguishable from the real view
+based on the DDH assumption.
+Corrupted R. Sim simulates the view of corrupt R as follows: It chooses random group elements ei , i ∈ [m],
+to simulate the view. We argue that the outputs of Sim are indistinguishable from the real view of R by the
+following hybrids:
+Hyb0 : R’s view in the real protocol consists of H(sπ(i) )a , i ∈ [m], where a ← Zq .
+Hyb1 : Same as Hyb0 except that Sim chooses random group elements ei , i ∈ [m] instead of H(saπ(i) , i ∈ [m],
+where a ← Zq . The hybrid is the view output by Sim.
+
+    We argue that the views in Hyb0 and Hyb1 are computationally indistinguishable. Let A be a probabilistic
+polynomial-time (PPT) adversary against the DDH assumption. Given the DDH challenge g x , g yi , g zi , where
+x, yi ← Zq , A is asked to distinguish if zi = x · yi or random values. A implicitly sets a = x, and simulates
+(with the knowledge of s and π) the view as follows:
+
+   • RO queries: Sim honestly emulates random oracle (RO) H. For queries si , if si ∈
+                                                                                    / s, it picks a random
+     group element to assign H(si ), otherwise, it assigns H(si ) = g yi .
+   • Outputs g zi , i ∈ [m].
+
+    Clearly, if zi = x · yi , A simulates Hyb0 . Otherwise, it simulates Hyb1 (without the knowledge of s and
+π), because it responds to all RO queries with random group elements without knowing whether the inputs
+belong to s or not. Therefore, the outputs of Sim are computationally indistinguishable from the real view
+based on the DDH assumption.
+4      Permuted Membership Conditional Randomness Generation
+In this section, we introduce a new cryptographic protocol named permuted membership conditional ran-
+domness generation (pMCRG), in which S inputs a set X = {xi }i∈[m] and a permutation π over [m], and
+R inputs m sets {Yi }i∈[m] . As a result, S and R obtain two random vectors s = [si ]i∈[m] and t = [ti ]i∈[m] ,
+respectively, such that for i ∈ [m], if xπ−1 (i) ∈ Yπ−1 (i) , si = ti , otherwise, si ̸= ti . In Figure 12, we define the
+functionality of pMCRG, denoted as FpMCRG .
+
+    Parameters: Two parties: S and R.
+    Functionality FpMCRG :
+       1. Initialize an ideal state stateU = ∅ for party U where U ∈ {S, R}; if U is corrupted, the simulator
+          Sim is allowed to access stateU .
+
+       2. Upon receiving input X = {xi }i∈[m] and a permutation π over [m] from S, then update state
+          stateS = ⟨X, π⟩, and send ⟨Request, S⟩ to Sim.
+       3. Upon receiving input {Yi }i∈[m] from R and update state stateR = ⟨{Yi }i∈[m] ⟩, and send
+          ⟨Request, R⟩ to Sim.
+       4. Upon receiving ⟨Response, OK⟩ from Sim, generate two random vectors s = [si ]i∈[m] and t =
+          [ti ]i∈[m] , where for i ∈ [m], if xπ−1 (i) ∈ Yπ−1 (i) , si = ti , otherwise si ̸= ti .
+       5. Add ⟨t⟩ to the state stateS and ⟨s⟩ to the state stateR .
+       6. Output t = [ti ]i∈[m] to S. Output s = [si ]i∈[m] to R.
+
+
+
+                Figure 12: Permuted membership conditional randomness generation functionality
+
+    Here, we present two pMCRG constructions in the balanced and unbalanced setting. Note that since
+OKVS and polynomial interpolation require all keys to be distinct, our constructions require the m sets
+{Yi }i∈[m] input by R are mutually exclusive7 , meaning they do not contain any same items.
+
+4.1      pMCRG Construction in the Balanced Setting
+We give a construction of pMCRG based on bOPRF, OKVS, and pECRG in the balanced case, as described
+in Figure 13.
+
+Theorem 2. The protocol ΠpMCRG shown in Figure 13 UC-realizes the functionality FpMCRG (as in Fig-
+ure 12) in the (FbOPRF , FpECRG )-hybrid model, against static, semi-honest adversaries, provided a secure
+OKVS scheme.
+Proof. We will show that for any adversary A, we can construct a simulator Sim that can simulate the view
+of the corrupted S and the corrupted R, such that any PPT environment cannot distinguish the execution
+in the ideal world from that in the real world.
+Corrupted S. Sim simulates a real execution in which the sender S is corrupted. Since A is semi-honest,
+Sim can obtain the input X and π of S directly, and externally send them to FpMCRG and then receives
+⟨Request, S⟩. Once receiving the set X = {xi }i∈[m] , the input of ΠbOPRF , from A, Sim randomly selects
+x′ = [x′i ]i∈[m] as the PRF values to simulate the execution of ΠbOPRF . Sim computes a random OKVS D
+by selecting random key-value pairs. Upon receiving a permutation π on [m] and a set [ei ]i∈[m] , the input
+    7 The property of mutual exclusivity is easy to achieve: All items of the set with equal length are linked to the indices of the
+
+set.
+  Input: S inputs a set X = {xi }i∈[m] and a permutation π over [m]. R inputs m mutually exclusive
+  sets {Yi }i∈[m] .
+  Output: S outputs a vector s = [si ]i∈[m] . R outputs a vector t = [ti ]i∈[m] .
+     1. S and R invoke the bOPRF functionality FbOPRF .
+
+         (a) S input a set X = {xi }i∈[m] .
+         (b) S obtains all PRF values F (ki , xi ), i ∈ [m]. R obtains PRF keys {k1 , · · · , km }.
+
+     2. For all i ∈ [m], R computes PRF values F (ki , Yi [j]), where Yi [j] denotes j-th item in Yi .
+     3. R encodes an OKVS.
+
+         (a) R chooses m random values [di ]i∈[m] , and defines P = {(Yi [j], F (ki , Yi [j]) ⊕ di )}i∈[m],j∈[|Yi |] .
+         (b) R computes an OKVS: D = Encode(P), and sends D to S.
+
+     4. S decodes ei = Decode(D, xi )) ⊕ F (ki , xi ), i ∈ [m].
+     5. S and R invoke the pECRG functionality FpECRG .
+
+         (a) S inputs a permutation π on [m] and a vector [ei ]i∈[m] . R input a vector [di ]i∈[m] .
+         (b) S outputs s = [si ]i∈[m] . R outputs t = [ti ]i∈[m] .
+
+
+
+                            Figure 13: pMCRG from bOPRF, OKVS, and pECRG
+
+
+of ΠpECRG , from A, Sim sends ⟨Response, OK⟩ to FpMCRG , and obtains s = [si ]i∈[m] . Finally, Sim simulates
+the execution of ΠpECRG with s = [si ]i∈[m] as the output.
+   We argue that the outputs of Sim are indistinguishable from the real view of S by the following hybrids:
+Hyb0 : S’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠbOPRF is replaced by x′ chosen by Sim, and Sim runs the
+ΠbOPRF simulator to produce the simulated view for S. The security of protocol ΠbOPRF guarantees the
+view in simulation is computationally indistinguishable from the view in the real protocol.
+Hyb2 : Same as Hyb1 except that computing a random OKVS D by Sim. Briefly, this simulation is indistin-
+guishable for the following reasons: The pseudorandomness of PRF value is indistinguishable from random,
+and then by the obliviousness and randomness of OKVS, D is distributed uniformly.
+Hyb3 : Same as Hyb2 except that the output of ΠpECRG is replaced by s = [si ]i∈[m] output by FpMCRG ,
+and Sim runs the ΠpECRG simulator to produce the simulated view for S. The security of protocol ΠpECRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+Corrupted R. Sim simulates a real execution in which the receiver R is corrupted. Since A is semi-honest,
+Sim can obtain the input (m mutually exclusive sets {Yi }i∈[m] ) of R, and externally send them to FpMCRG
+and then receives ⟨Request, R⟩. Sim randomly selects the PRF key {k1 , · · · , km } to simulate the execution of
+ΠbOPRF . Once receiving d = [di ]i∈[m] , the input of ΠpECRG , from A, Sim sends ⟨Response, OK⟩ to FpMCRG ,
+and obtains t = [ti ]i∈[m] . Finally, Sim simulates the execution of ΠpECRG with t = [ti ]i∈[m] as the output.
+   We argue that the outputs of Sim are indistinguishable from the real view of R by the following hybrids:
+
+Hyb0 : R’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠbOPRF is replaced by {k1 , · · · , km } chosen by Sim, and
+Sim runs the ΠbOPRF simulator to produce the simulated view for R. The security of protocol ΠbOPRF
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+Hyb2 : Same as Hyb1 except that the output of ΠpECRG is replaced by t = [ti ]i∈[m] output by FpMCRG , and
+Sim runs the ΠpECRG simulator to produce the simulated view for R. The security of protocol ΠpECRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+
+
+
+4.2     pMCRG Construction in the Unbalanced Setting
+We give the construction of pMCRG from bOPRF, FHE and pECRG in the unbalanced case, as described in
+Figure 14. We use an array of optimization techniques of FHE as [15, 13, 17, 45], such as batching (SIMD),
+windowing, and partitioning to significantly reduce the depth of the homomorphic circuit. We review the
+optimizations in appendix A.
+
+  Input: S inputs a set X = {xi }i∈[m] and a permutation π over [m]. R inputs m mutually exclusive
+  sets {Yi }i∈[m] .
+  Output: S outputs a vector s = [si ]i∈[m] . R outputs a vector t = [ti ]i∈[m] .
+
+      1. Both parties agree on the parameters of bOPRF, FHE, and pECRG.
+      2. S and R invoke the bOPRF functionality FbOPRF .
+
+          (a) S input a set X = {xi }i∈[m] .
+          (b) S obtains all PRF values x̄i = F (ki , xi ), i ∈ [m]. R obtains PRF keys {k1 , · · · , km }.
+
+      3. For i ∈ [m], R computes PRF values Yi′ [j] = F (ki , Yi [j]), where Yi [j] denotes j-th item, Bi = |Yi |.
+      4. R chooses a random vector d = [di ]i∈[m] . For all i ∈ [m], R computes polynomials Fi (x) =
+         fi (x) + di , where for all j ∈ [Bi ], fi (Yi′ [j]) = 0. Thus, R obtains the coefficient matrix A, where
+         i-th column of A are the coefficients of Fi .
+      5. S uses its FHE public key to encrypt x̄ = [x̄i ]i∈[m] and sends ciphertexts [[x̄i ]], i ∈ [m] to R.
+
+      6. For each [[x̄i ]], R homomorphically computes encryptions
+                                                        N          of all powers Ci = [[[0]], [[x̄1i ]], · · · , [[x̄B
+                                                                                                                     i ]]].
+                                                                                                                      i
+
+
+         Then, R homomorphically evaluates C̄i = Ci Ai , and sends all ciphertexts to S.
+      7. S decrypts the ciphertexts into e = [ei ]i∈[m] .
+
+      8. S and R invoke the pECRG functionality FpECRG .
+
+          (a) S inputs a permutation π on [m] and a vector e = [ei ]i∈[m] . R input a vector d = [di ]i∈[m] .
+          (b) S outputs s = [si ]i∈[m] . R outputs t = [ti ]i∈[m] .
+
+
+
+                                Figure 14: pMCRG from bOPRF, FHE and pECRG
+
+
+Theorem 3. The protocol ΠpMCRG shown in Figure 14 UC-realizes the functionality FpMCRG (as in Fig-
+ure 12) in the (FbOPRF , FpECRG )-hybrid model, against static, semi-honest adversaries, provided that the
+fully homomorphic encryption scheme is IND-CPA secure.
+Proof. We will show that for any adversary A, we can construct a simulator Sim that can simulate the view
+of the corrupted S and the corrupted R, such that any PPT environment cannot distinguish the execution
+in the ideal world from that in the real world.
+Corrupted S. Sim simulates a real execution in which the sender S is corrupted. Since A is semi-honest,
+Sim can obtain the input X and π of S directly, and externally send them to FpMCRG and then receives
+⟨Request, S⟩. Once receiving X = {xi }i∈[m] , the input of ΠbOPRF , from A, Sim randomly selects x′ = [x′i ]i∈[m]
+to simulate the execution of ΠbOPRF . Upon receiving all ciphertexts [[x′i ]], i ∈ [m], from A, Sim randomly
+selects r = [ri ]i∈[m] and encrypts them to simulate the ciphertexts. Once receiving r = [ri ]i∈[m] and π, the
+input of ΠpECRG , from A, Sim sends ⟨Response, OK⟩ to FpMCRG , and obtains s = [si ]i∈[m] . Finally, Sim
+simulates the execution of ΠpECRG with s = [si ]i∈[m] as the output.
+
+   We argue that the outputs of Sim are indistinguishable from the real view of S by the following hybrids:
+Hyb0 : S’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠbOPRF is replaced by x′ chosen by Sim, and Sim runs the
+ΠbOPRF simulator to produce the simulated view for S. The security of protocol ΠbOPRF guarantees the
+view in simulation is computationally indistinguishable from the view in the real protocol.
+Hyb2 : Same as Hyb1 except that encrypting random values in place of the ciphertexts in step 5. The plaintexts
+are randomized in the real view which is indistinguishable from the random values in the simulated view.
+Hyb3 : Same as Hyb2 except that the output of ΠpECRG is replaced by s = [si ]i∈[m] output by FpMCRG ,
+and Sim runs the ΠpECRG simulator to produce the simulated view for S. The security of protocol ΠpECRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+
+Corrupted R. Sim simulates a real execution in which the receiver R is corrupted. Since A is semi-honest,
+Sim can obtain the input (m mutually exclusive sets {Yi }i∈[m] ) of R directly, and externally send them to
+FpMCRG and then receives ⟨Request, R⟩. Sim randomly selects the PRF key {k1 , · · · , km } to simulate the
+execution of ΠbOPRF , and then encrypts random value in place of the ciphertexts in step 6. Once receiving
+d = [di ]i∈[m] , the input of ΠpECRG , from A, Sim sends ⟨Response, OK⟩ to FpMCRG , and obtains t = [ti ]i∈[m] .
+Finally, Sim simulates the execution of ΠpECRG with t = [ti ]i∈[m] as output.
+
+   We argue that the outputs of Sim are indistinguishable from the real view of R by the following hybrids:
+Hyb0 : R’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠbOPRF is replaced by {k1 , · · · , km } chosen by Sim, and
+Sim runs the ΠbOPRF simulator to produce the simulated view for R. The security of protocol ΠbOPRF
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+Hyb2 : Same as Hyb1 except that encrypting random values in place of the ciphertexts in step 6. The
+IND-CPA security of the fully homomorphic encryption scheme guarantees that the view in simulation is
+computationally indistinguishable from the view in the real protocol.
+Hyb3 : Same as Hyb2 except that the output of ΠpECRG is replaced by t = [ti ]i∈[m] output by FpMCRG , and
+Sim runs the ΠpECRG simulator to produce the simulated view for R. The security of protocol ΠpECRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+5      Non-Equality Conditional Randomness Generation
+Here, we introduce a new cryptographic protocol named non-equality conditional randomness generation
+(nECRG). In the nECRG, S and R input two vectors s = [si ]i∈[m] and t = [ti ]i∈[m] , respectively. The result
+is that S and R obtain two random vectors u = [ui ]i∈[m] and v = [vi ]i∈[m] , such that for i ∈ [m], if si = ti ,
+ui ̸= vi , otherwise, ui = vi . In Figure 15, we define the functionality of nECRG, denoted as FnECRG .
+    We give a construction of nECRG based on ssPEQT and ROT as described in Figure 16.
+
+    Parameters: Two parties: S and R.
+    Functionality FnECRG :
+      1. Initialize an ideal state stateU = ∅ for party U where U ∈ {S, R}; if U is corrupted, the simulator
+         Sim is allowed to access stateU .
+
+      2. Upon receiving input s = [si ]i∈[m] from S and update state stateS = ⟨s⟩, and send ⟨Request, S⟩ to
+         Sim.
+      3. Upon receiving input t = [ti ]i∈[m] from R and update state stateR = ⟨t⟩, and send ⟨Request, R⟩
+         to Sim.
+
+      4. Upon receiving ⟨Response, OK⟩ from Sim, generate two random vectors u = [ui ]i∈[m] and v =
+         [vi ]i∈[m] , where for i ∈ [m], if si = ti , ui ̸= vi , otherwise ui = vi .
+      5. Add ⟨u⟩ to the state stateS and ⟨v⟩ to the state stateR .
+      6. Output u = [ui ]i∈[m] to S. Output v = [vi ]i∈[m] to R.
+
+
+
+                   Figure 15: Non-equality conditional randomness generation functionality
+
+
+    Input: S inputs a vector s = [si ]i∈[m] . R inputs a vector t = [ti ]i∈[m] .
+    Output: S outputs a vector u = [ui ]i∈[m] . R outputs a vector v = [vi ]i∈[m] .
+
+      1. S and R invoke the ssPEQT functionality FssPEQT .
+          (a) S and R input vectors s = [si ]i∈[m] and t = [ti ]i∈[m] .
+          (b) S and R output random bit vectors a = [ai ]i∈[m] and b = [bi ]i∈[m] , where for all i ∈ [m], if
+              si = ti , ai ⊕ bi = 0, otherwise ai ⊕ bi = 1.
+
+      2. S and R invoke the ROT functionality FROT .
+          (a) For each i ∈ [m], R inputs bi .
+          (b) S obtains ri,0 and ri,1 , i ∈ [m]. R obtains ri,bi , i ∈ [m].
+      3. For all i ∈ [m], S sets ui = ri,(ai ⊕1) . R sets vi = ri,bi .
+
+      4. S outputs a vector u = [ui ]i∈[m] . R outputs a vector v = [vi ]i∈[m] .
+
+
+
+                                    Figure 16: nECRG from ssPEQT and ROT
+
+Theorem 4. The protocol ΠnECRG shown in Figure 16 UC-realizes the functionality FnECRG (as in Fig-
+ure 15) in the (FssPEQT , FROT )-hybrid model, against static, semi-honest adversaries.
+Proof. We will show that for any adversary A, we can construct a simulator Sim that can simulate the view
+of the corrupted S and the corrupted R, such that any PPT environment cannot distinguish the execution
+in the ideal world from that in the real world.
+Corrupted S. Sim simulates a real execution in which the sender S is corrupted. Since A is semi-honest,
+Sim can obtain the input s of S directly, and externally send s to FnECRG and then receives ⟨Request, S⟩.
+Once receiving s = [si ]i∈[m] , the input of ΠssPEQT , from A, Sim randomly chooses a bit vector a = [ai ]i∈[m]
+to simulate the execution of ΠssPEQT . Sim sends ⟨Response, OK⟩ to FnECRG , and obtains u = [ui ]i∈[m] . For
+all i ∈ [m], Sim sets ri,(ai ⊕1) = ui and randomly chooses ri,ai . Finally, Sim simulates the execution of ΠROT
+with (ri,(ai ⊕1) , ri,ai ) for each i ∈ [m] as output.
+   We argue that the outputs of Sim are indistinguishable from the real view of S by the following hybrids:
+
+Hyb0 : S’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠssPEQT is replaced by the random bit vector a = [ai ]i∈[m]
+chosen by Sim, and Sim runs the ΠssPEQT simulator to produce the simulated view for S. The security of
+protocol ΠssPEQT guarantees the view in simulation is computationally indistinguishable from the view in
+the real protocol.
+Hyb2 : Same as Hyb1 except that the output of ΠROT is replaced by ui , i ∈ [m] output by FnECRG and
+random ri,ai , i ∈ [m] chosen by Sim, and Sim runs the ΠROT simulator to produce the simulated view for S.
+The security of protocol ΠROT guarantees the view in simulation is computationally indistinguishable from
+the view in the real protocol.
+
+Corrupted R. Sim simulates a real execution in which the receiver R is corrupted. Since A is semi-honest,
+Sim can obtain input t of R directly, and externally send t to FnECRG and then receives ⟨Request, R⟩. Once
+receiving t = [ti ]i∈[m] , the input of ΠssPEQT , from A, Sim randomly chooses a bit vector b = [bi ]i∈[m] to
+simulate the execution of ΠssPEQT . Sim sends ⟨Response, OK⟩ to FnECRG , and obtains v = [vi ]i∈[m] . For all
+i ∈ [m], Sim sets ri,bi = vi . Finally, Sim simulates the execution of ΠROT with (bi , vi ) for each i ∈ [m] as
+output.
+
+   We argue that the outputs of Sim are indistinguishable from the real view of R by the following hybrids:
+Hyb0 : R’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠssPEQT is replaced by the random bit vector b = [bi ]i∈[m]
+chosen by Sim, and Sim runs the ΠssPEQT simulator to produce the simulated view for R. The security of
+protocol ΠssPEQT guarantees the view in simulation is computationally indistinguishable from the view in
+the real protocol.
+Hyb2 : Same as Hyb1 except that the output of ΠROT is replaced by vi , i ∈ [m] output by FnECRG , and Sim
+runs the ΠROT simulator to produce the simulated view for R. The security of protocol ΠROT guarantees
+the view in simulation is computationally indistinguishable from the view in the real protocol.
+
+
+
+Comparison with bECRG. To construct enhanced PSU, Jia et al. [29] introduce a new functionality
+called batched equality conditional randomness generation (bECRG), in which both parties can also achieve
+the exchange of the equality and non-equality conditions. However, bECRG limits the output of S and only
+generates random values of R, resulting in its construction only based on the complicated equality oblivious
+transfer extension protocol. Our nECRG generates corresponding random values for S and R, according
+to the equality and non-equality conditions between the inputs of both parties and allows the construction
+based on the simple random oblivious transfer protocol following [34].
+6      Permuted Non-Membership Conditional Randomness Genera-
+       tion
+In this section, we introduce a new cryptographic protocol named permuted non-membership conditional
+randomness generation (pnMCRG), in which S inputs a set X = {xi }i∈[m] and a permutation π over [m],
+and R inputs m sets {Yi }i∈[m] , respectively. As a result, S and R obtain two random vectors u = [ui ]i∈[m]
+and v = [vi ]i∈[m] , such that for i ∈ [m], if xπ−1 (i) ∈
+                                                        / Yπ−1 (i) , ui = vi , otherwise, ui ̸= vi . In Figure 17, we
+define the functionality of pnMCRG, denoted as FpnMCRG .
+
+    Parameters: Two parties: S and R.
+    Functionality FpnMCRG :
+      1. Initialize an ideal state stateU = ∅ for party U where U ∈ {S, R}; if U is corrupted, the simulator
+         Sim is allowed to access stateU .
+      2. Upon receiving input X = {xi }i∈[m] and a permutation π over [m] from S, then update state
+         stateS = ⟨X, π⟩, and send ⟨Request, S⟩ to Sim.
+
+      3. Upon receiving input {Yi }i∈[m] from R, and update state stateR = ⟨{Yi }i∈[m] ⟩, and send
+         ⟨Request, R⟩ to Sim.
+      4. Upon receiving ⟨Response, OK⟩ from Sim, generate two random vectors u = [ui ]i∈[m] and v =
+         [vi ]i∈[m] , where for i ∈ [m], if xπ−1 (i) ∈
+                                                     / Yπ−1 (i) , ui = vi , otherwise ui ̸= vi .
+
+      5. Add ⟨u⟩ to the state stateS and ⟨v⟩ to the state stateR .
+      6. Output u = [ui ]i∈[m] to S. Output v = [vi ]i∈[m] to R.
+
+
+
+           Figure 17: Permuted non-membership conditional randomness generation functionality
+
+
+    Input: S inputs a set X = {xi }i∈[m] and a permutation π over [m]. R inputs m mutually exclusive
+    sets {Yi }i∈[m] ..
+    Output: S outputs a vector u = [ui ]i∈[m] . R outputs a vector v = [vi ]i∈[m] .
+      1. S and R invoke the pMCRG functionality FpMCRG .
+          (a) S inputs the set X = {xi }i∈[m] and a permutation π over [m], and R inputs {Yi }i∈[m] .
+          (b) S and R outputs two vectors s = [si ]i∈[m] and t = [ti ]i∈[m] , where for all i ∈ [m], if xπ−1 (i) ∈
+              Yπ−1 (i) , si = ti , otherwise si ̸= ti .
+      2. S and R invoke the nECRG functionality FnECRG .
+          (a) S inputs a vector s = [si ]i∈[m] . R inputs a vector t = [ti ]i∈[m] .
+          (b) S outputs a vector u = [ui ]i∈[m] . R outputs a vector v = [vi ]i∈[m] , where for i ∈ [m], if
+              si = ti , we have ui ̸= vi , otherwise ui = vi .
+
+
+
+                                Figure 18: pnMCRG from pMCRG and nECRG
+
+     We give a construction of pnMCRG based on pMCRG and nECRG as described in Figure 18.
+Theorem 5. The protocol ΠpnMCRG shown in Figure 18 UC-realizes the functionality FpnMCRG (as in
+Figure 17) in the (FpMCRG , FnECRG )-hybrid model, against static, semi-honest adversaries.
+Proof. We will show that for any adversary A, we can construct a simulator Sim that can simulate the view
+of the corrupted S and the corrupted R, such that any PPT environment cannot distinguish the execution
+in the ideal world from that in the real world.
+
+Corrupted S. Sim simulates a real execution in which the sender S is corrupted. Since A is semi-honest,
+Sim can obtain the input X and a permutation π of S directly, and externally send them to FpnMCRG and
+then receives ⟨Request, S⟩. Once receiving X and π, the input of ΠpMCRG , from A, Sim randomly selects
+s = [si ]i∈[m] to simulate the execution of ΠpMCRG . Once receiving s = [si ]i∈[m] , the input of ΠnECRG , from
+A, Sim sends ⟨Response, OK⟩ to FpnMCRG , and obtains u = [ui ]i∈[m] . Finally, Sim simulates the execution
+of ΠnECRG with u = [ui ]i∈[m] as output.
+    We argue that the outputs of Sim are indistinguishable from the real view of S by the following hybrids:
+Hyb0 : S’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠpMCRG is replaced by s = [si ]i∈[m] chosen by Sim, and
+Sim runs the ΠpMCRG simulator to produce the simulated view for S. The security of protocol ΠpMCRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+Hyb2 : Same as Hyb1 except that the output of ΠnECRG is replaced by u = [ui ]i∈[m] output by FpnMCRG ,
+and Sim runs the ΠnECRG simulator to produce the simulated view for S. The security of protocol ΠnECRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+Corrupted R. Sim simulates a real execution in which the receiver R is corrupted. Since A is semi-honest,
+Sim can obtain the input (m mutually exclusive sets {Yi }i∈[m] ) of R directly, and externally send the set
+{Yi }i∈[m] to FpnMCRG and then receives ⟨Request, R⟩. Sim randomly selects t = [ti ]i∈[m] to simulate the
+execution of ΠpMCRG . Once receiving t = [ti ]i∈[m] , the input of ΠnECRG , from A, Sim sends ⟨Response, OK⟩
+to FpnMCRG , and obtains v = [vi ]i∈[m] . Finally, Sim simulates the execution of ΠnECRG with v = [vi ]i∈[m]
+as output.
+
+    We argue that the outputs of Sim are indistinguishable from the real view of R by the following hybrids:
+Hyb0 : R’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠpMCRG is replaced by t = [ti ]i∈[m] chosen by Sim, and
+Sim runs the ΠpMCRG simulator to produce the simulated view for R. The security of protocol ΠpMCRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+Hyb2 : Same as Hyb1 except that the output of ΠnECRG is replaced by v = [vi ]i∈[m] output by FpnMCRG ,
+and Sim runs the ΠnECRG simulator to produce the simulated view for R. The security of protocol ΠnECRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+
+
+
+
+7     A New Framework of Enhanced PSU
+In this section, we present a new framework of enhanced PSU based on pnMCRG, as described in Figure 19.
+In this construction, each bin of the simple hash table is treated as a separate set. Since each item yj of equal
+length is linked to different hash function indices (yj ||1, yj ||2, yj ||3), the mc sets satisfy mutual exclusivity.
+Theorem 6. The protocol ΠePSU shown in Figure 19 UC-realizes the functionality FePSU (as in Figure 6)
+in the FpnMCRG -hybrid model, against static, semi-honest adversaries.
+  Input: The sender inputs a set X = {xi }i∈[m] . The receiver inputs a set Y = {yj }j∈[n] .
+  Output: The receiver outputs the union X ∪ Y . The sender outputs Finished.
+
+     1. S inserts set X into the cuckoo hash table and fills empty bins with the dummy item d, where the
+        cuckoo hash table Xc = {Xc [i]}i∈[mc ] consists of mc bins and each bin Xc [i] has only one item,
+        where for each xi there is some γ ∈ {1, 2, 3} such that Xc [hγ (xi )] = xi ||γ.
+     2. R uses the same hash functions to insert Y into the simple hash table, where all item yj are concate-
+        nated with hash function indices (yj ||1, yj ||2, yj ||3) and are inserted to the bins (Yh1 (yj ) , Yh2 (yj ) ,
+        Yh3 (yj ) ), respectively, the table consists of mc bins {Y1 , Y2 , · · · , Ymc } and each bin consists of
+        Bi = |Yi | items.
+
+     3. S and R invoke the pnMCRG functionality FpnMCRG .
+
+          (a) S chooses a random permutation π over [mc ] and input Xc = {Xc [i]}i∈[mc ] and R input
+              {Y1 , Y2 , · · · , Ymc }.
+         (b) S obtains u = [ui ]i∈[mc ] . R obtains v = [vi ]i∈[mc ] .
+
+     4. S computes ci = ui ⊕ (Xc [π −1 (i)]||h(Xc [π −1 (i)]))8 , i ∈ [mc ] and sends them to R, where h is a
+        pre-agreed hash function used to distinguish between real items and random values.
+     5. R computes mi ||m′i = vi ⊕ ci , i ∈ [mc ]. For i ∈ [mc ], if m′i = h(mi ) and mi ̸= d, let Z = Y ∪ {mi }.
+        R outputs the union Z. S outputs Finished.
+
+
+
+                            Figure 19: A framework of enhanced PSU from pnMCRG
+
+
+Proof. We will show that for any adversary A, we can construct a simulator Sim that can simulate the view
+of the corrupted S and the corrupted R, such that any PPT environment cannot distinguish the execution
+in the ideal world from that in the real world.
+Corrupted S. Sim simulates a real execution in which the sender S is corrupted. Since A is semi-honest, Sim
+can obtain the input X of S directly, and externally send the set X to FePSU and then receives ⟨Request, S⟩.
+Once receiving Xc and π, the input of ΠpnMCRG , from A, Sim randomly selects u = [ui ]i∈[mc ] to simulate
+the execution of ΠpnMCRG . After receiving c1 , · · · , cmc , Sim sends ⟨Response, OK⟩ to FePSU .
+   We argue that the outputs of Sim are indistinguishable from the real view of S by the following hybrids:
+Hyb0 : S’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠpnMCRG is replaced by u = [ui ]i∈[m] chosen by Sim, and
+Sim runs the ΠpnMCRG simulator to produce the simulated view for S. The security of protocol ΠpnMCRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+Corrupted R. Sim simulates a real execution in which the receiver R is corrupted. Since A is semi-
+honest, Sim can obtain the input Y of R directly, and externally send the set Y to FePSU and then receives
+⟨Request, R⟩. Once receiving mc mutually exclusive sets {Y1 , Y2 , · · · , Ymc }, the input of ΠpnMCRG , from A,
+Sim randomly selects v = [vi ]i∈[mc ] to simulate the execution of ΠpnMCRG . Sim sends ⟨Response, OK⟩ to
+FePSU . After receiving Z = X ∪ Y from FePSU , Sim calculates X ′ = Z\Y and randomly selects a subset T
+from {v1 , · · · , vmc }, where |T | = |X ′ |. For each items in T , Sim sets ci = T [i] ⊕ (X ′ [i]||h(X ′ [i])). Finally,
+Sim chooses random values for i ∈ {|T | + 1, |T | + 2, · · · , mc } and sends all shuffled ciphertexts to A.
+  8 Here, S needs to remove the hash function index.
+                Size                     Comm.      Total running time (s) with single thread
+                           Protocols
+              |X| = |Y |                  (MB)     10Gbps 100Mbps 10Mbps               1Mbps
+                            PSU [48]       0.188     2.047     3.087       3.249        4.655
+                 210       ePSU [29]      2.882      1.250     9.261      11.116       33.806
+                           Our ePSU        1.31      0.172     4.046       5.093       15.127
+                            PSU [48]      0.700      2.240     3.116       3.482        9.246
+                 212       ePSU [29]      8.600      1.260    11.491      17.241       82.397
+                           Our ePSU       2.028      0.369     4.824       6.142       21.683
+                            PSU [48]      2.726      3.410     4.387       5.963       27.447
+                 214       ePSU [29]     32.921      1.516    15.602      38.770      289.266
+                           Our ePSU       5.202      1.276     6.248       9.729       49.795
+                            PSU [48]     11.143      8.124     9.579      16.096       99.819
+                 216       ePSU [29]    137.419      2.599    28.190     129.929     1176.530
+                           Our ePSU      17.955      4.899    11.058      23.445      160.392
+                            PSU [48]     44.712     26.758    30.182      56.318      393.639
+                 218       ePSU [29]    577.731      7.235    80.436     514.592     4942.710
+                           Our ePSU       69.03     19.094    31.567      80.679      604.347
+                            PSU [48]    179.061     98.406   110.124     214.808      1569.242
+                 220       ePSU [29]    2430.470    35.344   310.406    2143.990 20717.900
+                           Our ePSU     277.402     78.144   108.729     316.009     2413.015
+                            PSU [48]     716.875   413.917    446.72     850.761     6294.396
+                 222       ePSU [29]        —         —         —           —            —
+                           Our ePSU     1121.588   319.182    427.657 1244.048        9759.93
+
+Table 2: Comparisons of communication and runtime between PSU [48], enhanced PSU [29] and our enhanced
+PSU in the balanced setting. — indicates an execution error. 10Gbps bandwidth, 0.2ms RTT; 100Mbps,
+10Mbps and 1Mbps bandwidth, 80ms RTT. The best results are marked in magenta and the second best
+results are marked in blue.
+
+
+
+    We argue that the outputs of Sim are indistinguishable from the real view of R by the following hybrids:
+Hyb0 : R’s view in the real protocol.
+Hyb1 : Same as Hyb0 except that the output of ΠpnMCRG is replaced by u = [ui ]i∈[m] chosen by Sim, and
+Sim runs the ΠpnMCRG simulator to produce the simulated view for R. The security of protocol ΠpnMCRG
+guarantees the view in simulation is computationally indistinguishable from the view in the real protocol.
+
+
+
+
+8     Implementation and Performance
+Here, we evaluate our enhanced balanced/unbalanced PSU (ePSU/eUPSU), and then compare with the
+state-of-the-art protocols, such as enhanced PSU [29] and balanced/unbalanced PSU suffering from during-
+execution leakage [45, 48, 47], in terms of communication and runtime in different network environments.
+
+8.1    Experimental Setup
+We implement our protocols in C++ and the source code is available at https://doi.org/10.5281/zenodo.14725816.
+The experiments are conducted on a single Intel Core i7-13700 CPU @ 5.20GHz with 32 threads and 64GB
+of RAM, running Ubuntu. We evaluate our protocols in two network settings: LAN (10Gbps bandwidth,
+                           Size                                      Comm.            Total running time (s) with single thread
+                                              Protocols
+                        (|X|, |Y |)                                   (MB)            10Gbps 100Mbps 10Mbps             1Mbps
+                                            UPSU [45]                  1.614            0.967     2.825       2.825     14.132
+                                            UPSU [47]                20.270            10.294    14.309      28.676    181.680
+                        (210 , 212 )
+                                            Our ePSU                  1.578            0.297      4.044       5.395     17.199
+                                            Our eUPSU                 2.237            1.430      6.527       7.689     25.406
+                                            UPSU [45]                 2.681             1.22       3.48       3.58      18.136
+                                            UPSU [47]                20.271            26.196    29.903      45.061    189.584
+                        (210 , 214 )
+                                            Our ePSU                  2.607            0.313      4.113       6.312     25.856
+                                            Our eUPSU                 2.237            1.545      6.536       7.948     26.704
+                                            UPSU [45]                 2.681             1.475     3.481       3.634     18.957
+                                            UPSU [47]                21.286            35.141    40.486      54.984    215.567
+                        (210 , 216 )
+                                            Our ePSU                  6.724            0.398      4.569       9.849     60.592
+                                            Our eUPSU                 2.237            1.996      7.129       8.237     27.282
+                                            UPSU [45]                 2.367            3.723      5.833       6.137     19.384
+                                            UPSU [47]                21.321           103.552    107.441    123.590    283.007
+                        (210 , 218 )
+                                            Our ePSU                 23.052            0.727      6.693      23.694    198.757
+                                            Our eUPSU                 2.237            3.649      8.523      10.399     29.425
+                                            UPSU [45]                  2.767           18.465    20.995      21.297     32.253
+                                            UPSU [47]                23.884           197.250    202.368    219.585    397.725
+                        (210 , 220 )
+                                            Our ePSU                 88.468             2.515     16.140     79.531    750.332
+                                            Our eUPSU                  2.322           15.957    20.939      23.583     42.734
+
+Table 3: Comparisons of communication and runtime between our two enhanced PSU (ePSU/eUPSU) and
+ubalanced PSU with during-execution leakage [45, 47] in the unbalanced setting. 10Gbps bandwidth, 0.2ms
+RTT; 100Mbps, 10Mbps and 1Mbps bandwidth, 80ms RTT. The best results are marked in magenta and
+the second best results are marked in blue.
+
+                                                                                     Total running time (s)
+   Size
+                            10Gbps                                  100Mbps                                   10Mbps                                      1Mbps
+ |X| = |Y |
+              T =1      T =2      T =4      T =8      T =1      T =2      T =4      T =8       T =1       T =2       T =4      T =8       T =1       T =2       T =4       T =8
+    210        0.172     0.128     0.119     0.102     4.046     4.043     4.041     3.875     5.093      5.052      5.044      5.012     15.127     15.085     15.077     15.013
+    212        0.369     0.258     0.228     0.208     4.824     4.708     4.659     4.582     6.142      5.978      5.955      5.923     21.683     21.555     21.495     21.283
+    214        1.276     0.783     0.605     0.565     6.248     5.533     5.469     5.363     9.729      9.122      8.695      8.570     49.795     49.362     49.056     48.997
+    216        4.899     3.024     2.172     2.011    11.058     9.417     8.371     7.935     23.445     21.458     20.624    20.173    160.392    158.653    157.592    157.102
+    218       19.094    11.951     8.513     7.720    31.567    23.281    19.847    18.905     80.679     72.708     69.260    66.905    604.347    597.356    592.981    590.666
+    220       78.144    48.862    36.416    33.170    108.729   79.396    67.317    62.653    316.009    286.499    269.169    263.700   2413.015   2387.234   2371.529   2363.548
+    222       319.182   204.297   157.931   149.532   427.657   311.539   265.428   240.792   1244.048   1136.868   1080.177   1060.55   9759.93    9671.29    9596.11    9560.027
+
+
+Table 4: Runtime of our enhanced balanced PSU. Threads T ∈ {1, 2, 4, 8}. 10Gbps bandwidth, 0.2ms RTT;
+100Mbps, 10Mbps and 1Mbps bandwidth, 80ms RTT.
+
+
+
+0.2ms RTT) and WAN (100Mbps, 10Mbps, and 1Mbps bandwidth, 80ms RTT), emulated using the Linux
+tc command. We leverage the constructions in [31, 43, 42, 21] to implement bOPRF, OKVS, ssPEQT
+and FHE (the building block of balanced/unbalanced pnMCRG) and use the code from the Vole-PSI li-
+brary [6], the SEAL library [2], and the APSI/APSU library [1, 5]. As for ROT (the building block of
+nECRG) and DDH-based pECRG, we follow the libOTe library [4] and the OpenSSL library [3]. Our code
+supports multithreading parallelism following the Vole-PSI library and the OpenMP library [7]. Following
+most PSU [30, 45, 48, 29, 47], we set the computational security parameter κ = 128, the statistical security
+parameter λ = 40 and use γ = 3 hash functions to insert sets X and Y into the cuckoo hash table and simple
+hash table, respectively. The item length is 64 bits following [34, 20].
+8.2    Comparisons in the Balanced Setting
+Here, we compare our ePSU with the state-of-the-art enhanced PSU [29] in the balanced setting, and the
+results are reported in Table 2 and Figure 20. Since their implementations [29] do not support multi-
+threading, we only provide a single-threaded comparison in Table 2. We present the runtime of our multi-
+threaded implementation in Table 4.
+Communication comparison. As shown in Figure 20, our ePSU achieves lower communication overhead
+than [29] across all set sizes. As indicated in Table 2, our protocol reduces communication costs by a factor
+of 2.2 to 8.8 for both set sizes ranging from 210 to 220 . Since the complexity of PSU [29] is superlinear, while
+the complexity of our ePSU is linear, the larger the set size, the more significant the advantage of our ePSU
+becomes.
+Runtime comparison. As shown in Figure 20, our protocol is more efficient than PSU [29] in terms
+of runtime in low-bandwidth environments for large sets, while for small sets, it consistently outperforms
+PSU [29] across the board. As indicated in Table 2, for both set sizes 210 , the running time of our protocol
+surpasses PSU [29] by 2.2 - 7.6×. For both set sizes 220 , the running time of our protocol surpasses PSU [29]
+by 2.6 - 8.6× under bandwidths ranging from 1Mbps to 100Mbps.
+
+
+8.3    Comparisons in the Unbalanced Setting
+Since the implementation of PSU [29] does not support running in unbalanced settings, we compare our
+enhanced unbalanced PSU (eUPSU) with our enhanced balanced PSU (ePSU) in the unbalanced setting,
+and the results are reported in Figure 21 and Table 3.
+Communication comparison. As shown in Figure 21, our eUPSU achieves lower communication overhead
+than ePSU in the unbalanced setting, and the larger the difference between two set sizes, the better our
+eUPSU performs. As indicated in Table 3, our protocol reduces communication costs by 1.2 - 38.1× under
+the large set size ranging from 214 to 220 . Especially, for set sizes (|X| = 210 , |Y | = 220 ), the communication
+of our eUPSU requires 2.322 MB, which is about 38.1× lower than our ePSU requiring 88.468 MB.
+Runtime comparison. As shown in Figure 21, our protocol is more efficient than ePSU in terms of runtime
+in low-bandwidth environments, the lower the bandwidth, the better our eUPSU performs. As indicated in
+Table 3, for set sizes (|X| = 210 , |Y | = 220 ) with T = 1 thread in 1Mbps bandwidth, our eUPSU requires
+42.734 seconds, while our ePSU requires 750.332 seconds, about 17.6× improvement.
+
+8.4    Comparison with PSU Suffering from During-Execution Leakage
+Here, we compare our ePSU/eUPSU with the efficient PSU/UPSU [48, 45, 47] in the balanced/unbalanced
+setting, which suffers from during-execution leakage.
+    In the balanced setting, experimental results show that our eUPSU has a slightly higher communication
+cost compared to PSU [48], but achieves shorter runtime under a 10Gbps bandwidth. As shown in Figure 20
+and Table 2, the communication overhead becomes comparable as the set size increases. For set sizes ranging
+from 212 to 222 , PSU [48] has a 1.7 - 2.8× advantage in communication, whereas our ePSU is 1.3 - 6.1×
+faster in runtime. Hence, our ePSU addresses the issue of during-execution leakage in PSU [48] with only a
+minor efficiency trade-off.
+    In the unbalanced setting, experimental results demonstrate that while our eUPSU has a slightly higher
+computation cost, it offers an advantage in terms of communication complexity. As shown in Figure 21 and
+Table 3, our eUPSU and UPSU [45] have only minor differences in communication and computation. Our
+eUPSU performs slightly better in communication, while UPSU [45] has a slight advantage in computation.
+For large set sizes ranging from 212 to 220 , our eUPSU reduces communication overhead by a factor of 1.1 -
+1.4× compared to UPSU [45], and by 9.1 - 10.3× compared to UPSU [47]. Therefore, our eUPSU effectively
+addresses the issue of during-execution leakage of UPSU [45, 47] with only a minor increase in computational
+overhead.
+                                                                                                                                                  105
+                                                    Our ePSU                                                                                                                      Our ePSU, 212
+
+
+
+
+                                                                                                    Runtime (s), set size: {218 , 220 }
+                                          3         PSU [29]
+                                        10                                                                                                                                        Our ePSU, 220
+
+
+
+
+      Communication (in MB)
+                                                    PSU [48]                                                                                      104
+                                                                                                                                                                                  PSU [29], 212
+                                        102                                                                                                                                       PSU [29], 220
+                                                                                                                                                  103                             PSU [48], 212
+                                                                                                                                                                                  PSU [48], 220
+                                        101
+                                                                                                                                                  102
+
+                                        100
+                                                                                                                                                  101
+
+                                       10−1
+                                                                                                                                                  100
+                                              210     212      214     216         218        220                                                       1Mbps 10Mbps 100Mbps                     10Gbps
+                                                The size of both sets {210 , · · · , 220 }                                                                     The network bandwidth (Mbps)
+
+
+
+
+                                                                                                         Runtime (s), |X| = 210 , T = 1, 1 Mbps
+                                        102         Our ePSU                                                                                                   Our ePSU
+
+
+
+
+         Runtime (s), T = 1, 10 Gbps
+                                                    PSU [29]                                                                                      104          PSU [29]
+                                                    PSU [48]                                                                                                   PSU [48]
+
+                                        101                                                                                                       103
+
+
+                                                                                                                                                  102
+                                        100
+
+                                                                                                                                                  101
+
+                                       10−1
+                                              210     212      214      216        218        220                                                        210      212     214   216        218        220
+                                                                              10         20                                                                                           10         20
+                                                The size of both sets {2 , · · · , 2 }                                                                     The size of both sets {2 , · · · , 2 }
+
+
+Figure 20: Comparisons of communication and runtime between our enhanced PSU and PSU [29] in the
+balanced setting. Both x and y-axis are in log scale. The first figure shows the communication cost increases
+as the set size increases. The second figure shows the runtime decreases as the bandwidth increases. The
+last two figures show the runtime increases as the set size increases.
+
+
+8.5                                    Microbenchmarks of Our Sub-Protocols
+We present the hierarchy of all sub-protocols in ePSU/eUPSU, along with their communication and compu-
+tation complexity, in Table 5. The protocol execution is divided into three steps. The first step is hashing
+(corresponding to steps 1 and 2 in Figure 19), which does not require communication and is completed locally
+by both parties. The second step is pnMCRG (corresponding to step 3 in Figure 19). The third step is one-
+time pad (corresponding to steps 4 and 5 in Figure 19). As demonstrated in Figure 1, our pnMCRG can be
+further divided into two steps, pMCRG and nECRG, which we represent as steps 2.1 and 2.2. Similarly, our
+pMCRG can be further divided into three steps, namely bOPRF+OKVS+pECRG in the balanced setting
+and bOPRF+FHE+pECRG in the unbalanced setting, denoted as steps 2.1.1, 2.1.2, and 2.1.3, respectively.
+    To demonstrate the performance of our sub-protocols, we perform microbenchmarks for our sub-protocols,
+as shown in Table 6. In the balanced setting, the communication overhead of the three components (bO-
+PRF+OKVS, pECRG, nECRG) is similar, while the running time is primarily dominated by pECRG, which
+serves as the performance bottleneck. In the unbalanced setting, FHE costs the majority of both communi-
+cation and computation, making it the primary performance bottleneck.
+                                                                                                                                                            104
+
+
+
+
+    Communication (in MB), |X| = 210
+                                                    102
+
+
+
+
+                                                                                                              Runtime (s), |X| = 210 , |Y | = 220
+                                                                Our eUPSU                                                                                                                          Our eUPSU
+                                                                Our ePSU                                                                                                                           Our ePSU
+                                                                UPSU [45]                                                                                   103                                    UPSU [45]
+                                                                UPSU [47]                                                                                                                          UPSU [47]
+
+
+                                                    101                                                                                                     102
+
+
+
+                                                                                                                                                            101
+
+
+
+                                                                                                                                                            100
+                                                          212        214        216        218         220                                                        1Mbps 10Mbps 100Mbps                     10Gbps
+                                                          The size of large set |Y | ∈ {212 , · · · , 220 }                                                              The network bandwidth (Mbps)
+
+
+
+
+         Runtime (s), |X| = 210 , T = 1, 100 Mbps                                                                  Runtime (s), |X| = 210 , T = 1, 1 Mbps
+                                                                                                                                                            103
+                                                                Our eUPSU                                                                                                Our eUPSU
+                                                                Our ePSU                                                                                                 Our ePSU
+                                                    102         UPSU [45]                                                                                                UPSU [45]
+                                                                UPSU [47]                                                                                                UPSU [47]
+
+
+                                                                                                                                                            102
+
+                                                    101
+
+
+
+
+                                                                                                                                                            101
+                                                          212        214         216        218        220                                                         212       214        216        218        220
+                                                                                             12        20
+                                                          The size of large set |Y | ∈ {2 , · · · , 2 }                                                            The size of large set |Y | ∈ {2 , · · · , 220 }
+                                                                                                                                                                                                    12
+
+
+
+Figure 21: Comparisons of communication and runtime between our two enhanced PSU (ePSU/eUPSU) in
+the unbalanced setting. Both x and y-axis are in log scale. The first figure shows the communication cost
+increases as the large set size increases. The second figure shows the runtime decreases as the bandwidth
+increases. The last two figures show the runtime increases as the large set size increases.
+
+
+Acknowledgments
+We thank the anonymous reviewers for their helpful comments. We thank Weiran Liu for his help on con-
+ducting comparison experiment of [48]. This work is supported by the National Natural Science Foundation
+of China (No. 62272269 and No. 62402272), the National Key Research and Development Program of China
+(No. 2021YFA1000600), Taishan Scholar Program of Shandong Province, Shandong Laboratories Project
+of Bureau of Science & Technology of Shandong Province (SYS202201), and Key Project of Quan Cheng
+Laboratory (QCLZD202302).
+
+
+References
+ [1] https://github.com/microsoft/APSI.
+ [2] https://github.com/microsoft/SEAL.
+                                 Sub-Protocols      Communication                Computation
+                      Step
+                               ePSU      eUPSU     ePSU   eUPSU              ePSU     eUPSU
+                        1     cuckoo/simple hash     -       -               O(n)    O(n + m)
+                        2          pnMCRG          O(n) O(m log n)           O(n) O(n + m log n)
+                       2.1         pMCRG           O(n) O(m log n)           O(n) O(n + m log n)
+                      2.1.1   bOPRF      bOPRF     O(n)    O(m)              O(n)      O(m)
+                      2.1.2    OKVS        FHE     O(n) O(m log n)           O(n) O(n + m log n)
+                      2.1.3   pECRG pECRG          O(n)    O(m)              O(n)      O(m)
+                       2.2          nECRG          O(n)    O(m)              O(n)      O(m)
+                        3        one-time pad      O(n)    O(m)              O(n)      O(m)
+                                     Total         O(n) O(m log n)           O(n) O(n + m log n)
+
+    Table 5: Communication and computation complexity of each sub-protocol in our ePSU/eUPSU.
+
+
+          Size                    Sub-protocols                   Comm.(MB)                    Runtime (s)
+                                            bOPRF+OKVS                      6.370                         0.082
+                                  pMCRG                           11.571                          4.461
+                        pnMCRG                  pECRG     16.655            5.200      4.790              4.388
+       (216 , 216 )
+                                           nECRG                       5.084                          1.135
+                                   Total ePSU                    17.955                          4.899
+                                            bOPRF+OKVS                     88.120                         1.103
+                                  pMCRG                          172.382                         59.801
+                        pnMCRG                  pECRG    256.355           84.267      78.032             58.715
+       (220 , 220 )
+                                           nECRG                      83.954                         18.536
+                                   Total ePSU                    277.402                         78.144
+                                             bOPRF+FHE                         1.850                      1.181
+                                  pMCRG                              1.952                        1.263
+                        pnMCRG                 pECRG      2.212                0.102   1.319              0.082
+       (210 , 216 )
+                                           nECRG                         0.253                        0.069
+                                   Total eUPSU                      2.237                        1.996
+                                             bOPRF+FHE                         1.910                      15.472
+                                  pMCRG                              2.016                       15.568
+                        pnMCRG                 pECRG      2.296                0.106   15.656             0.093
+       (210 , 220 )
+                                           nECRG                          0.28                        0.095
+                                   Total eUPSU                      2.322                        15.957
+
+Table 6: Communication and runtime of our sub-protocols. 10Gbps bandwidth, 0.2ms RTT; Thread T = 1.
+
+
+
+ [3] https://github.com/openssl/openssl.
+ [4] https://github.com/osu-crypto/libOTe.
+ [5] https://github.com/real-world-cryprography/APSU.
+ [6] https://github.com/Visa-Research/volepsi.
+ [7] https://www.openmp.org/.
+ [8] Alexander Bienstock, Sarvar Patel, Joon Young Seo, and Kevin Yeo. Near-optimal oblivious key-value
+     stores for efficient psi, PSU and volume-hiding multi-maps. In USENIX Security, 2023.
+ [9] Zvika Brakerski, Craig Gentry, and Shai Halevi. Packed ciphertexts in lwe-based homomorphic encryp-
+     tion. In PKC, 2013.
+[10] Zvika Brakerski, Craig Gentry, and Vinod Vaikuntanathan. (leveled) fully homomorphic encryption
+     without bootstrapping. In Innovations in Theoretical Computer Science, 2012.
+[11] Martin Burkhart, Mario Strasser, Dilip Many, and Xenofontas A. Dimitropoulos. SEPIA: privacy-
+     preserving aggregation of multi-domain network events and statistics. In USENIX Security, 2010.
+[12] Nishanth Chandran, Divya Gupta, and Akash Shah. Circuit-psi with linear complexity via relaxed
+     batch OPPRF. Proc. Priv. Enhancing Technol., 2022.
+[13] Hao Chen, Zhicong Huang, Kim Laine, and Peter Rindal. Labeled PSI from fully homomorphic encryp-
+     tion with malicious security. In ACM CCS, 2018.
+[14] Hao Chen, Kim Laine, and Rachel Player. Simple encrypted arithmetic library - SEAL v2.1. In Financial
+     Cryptography and Data Security, 2017.
+[15] Hao Chen, Kim Laine, and Peter Rindal. Fast private set intersection from homomorphic encryption.
+     In ACM CCS, 2017.
+[16] Yu Chen, Min Zhang, Cong Zhang, Minglang Dong, and Weiran Liu. Private set operations from
+     multi-query reverse private membership test. In PKC, 2024.
+[17] Kelong Cong, Radames Cruz Moreno, Mariana Botelho da Gama, Wei Dai, Ilia Iliashenko, Kim Laine,
+     and Michael Rosenberg. Labeled PSI from homomorphic encryption with reduced computation and
+     communication. In ACM CCS, 2021.
+[18] Geoffroy Couteau. New protocols for secure equality test and comparison. In ACNS, 2018.
+[19] Alex Davidson and Carlos Cid. An efficient toolkit for computing private set operations. In ACISP,
+     2017.
+[20] Minglang Dong, Yu Chen, Cong Zhang, and Yujie Bai. Breaking free: Efficient multi-party private set
+     union without non-collusion assumptions. IACR Cryptol. ePrint Arch., 2024.
+[21] Junfeng Fan and Frederik Vercauteren. Somewhat practical fully homomorphic encryption. IACR
+     Cryptol. ePrint Arch., 2012.
+[22] Michael J. Freedman, Yuval Ishai, Benny Pinkas, and Omer Reingold. Keyword search and oblivious
+     pseudorandom functions. In TCC, 2005.
+[23] Gayathri Garimella, Payman Mohassel, Mike Rosulek, Saeed Sadeghian, and Jaspal Singh. Private set
+     operations from oblivious switching. In PKC, 2021.
+[24] Gayathri Garimella, Benny Pinkas, Mike Rosulek, Ni Trieu, and Avishay Yanai. Oblivious key-value
+     stores and amplification for private set intersection. In CRYPTO, 2021.
+[25] Craig Gentry, Shai Halevi, and Nigel P. Smart. Homomorphic evaluation of the AES circuit. In
+     CRYPTO, 2012.
+[26] Ran Gilad-Bachrach, Nathan Dowlin, Kim Laine, Kristin E. Lauter, Michael Naehrig, and John Werns-
+     ing. Cryptonets: Applying neural networks to encrypted data with high throughput and accuracy. In
+     ICML, 2016.
+[27] Xiaojie Guo, Ye Han, Zheli Liu, Ding Wang, Yan Jia, and Jin Li. Birds of a feather flock together: How
+     set bias helps to deanonymize you via revealed intersection sizes. In USENIX Security, 2022.
+[28] Kyle Hogan, Noah Luther, Nabil Schear, Emily Shen, David Stott, Sophia Yakoubov, and Arkady
+     Yerukhimovich. Secure multiparty computation for cooperative cyber risk assessment. In IEEE Cyber-
+     security Development, 2016.
+[29] Yanxue Jia, Shi-Feng Sun, Hong-Sheng Zhou, and Dawu Gu. Scalable private set union, with stronger
+     security. In USENIX Security, 2024.
+[30] Yanxue Jia, Shifeng Sun, Hong-Sheng Zhou, Jiajun Du, and Dawu Gu. Shuffle-based private set union:
+     Faster and more secure. In USENIX Security, 2022.
+[31] Vladimir Kolesnikov, Ranjit Kumaresan, Mike Rosulek, and Ni Trieu. Efficient batched oblivious PRF
+     with applications to private set intersection. In ACM CCS, 2016.
+[32] Vladimir Kolesnikov, Mike Rosulek, Ni Trieu, and Xiao Wang.         Scalable private set union from
+     symmetric-key techniques. In ASIACRYPT, 2019.
+
+[33] Arjen K. Lenstra and Tim Voss. Information security risk assessment, aggregation, and mitigation. In
+     ACISP, 2004.
+[34] Xiang Liu and Ying Gao. Scalable multi-party private set union from multi-query secret-shared private
+     membership test. In ASIACRYPT, 2023.
+[35] Rasmus Pagh and Flemming Friche Rodler. Cuckoo hashing. In Algorithms - ESA, 2001.
+
+[36] Benny Pinkas, Mike Rosulek, Ni Trieu, and Avishay Yanai. Spot-light: Lightweight private set inter-
+     section from sparse OT extension. In CRYPTO, 2019.
+[37] Benny Pinkas, Mike Rosulek, Ni Trieu, and Avishay Yanai. PSI from paxos: Fast, malicious private set
+     intersection. In EUROCRYPT, 2020.
+
+[38] Benny Pinkas, Thomas Schneider, Gil Segev, and Michael Zohner. Phasing: Private set intersection
+     using permutation-based hashing. In USENIX Security, 2015.
+[39] Benny Pinkas, Thomas Schneider, Oleksandr Tkachenko, and Avishay Yanai. Efficient circuit-based
+     PSI with linear communication. In EUROCRYPT, 2019.
+
+[40] Benny Pinkas, Thomas Schneider, and Michael Zohner. Faster private set intersection based on OT
+     extension. In USENIX Security, 2014.
+[41] Michael O. Rabin. How to exchange secrets with oblivious transfer. IACR Cryptol. ePrint Arch., 2005.
+[42] Srinivasan Raghuraman and Peter Rindal. Blazing fast PSI from improved OKVS and subfield VOLE.
+     In ACM CCS, 2022.
+
+[43] Peter Rindal and Phillipp Schoppmann. VOLE-PSI: fast OPRF and circuit-psi from vector-ole. In
+     EUROCRYPT, 2021.
+[44] Nigel P. Smart and Frederik Vercauteren. Fully homomorphic SIMD operations. Des. Codes Cryptogr.,
+     2014.
+
+[45] Binbin Tu, Yu Chen, Qi Liu, and Cong Zhang. Fast unbalanced private set union from fully homomorphic
+     encryption. In ACM CCS, 2023.
+[46] Binbin Tu, Xiangling Zhang, Yujie Bai, and Yu Chen. Fast unbalanced private computing on (labeled)
+     set intersection with cardinality. IACR Cryptol. ePrint Arch., 2023.
+
+[47] Cong Zhang, Yu Chen, Weiran Liu, Liqiang Peng, Meng Hao, Anyu Wang, and Xiaoyun Wang. Unbal-
+     anced private set union with reduced computation and communication. In ACM CCS, 2024.
+[48] Cong Zhang, Yu Chen, Weiran Liu, Min Zhang, and Dongdai Lin. Linear private set union from
+     multi-query reverse private membership test. In USENIX Security, 2023.
+A      Optimization techniques
+Following unbalanced PSI/PSU [15, 13, 17, 45], we can take advantage of the same optimization techniques
+of FHE [21], such as batching, windowing, partitioning, and modulus switching, to significantly reduce the
+depth of the homomorphic circuit. We review the optimization techniques as follows.
+
+Batching. Batching is a well-known and powerful technique in fully homomorphic encryption (FHE) that
+enables Single Instruction, Multiple Data (SIMD) operations on ciphertexts [25, 9, 44, 14, 26]. This technique
+allows the receiver to process γ items from the sender simultaneously, leading to a γ-fold improvement in
+both computation and communication efficiency. More precisely, the sender groups its items into vectors
+of length γ, encrypts them, and sends m/γ ciphertexts to the receiver. Upon receiving each ciphertext
+ci , the receiver samples a vector ri = (ri1 , · · · , riγ ) ∈ (Zt \{0})n at random, homomorphically computes
+ri + Πy∈Y (ci − y), and sends it back to the sender.
+
+Windowing. We utilize the windowing technique [15, 13, 17, 45] to reduce the depth of the circuit. In our
+eUPSU, the receiver needs to evaluate the encrypted data. Given an encryption c ← FHE.Enc(x), the receiver
+samples a random r in Zt \{0} and homomorphically computes r + Πyi ∈Y (c − yi ). The receiver computes at
+worst the product xn , which requires a circuit of depth ⌈log2 n⌉. To see this, we write r + Πyi ∈Y (x − yi ) =
+r + a0 + a1 x + · · · + an−1 xn−1 + xn . If the sender provides encryptions of additional powers of x, the receiver
+can use these to compute the same operation with a lower circuit depth. More precisely, for a window
+                                                                        lj
+size of l bits, the sender computes and sends cij = FHE.Enc(xi·2 ) to the receiver for all 1 ≤ i ≤ 2l − 1,
+                                                                                                      ⌊log2 n⌋
+0 ≤ j ≤ ⌊log2 (n)/l⌋. For example, when l = 1, the sender transmits encryptions of x, x2 , · · · , x2          . This
+approach significantly reduces the circuit depth.
+
+Partitioning. Another approach to reducing circuit depth is to partition the receiver’s set into α subsets [15,
+13, 17, 45]. In our eUPSU, the receiver computes encryptions of all powers x, · · · , xn for each sender’s item
+x. With partitioning, the receiver only needs to compute encryptions of x, · · · , xn/α , which can be reused
+across the α partitions.
+
+Modulus switching. We employ modulus switching to effectively reduce the size of the response ciphertexts
+as [15, 13, 10]. Modulus switching is a well-known operation in FHE. It is a public operation that transforms
+a ciphertext encrypted with the parameter q into a ciphertext that encrypts the same plaintext but using a
+smaller parameter q ′ , where q ′ < q. Note that the security of the protocol is trivially preserved as long as
+the smaller modulus q ′ is determined at setup.
+

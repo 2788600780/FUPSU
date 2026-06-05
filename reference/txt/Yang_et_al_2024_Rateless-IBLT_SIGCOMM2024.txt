@@ -1,0 +1,1462 @@
+                                                                                 Practical Rateless Set Reconciliation
+                                                                  Lei Yang                                                  Yossi Gilad                           Mohammad Alizadeh
+                                                     leiy@csail.mit.edu                                            yossigi@cs.huji.ac.il                         alizadeh@csail.mit.edu
+                                             Massachusetts Institute of Technology                            Hebrew University of Jerusalem               Massachusetts Institute of Technology
+                                                    Cambridge, MA, USA                                              Jerusalem, Israel                             Cambridge, MA, USA
+
+                                         Abstract                                                                                    (participating servers) maintain replicas of the entire or part of
+                                         Set reconciliation, where two parties hold fixed-length bit strings                         the application state, and synchronize their replicas by exchanging
+                                         and run a protocol to learn the strings they are missing from                               messages on a peer-to-peer network.
+                                         each other, is a fundamental task in many distributed systems. We                              The naive approach to solving this problem requires communica-
+                                                                                                                                     tion proportional to the size of the set one party holds. For example,
+
+
+
+
+arXiv:2402.02668v3 [cs.DC] 19 Jun 2024
+                                         present Rateless Invertible Bloom Lookup Tables (Rateless IBLTs),
+                                         the first set reconciliation protocol, to the best of our knowledge,                        some applications send the entire set while other applications have
+                                         that achieves low computation cost and near-optimal communica-                              parties exchange the hashes of their items or a Bloom filter of their
+                                         tion cost across a wide range of scenarios: set differences of one                          sets (the Bloom filter’s size is proportional to the set size). A node
+                                         to millions, bit strings of a few bytes to megabytes, and workloads                         then requests the items it is missing. All these solutions induce high
+                                         injected by potential adversaries. Rateless IBLT is based on a novel                        overhead, especially when nodes have large, overlapping sets. This
+                                         encoder that incrementally encodes the set difference into an infi-                         is a common scenario in distributed applications, such as nodes in
+                                         nite stream of coded symbols, resembling rateless error-correcting                          a blockchain network synchronizing transactions or account bal-
+                                         codes. We compare Rateless IBLT with state-of-the-art set reconcili-                        ances, social media servers synchronizing users’ posts, or a name
+                                         ation schemes and demonstrate significant improvements. Rateless                            system synchronizing certificates or revocation lists [33].
+                                         IBLT achieves 3–4× lower communication cost than non-rateless                                  An emerging alternative solution to the state synchronization
+                                         schemes with similar computation cost, and 2–2000× lower compu-                             problem is set reconciliation. It abstracts the application’s state as a
+                                         tation cost than schemes with similar communication cost. We show                           set and then uses a reconciliation protocol to synchronize replicas.
+                                         the real-world benefits of Rateless IBLT by applying it to synchro-                         Crucially, the overhead is determined by the set difference size
+                                         nize the state of the Ethereum blockchain, and demonstrate 5.6×                             rather than the set size, allowing support for applications with very
+                                         lower end-to-end completion time and 4.4× lower communication                               large states. However, existing set reconciliation protocols suffer
+                                         cost compared to the system used in production.                                             from at least one of two major caveats. First, most protocols are
+                                                                                                                                     parameterized by the size of the set difference between the two
+                                         CCS Concepts                                                                                participating parties. However, in practice, setting this parameter is
+                                                                                                                                     difficult since scenarios such as temporal network disconnections
+                                         • Networks → Application layer protocols; Network algorithms;
+                                                                                                                                     or fluctuating load on the system make it challenging to know what
+                                         Network protocol design; • Mathematics of computing → Coding
+                                                                                                                                     the exact difference size will be ahead of time. Thus, application
+                                         theory; • Computer systems organization → Dependable and
+                                                                                                                                     designers often resort to running online estimation protocols, which
+                                         fault-tolerant systems and networks.
+                                                                                                                                     induce additional latency and only give a statistical estimate of
+                                                                                                                                     the set difference size. Such estimators are inaccurate, forcing the
+                                         Keywords                                                                                    application designers to tailor the parameters to the tail of the
+                                         Set Reconciliation, Rateless Codes, Universal Codes, Data Synchro-                          potential error, resulting in high communication overhead. The
+                                         nization, Randomized Algorithms                                                             second type of caveat is that some set reconciliation protocols
+                                         ACM Reference Format:                                                                       suffer from high decoding complexity, where the recipient has to
+                                         Lei Yang, Yossi Gilad, and Mohammad Alizadeh. 2024. Practical Rateless                      run a quadratic-time or worse algorithm, with relatively expensive
+                                         Set Reconciliation. In ACM SIGCOMM 2024 Conference (ACM SIGCOMM                             operations.
+                                         ’24), August 4–8, 2024, Sydney, NSW, Australia. ACM, New York, NY, USA,                        We propose a rateless set reconciliation scheme called Rateless
+                                         18 pages. https://doi.org/10.1145/3651890.3672219                                           Invertible Bloom Lookup Tables (Rateless IBLT) that addresses these
+                                                                                                                                     challenges. In Rateless IBLT, a sender generates an infinite stream of
+                                         1     Introduction                                                                          coded symbols that encode the set difference, and the recipient can
+                                         Recent years have seen growing interest in distributed applica-                             decode the set difference when they receive enough coded symbols.
+                                         tions, such as blockchains [1, 22, 37], social networks [26], mesh                          Rateless IBLT has no parameters and does not need an estimate of
+                                         messaging [25], and file hosting [35]. In these applications, nodes                         the set difference size. With overwhelming probability, the recipient
+                                                                                                                                     can decode the set difference after receiving a number of coded
+                                         Permission to make digital or hard copies of all or part of this work for personal or       symbols that are proportional to the set difference size rather than
+                                         classroom use is granted without fee provided that copies are not made or distributed
+                                         for profit or commercial advantage and that copies bear this notice and the full citation
+                                                                                                                                     the entire set size, resulting in low overhead. Rateless IBLT’s coded
+                                         on the first page. Copyrights for third-party components of this work must be honored.      symbols are universal. The same sequence of coded symbols can
+                                         For all other uses, contact the owner/author(s).                                            be used to reconcile any number of differences with any other set.
+                                         ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+                                                                                                                                     Therefore, the sender can create coded symbols once and use them
+                                         © 2024 Copyright held by the owner/author(s).
+                                         ACM ISBN 979-8-4007-0614-1/24/08                                                            to synchronize with any number of peers. The latter property is
+                                         https://doi.org/10.1145/3651890.3672219
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                                Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+particularly useful for applications such as blockchain peer-to-peer                       theory. On a high level, we can view 𝐵 as a copy of 𝐴 with 𝑑 errors
+networks, where nodes may synchronize with multiple sources                                (insertions and/or deletions), and the goal of set reconciliation
+with overlapping states, since it allows the node to recover the                           is to correct these errors. Alice encodes 𝐴 into a list of 𝑚 coded
+union of their states using coded symbols it concurrently receives                         symbols and sends them to Bob. Bob then uses the coded symbols
+from all of them.                                                                          and 𝐵 to decode 𝐴 △ 𝐵. The coded symbols are the parity data in a
+   In summary, we make the following contributions:                                        systematic error-correcting code that can correct set insertions and
+    (1) The design of Rateless IBLT, the first set reconciliation pro-                     deletions [21]. Using appropriate codes, it takes 𝑚 = 𝑂 (𝑑) coded
+        tocol that achieves low computation cost and near-optimal                          symbols, each of length 𝑂 (ℓ), to correct the 𝑑 errors, resulting in a
+        communication cost across a wide range of scenarios: set                           communication cost of 𝑂 (𝑑ℓ).
+        differences of one to millions, bit strings of a few bytes to                          The performance of existing solutions varies depending on the
+        megabytes, and workloads injected by potential adversaries.                        codes they use. Characteristic Polynomial Interpolation (CPI) [19]
+    (2) A mathematical analysis of Rateless IBLT’s communication                           uses a variant of Reed-Solomon codes [27], where coded symbols
+        and computation costs. We prove that when the set difference                       are evaluations of a polynomial uniquely constructed from 𝐴. CPI
+        size 𝑑 goes to infinity, Rateless IBLT reconciles 𝑑 differences                    has a communication cost of 𝑑ℓ, achieving the information-theoretic
+        with 1.35𝑑 communication. We show in simulations that the                          lower bound. However, its computation cost is 𝑂 (|𝐴|𝑑ℓ) for Alice,
+        communication cost is between 1.35𝑑 to 1.72𝑑 on average for                        and 𝑂 (|𝐵|𝑑ℓ + 𝑑 3 ℓ 4 ) for Bob. The latter was improved to 𝑂 (|𝐵|𝑑ℓ +
+        all values of 𝑑 and that it quickly converges to 1.35× when                        𝑑 2 ℓ 2 ) in PinSketch [7, 38] using BCH codes [4] that are easier to
+        𝑑 is in the low hundreds.                                                          decode. Nevertheless, as we show in § 7.2, computation on both
+    (3) An implementation of Rateless IBLT as a library. When rec-                         Alice and Bob quickly becomes intractable even at moderate |𝐴|, |𝐵|,
+        onciling 1000 differences, our implementation can process                          and 𝑑, limiting its applicability. For example, Shrec [14] attempted
+        input data (sets being reconciled) at 120 MB/s using a single                      to use PinSketch to synchronize transactions in a high-throughput
+        core of a 2016-model CPU.                                                          blockchain but found that its high computation complexity severely
+    (4) Extensive experiments comparing Rateless IBLT with state-                          limits system throughput [14, § 5.2].
+        of-the-art solutions. Rateless IBLT achieves 3–4× lower com-                           Invertible Bloom Lookup Tables (IBLTs) [13] use sparse graph
+        munication cost than regular IBLT [13] and MET-IBLT [16],                          codes similar to LT [17] and LDPC [9] codes. Each set item is
+        two non-rateless schemes; and 2–2000× lower computation                            summed into 𝑘 coded symbols, denoted as its neighbors in a ran-
+        cost than PinSketch [7].                                                           dom, sparse graph. Some variants also consider graphs with richer
+    (5) Demonstration of Rateless IBLT’s real-world benefits by ap-                        structures such as varying 𝑘 depending on the set item [15]. The
+        plying our implementation to synchronize the account states                        computation cost is 𝑂 (|𝐴|𝑘ℓ) for Alice, and 𝑂 ((|𝐵| + 𝑑)𝑘ℓ) for Bob.
+        of the Ethereum blockchain. Compared to Merkle trie [39],                          The communication cost is 𝑂 (𝑑ℓ) with a coefficient strictly larger
+        today’s de facto solution, Rateless IBLT achieves 5.6× lower                       than 1 (e.g., 4–10 for small 𝑑, see § 7.1). Due to their random nature,
+        completion time and 4.4× lower communication cost on his-                          IBLTs may fail to decode even if properly parameterized [8]. We
+        toric traces.                                                                      provide more background on IBLTs in § 3.
+                                                                                               The aforementioned discussions assume that the codes are prop-
+2    Motivation and Related Work                                                           erly parameterized. In particular, we need to decide 𝑚, the number
+                                                                                           of coded symbols Alice sends to Bob. Decoding will fail if 𝑚 is
+We first formally define the set reconciliation problem [8, 19]. Let 𝐴
+                                                                                           too small compared to 𝑑, and we incur redundant communication
+and 𝐵 be two sets containing items (bit strings) of the same length
+                                                                                           and computation if 𝑚 is too large. The optimal choice of 𝑚 is thus
+ℓ. 𝐴 and 𝐵 are stored by two distinct parties, Alice and Bob. They
+                                                                                           a function of 𝑑. However, accurate prediction of 𝑑 is usually dif-
+want to efficiently compute the symmetric difference of 𝐴 and 𝐵,
+                                                                                           ficult [14, 23], and sometimes outright impossible [24]. Existing
+i.e., (𝐴 ∪ 𝐵) \ (𝐴 ∩ 𝐵), denoted as 𝐴 △ 𝐵. By convention [8], we
+                                                                                           systems often resort to online estimation protocols [8] and over-
+assume that only one of the parties, Bob, wants to compute 𝐴 △ 𝐵
+                                                                                           provision 𝑚 to accommodate the ensuing errors [8, 24].
+because he can send the result to Alice afterward if needed.
+    While straightforward solutions exist, such as exchanging Bloom
+                                                                                           The case for rateless reconciliation. A key feature of Rateless
+filters [3] or hashes of the items, they incur 𝑂 (|𝐴| + |𝐵|) commu-
+                                                                                           IBLT is that it can generate an infinite stream of coded symbols for
+nication and computation costs. The costs can be improved to log-
+                                                                                           a set, resembling rateless error-correcting codes [5]. For any 𝑚 > 0,
+arithmic by hashing the sets into Merkle   tries [39], where a trie                       the first 𝑚 coded symbols can reconcile 𝑂 (𝑚) set differences with
+node on depth 𝑖 is the hash of a 1/2𝑖 -fraction of the set. Alice
+                                                                                           a coefficient close to 1 (0.74 in most cases, see § 7.1). This means
+and Bob traverse and compare their tries, only descending into a
+                                                                                           that Rateless IBLT does not require parameterization, making real-
+sub-trie (subset) if their roots (hashes) differ. However, the costs
+                                                                                           world deployments easy and robust. Alice simply keeps sending
+are still dependent on |𝐴|, |𝐵|, and now takes 𝑂 (log |𝐴| + log |𝐵|)
+                                                                                           coded symbols to Bob, and Bob can decode as soon as he receives
+round trips.
+                                                                                           enough—which we show analytically (§ 5) and experimentally (§ 7.1)
+    In contrast, the information-theoretic lower bound [19, § 2] of
+                                                                                           to be about 1.35𝑑 in most cases—coded symbols. Neither Alice nor
+the communication cost is 𝑑ℓ, where 𝑑 = |𝐴 △ 𝐵|.1 State-of-the-art
+                                                                                           Bob needs to know 𝑑 beforehand. The encoding and the decoding
+solutions get close to this lower bound using techniques from coding
+                                                                                           algorithms have zero parameters.
+1 More precisely, the lower bound is 𝑑ℓ − 𝑑 log
+                                                  2 𝑑 [19, § 2], but the second term can
+                                                                                              The concept of incrementally generating coded symbols is first
+be neglected when 𝑑 ≪ 2ℓ .                                                                 mentioned in CPI [19]. However, as mentioned before, its real-world
+Practical Rateless Set Reconciliation                                                                  ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+
+
+use has been limited due to the high computation cost. We discuss
+                                                                                                   𝐴       𝑥0      𝑥1       𝑥2       𝑥3
+these limitations in § 7, and demonstrate that Rateless IBLT reduces
+the computation cost by 2–2000×, while incurring a communica-
+tion cost of less than 2× the information-theoretic lower bound.
+Concurrently with our work, MET-IBLT [16] proposes to simulta-
+neously optimize the parameters of IBLTs for multiple pre-selected                         IBLT(𝐴)         𝑎0      𝑎1       𝑎2       𝑎3      𝑎4       𝑎5
+values of 𝑑, e.g., 𝑑 1, 𝑑 2, . . . , 𝑑𝑛 , such that a list of coded symbols for
+𝑑𝑖 is a prefix/suffix of that for 𝑑 𝑗 . However, it only considers a few
+values of 𝑑 due to the complexity of the optimization so still re-                Figure 1: Example of constructing a regular IBLT for set 𝐴
+quires workload-dependent parameterization. As we show in § 7.1,                  with source symbols 𝑥 0, 𝑥 1, 𝑥 2, 𝑥 3 . The IBLT has 𝑚 = 6 coded
+its communication cost is 4–10× higher for the 𝑑 values that are not              symbols: 𝑎 0, 𝑎 1, 𝑎 2, 𝑎 3, 𝑎 4, 𝑎 5 . Each source symbol is mapped
+optimized for. In addition, MET-IBLT does not provide a practical                 to 𝑘 = 3 coded symbols. Solid lines represent the mapping
+algorithm to incrementally generate coded symbols. Rateless IBLT                  between source and coded symbols. For example, for 𝑎 4 , sum =
+does not have any of these issues.                                                𝑥 1 ⊕ 𝑥 3 , checksum = Hash(𝑥 1 ) ⊕ Hash(𝑥 3 ), and count = 2. ⊕ is
+    Rateless IBLT offers additional benefits. Imagine that Alice has              the bitwise exclusive-or operator.
+the canonical system state, and multiple peers wish to reconcile
+their states with Alice. In a non-rateless scheme, Alice must sep-
+arately produce coded symbols for each peer depending on the
+particular number of differences 𝑑. This incurs additional compu-
+tation and storage I/Os for every peer she reconciles with. And,
+more importantly, Alice must produce the coded symbols on the                          (a) Iteration 1             (b) Iteration 2             (c) Iteration 3
+fly because she does not know 𝑑 before a peer arrives. In com-
+parison, using Rateless IBLT, Alice simply maintains a universal                  Figure 2: Example of decoding the IBLT in Fig. 1 using peel-
+sequence of coded symbols and streams it to anyone who wishes to                  ing. Dark colors represent pure coded symbols at the begin-
+reconcile. Rateless IBLT also allows her to incrementally update the              ning of each iteration, and source symbols recovered so far.
+coded symbols as she modifies the state (set), further amortizing                 Dashed edges are removed at the end of each iteration, by
+the encoding costs.                                                               XOR-ing the source symbol (now recovered) and its hash on
+    To the best of our knowledge, Rateless IBLT is the first set rec-             one end of the edge into the sum and checksum fields of the
+onciliation solution that simultaneously achieves the following                   coded symbol on the other end.
+properties:
+     • Ratelessness. The encoder generates an infinite sequence
+                                                                                  list of 𝑚 coded symbols. Each source symbol is mapped to 𝑘 coded
+       of coded symbols, capable of reconciling any number of
+                                                                                  symbols uniformly at random, e.g., by using 𝑘 hash functions. Here,
+       differences 𝑑 with low overhead.
+                                                                                  𝑚 and 𝑘 are design parameters.
+     • Universality. The same algorithm works efficiently for any
+       |𝐴|, |𝐵|, 𝑑, and ℓ without any parameter.                                  Coded symbol format. A coded symbol contains two fields: sum,
+     • Low communication cost. The average communication                          the bitwise exclusive-or (XOR) sum of the source symbols mapped to
+       cost peaks at 1.72𝑑ℓ when 𝑑 = 4, and quickly converges to                  it; and checksum, the bitwise XOR sum of the hashes of the source
+       1.35𝑑ℓ when 𝑑 is at the low hundreds.                                      symbols mapped to it. In practice, there is usually a third field,
+     • Low computation cost. Encoding costs 𝑂 (ℓ log 𝑑) per set                   count, which we will discuss shortly. Fig. 1 provides an example.
+       item, and decoding costs 𝑂 (ℓ log 𝑑) per difference. In practice,          Peeling decoder. To recover source symbols from a list of coded
+       a single core on a 2016-model CPU can encode (decode) 3.4                  symbols, the decoder runs a recursive procedure called “peeling”.
+       million items (differences) per second when 𝑑 = 1000 and                   We say a coded symbol is pure when exactly one source symbol is
+       ℓ = 8 bytes.                                                               mapped to it; or, equivalently, when its checksum equals the hash
+We demonstrate these advantages by comparing with all the afore-                  of its sum [8].2 In this case, its sum field is the source symbol itself,
+mentioned schemes in § 7 and applying Rateless IBLT to a potential                which is now recovered. The decoder then removes the recovered
+application in § 7.3.                                                             source symbol from any other coded symbols it is mapped to (de-
+                                                                                  termined by the 𝑘 agreed-upon hash functions), by XOR-ing the
+                                                                                  source symbol and its hash into their sum and checksum fields, re-
+3    Background
+                                                                                  spectively. This process may generate additional pure symbols; the
+Our Rateless IBLT retains the format of coded symbols and the                     decoder repeats until no pure symbols are left. Decoding fails if it
+decoding algorithm of regular IBLTs, but employs a new encoder                    stops before recovering all source symbols [13]. Fig. 2 shows the
+that is oblivious to the number of differences to reconcile. In this              example of decoding the IBLT in Fig. 1.
+section, we provide the necessary background on IBLTs [8, 13] and
+                                                                                  Subtraction of coded symbols. 𝑎 ⊕ 𝑏 denotes subtraction of two
+explain why regular IBLTs fail to provide the rateless property that
+                                                                                  coded symbols 𝑎, 𝑏. For the resulting coded symbol, its sum is the
+we desire. We discuss the new rateless encoder in the next section.
+   On a high level, an IBLT is an encoding of a set. We call the items            2 Unless there is a hash collision, which happens with negligible probability in the
+(bit strings) in the set the source symbols, and an IBLT comprises a              length of the hash. See § 4.3.
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                                      Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+bitwise XOR of 𝑎.sum and 𝑏.sum; its checksum is the bitwise XOR of                            𝐴△𝐵
+𝑎.checksum and 𝑏.checksum; and its count is 𝑎.count − 𝑏.count.
+Set reconciliation using IBLTs. IBLTs with the same parame-                                   IBLT
+ter configuration (𝑚, 𝑘, and hash functions mapping from source
+                                                                                                 (a) Regular IBLT, 𝑚 = 4                   (b) Regular IBLT, 𝑚 = 7
+symbols to coded symbols) can be subtracted [8]. For any two sets
+𝐴 and 𝐵, IBLT(𝐴) ⊕ IBLT(𝐵) = IBLT(𝐴 △ 𝐵), where the ⊕ op-                                     𝐴△𝐵
+erator subtracts each corresponding pair of coded symbols from
+the two IBLTs. This is because if a source symbol is present in
+both 𝐴 and 𝐵, then it is XOR-ed twice into each coded symbol it                               Rateless IBLT
+is mapped to in IBLT(𝐴) ⊕ IBLT(𝐵), resulting in no effect. As a                            (c) Rateless IBLT, prefix of 𝑚 = 4 (d) Rateless IBLT, prefix of 𝑚 = 7
+result, IBLT(𝐴) ⊕ IBLT(𝐵) is an encoding of the source symbols
+that appear exactly once across 𝐴 and 𝐵, i.e., 𝐴 △ 𝐵.                                      Figure 3: Regular IBLTs and prefixes of Rateless IBLT for 5
+   To reconcile 𝐴 and 𝐵, Alice sends IBLT(𝐴) to Bob, who then                              source symbols. Figs. a, c (left) have too few coded symbols
+computes and decodes IBLT(𝐴) ⊕ IBLT(𝐵) to recover 𝐴 △ 𝐵. To                                and are undecodable. Figs. b, d (right) are decodable. Red
+determine whether a recovered source symbol belongs to 𝐴 or 𝐵,                             edges are common across each row. Dark coded symbols in
+we use the count field.3 It records the number of source symbols                           Figs. b, d are new or changed compared to their counterparts
+mapped to a coded symbol. When a coded symbol is pure, count = 1                           in Figs. a, c. Imagine that Alice sends 4 coded symbols but
+indicates that the recovered source symbol is exclusive to 𝐴, and                          Bob fails to decode. In regular IBLT, in order to enlarge 𝑚, she
+count = −1 indicates 𝐵 [8].                                                                has to send all 7 coded symbols since the existing 4 symbols
+Limitations of IBLTs. IBLTs are not rateless. An IBLT with a                               also changed. In Rateless IBLT, she only needs to send the 3
+particular set of parameters 𝑚, 𝑘 only works for a narrow range of                         new symbols. The existing 4 symbols stay the same.
+difference size 𝑑. It quickly becomes inefficient to use it for more
+or fewer differences than parameterized for. In § A, we show The-
+orems A.1 and A.2, which we summarize informally here. First,                                    • Decodability. With high probability, the peeling decoder
+with high probability, Bob cannot recover any source symbol in                                     can recover all source symbols in a set 𝑆 using a prefix of
+𝐴 △ 𝐵 when 𝑑 > 𝑚, making undersized IBLTs completely useless.                                      𝑠 0, 𝑠 1, 𝑠 2, . . . with length 𝑂 (|𝑆 |).
+On the other hand, we cannot simply default to a very large 𝑚 to                                 • Linearity. For any sets 𝐴 and 𝐵, 𝑎 0 ⊕ 𝑏 0, 𝑎 1 ⊕ 𝑏 1, 𝑎 2 ⊕ 𝑏 2, . . .
+accommodate a potentially large 𝑑. If 𝑑 turns out to be small, i.e.,                               is the coded symbol sequence for 𝐴 △ 𝐵.
+𝑑 ≪ 𝑚, Alice still has to send almost the entire IBLT (𝑚 coded                                   • Universality. The encoding algorithm does not need any
+symbols) for Bob to decode successfully, leading to high communi-                                  extra information other than the set being encoded.
+cation cost. Alice cannot dynamically enlarge 𝑚, either. Each source                           These properties allow us to build the following simple protocol
+symbol is already uniformly mapped to 𝑘 out of 𝑚 coded symbols                             for rateless reconciliation. To reconcile 𝐴 and 𝐵, Alice incrementally
+upon encoding. Increasing 𝑚 post hoc would require remapping                               sends 𝑎 0, 𝑎 1, 𝑎 2, . . . to Bob. Bob computes 𝑎 0 ⊕𝑏 0, 𝑎 1 ⊕𝑏 1, 𝑎 2 ⊕𝑏 2, . . . ,
+the source symbols to the expanded space of coded symbols so that                          and tries to decode these symbols using the peeling decoder. Bob
+the mapping remains uniform. This requires Alice to rebuild and                            notifies Alice to stop when he has recovered all source symbols in
+re-send the entire IBLT. Figs. 3a, 3b show an example.                                     𝐴 △ 𝐵. As we will soon show, the first symbol 𝑎 0 ⊕ 𝑏 0 in Rateless
+                                                                                           IBLT is decoded only after all source symbols are recovered. This
+4     Design                                                                               is the indicator for Bob to terminate.
+                                                                                               Linearity guarantees that 𝑎 0 ⊕𝑏 0, 𝑎 1 ⊕𝑏 1, 𝑎 2 ⊕𝑏 2, . . . is the coded
+For any set 𝑆, Rateless IBLT defines an infinite sequence of coded
+                                                                                           symbol sequence for 𝐴 △ 𝐵. Decodability guarantees that Bob can
+symbols. Intuitively, an infinite number of coded symbols for 𝐴
+                                                                                           decode after receiving 𝑂 (|𝐴 △ 𝐵|) coded symbols and recover all
+and 𝐵 allows Rateless IBLT to accommodate an arbitrarily large set
+                                                                                           source symbols in 𝐴 △ 𝐵. Universality guarantees that Alice and
+difference. Every prefix of this infinite sequence functions like a
+                                                                                           Bob do not need any prior context to run the protocol.
+normal IBLT and can reconcile a number of differences proportional
+                                                                                               If Alice regularly reconciles with multiple peers, she may cache
+to its length. Meanwhile, because these prefixes belong to a common
+                                                                                           coded symbols for 𝐴 to avoid recomputing them every session.
+infinite sequence, Alice simply streams the sequence until Bob
+                                                                                           Universality implies that Alice can reuse the same cached symbols
+receives a long enough prefix to decode. For any 𝑑 > 0, on average,
+                                                                                           across different peers. Linearity implies that if she updates her set
+reconciling 𝑑 differences requires only the first 1.35𝑑–1.72𝑑 coded
+                                                                                           𝐴, she can incrementally update the cached symbols by treating
+symbols in the sequence.
+                                                                                           the updates 𝐴 △ 𝐴′ as a set and subtracting its coded symbols from
+                                                                                           the cached ones for 𝐴.
+4.1      Coded Symbol Sequence
+                                                                                               We now discuss how we design an encoding algorithm that
+Our main task is to design the algorithm that encodes any set 𝑆                            satisfies the three properties we set to achieve.
+into an infinite sequence of coded symbols, denoted as 𝑠 0, 𝑠 1, 𝑠 2, . . . .
+It should provide the following properties:                                                4.1.1 Linearity & Universality. Our key observation is that to en-
+                                                                                           sure linearity, it is sufficient to define a consistent mapping rule,
+3 Alternatively, Bob may try looking up each item in 𝐴 △ 𝐵 against 𝐵 , but this requires   which, given any source symbol 𝑥 ∈ {0, 1}∗ and any index 𝑖 ≥ 0,
+indexing 𝐵 , which is undesirable when |𝐵 | is large.                                      deterministically decides whether 𝑥 should be mapped to the 𝑖-th
+Practical Rateless Set Reconciliation                                                        ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+
+
+coded symbol when encoding a set that contains 𝑥. This ensures              For simplicity, we ignore the degree of freedom stemming from
+that if 𝑥 ∈ 𝐴 ∩ 𝐵, then it will be mapped to both 𝑎𝑖 and 𝑏𝑖 or nei-         the 𝑖 𝜖 factor since for a sufficiently small 𝜖 and any practical 𝑖, it
+ther; in either case, 𝑥 will not be reflected in 𝑎𝑖 ⊕ 𝑏𝑖 . On the other     is very close to 1. The remaining candidates for 𝜌 (𝑖) are the ones
+hand, if 𝑥 ∈ 𝐴 △ 𝐵, and 𝑥 should be mapped to index 𝑖 according             in between, i.e., functions of order 1/𝑖. We choose the simplest
+to the rule, then it will be mapped to exactly one of 𝑎𝑖 or 𝑏𝑖 , and        function in this class:
+therefore will be reflected in 𝑎𝑖 ⊕ 𝑏𝑖 . Since the mapping rule makes
+                                                                                                                    1
+decisions based only on 𝑥 and 𝑖, the resulting encoding algorithm                                       𝜌 (𝑖) =          ,                         (1)
+also satisfies universality.                                                                                      1 + 𝛼𝑖
+
+4.1.2 Decodability. Whether the peeling decoder can recover all             where 𝛼 > 0 is a parameter. We shift the denominator by 1 because 𝑖
+source symbols from a set of coded symbols is fully determined by           starts at 0. In § 5, we prove that this 𝜌 (𝑖) achieves decodability with
+the mapping between the source and the coded symbols. Let 𝜌 (𝑖)             high efficiency: recovering a set 𝑆 only requires the first 1.35|𝑆 |–
+be the probability that a random source symbol maps to the 𝑖-th             1.72|𝑆 | coded symbols on average.
+coded symbol, which we refer to as the mapping probability. It is              We highlight two interesting properties of our 𝜌 (𝑖). First, 𝜌 (0) =
+the key property that defines the behavior of a mapping rule. In the        1. This means that for any set, every source symbol is mapped to
+remainder of this subsection, we constrain 𝜌 (𝑖) by examining two           the first coded symbol. This coded symbol is only decoded after
+necessary conditions for peeling to succeed. Our key conclusion             all source symbols are recovered. So, Bob can tell whether recon-
+is that in order for decodability to hold, 𝜌 (𝑖) must be inversely          ciliation has finished by checking if 𝑎 0 ⊕ 𝑏 0 is decoded. Second,
+                                                                                                                                         Í
+proportional to 𝑖. This rejects most functions as candidates of 𝜌 (𝑖)       among the first 𝑚 indices, a source symbol is mapped to 𝑚−1   𝑖=0 𝜌 (𝑖)
+and leads us to a concrete instantiation of 𝜌 (𝑖). We will design           of them on average, or 𝑂 (log 𝑚). It means that the density of the
+a concrete algorithm (mapping rule) that realizes the mapping               mapping, which decides the computation cost of encoding and de-
+probability in the next subsection, and mathematically prove that           coding, decreases quickly as 𝑚 increases. As we will show in § 7.2,
+it satisfies decodability in § 5.                                           the low density allows Rateless IBLT to achieve 2–2000× higher
+    First, to kick-start the peeling decoder, there must be a coded         throughput than PinSketch.
+symbol with exactly one source symbol mapped to it (a pure coded
+symbol). For a set 𝑆 and index 𝑖, the probability that this happens         4.2    Realizing the Mapping Probability
+decreases quasi-exponentially in 𝜌 (𝑖)|𝑆 |. This implies that 𝜌 (𝑖) must    We now design an efficient deterministic algorithm for mapping
+decrease quickly with 𝑖. Otherwise, each of the first 𝑂 (|𝑆 |) coded        a source symbol 𝑠 to coded symbols that achieves the mapping
+symbols would have an exponentially small probability of being              probability rule identified in the previous section.
+pure, and it would be likely that none of them is pure, violating               Recall that for a random source symbol 𝑠, we want to make the
+decodability.                                                               probability that 𝑠 is mapped to the 𝑖-th coded symbol to be 𝜌 (𝑖) in
+    The following lemma shows that for this reason, the mapping             Eq. 1. A simple strawman solution, for example, is to use a hash
+probability 𝜌 (𝑖) cannot decrease slower than 1/𝑖 1−𝜖 for any positive      function that, given 𝑠, outputs a hash value uniformly distributed
+𝜖, i.e., almost inversely proportional to 𝑖. We defer the proof to § C.     in [0, 1). We then compare the hash value to 𝜌 (𝑖), and decide to
+   Lemma 4.1. For any 𝜖 > 0, any mapping probability 𝜌 (𝑖) such            map 𝑠 to the 𝑖-th coded symbol if the hash value is smaller. Given a
+that 𝜌 (𝑖) = Ω 1/𝑖 1−𝜖 , and any 𝜎 > 0, if there exists at least one        random 𝑠, because its hash value distributes uniformly, the mapping
+pure coded symbol within the first 𝑚 coded symbols for a random set         happens with probability 𝜌 (𝑖).
+𝑆 with probability 𝜎, then 𝑚 = 𝜔 (|𝑆 |).                                        However, this approach has major issues. First, it requires com-
+                                                                            paring hash values and 𝜌 (𝑖) for every pair of source symbol 𝑠 and
+    Second, to recover all source symbols in a set 𝑆, we need at least      index 𝑖. As mentioned in § 4.1.2, the density of the mapping is
+|𝑆 | non-empty coded symbols. This is because during peeling, each          𝑂 (log 𝑚) for the first 𝑚 coded symbols. In contrast, generating the
+pure symbol (which must be non-empty) yields at most one source             𝑚 coded symbols using this algorithm would require 𝑚 comparisons
+symbol. Intuitively, 𝜌 (𝑖) cannot decrease too fast with index 𝑖. Oth-      for each source symbol, significantly inflating the computation cost.
+erwise, the probability that a coded symbol is empty would quickly          Another issue is that we cannot use the same hash function when
+grow towards 1 as 𝑖 increases. The first 𝑂 (|𝑆 |) coded symbols would       mapping 𝑠 to different indices 𝑖 and 𝑗. Otherwise, the mappings to
+not reliably contain at least |𝑆 | non-empty symbols, violating de-         them would not be independent: if 𝜌 (𝑖) < 𝜌 ( 𝑗) and 𝑠 is mapped to
+codability.                                                                 𝑖, then it will always be mapped to 𝑗. Using different, independent
+    The following lemma shows that for this reason, the mapping             hash functions when mapping the same source symbol to different
+probability 𝜌 (𝑖) cannot decrease faster than 1/𝑖. We defer the proof       indices means that we also need to hash the symbol 𝑚 times.
+to § C.                                                                         We design an algorithm that maps each source symbol to the first
+   Lemma 4.2. For any mapping probability 𝜌 (𝑖) such that 𝜌 (𝑖) =           𝑚 coded symbols using only 𝑂 (log 𝑚) computation. The strawman
+𝑜 (1/𝑖), and any 𝜎 > 0, if there exist at least |𝑆 | non-empty coded        solution is inefficient because we roll a dice (compare hash and
+symbols within the first 𝑚 coded symbols for a random set 𝑆 with            𝜌 (𝑖)) for every index 𝑖, even though we end up not mapping 𝑠 to
+probability 𝜎, then 𝑚 = 𝜔 (|𝑆 |).                                           the majority of them (𝑚 − 𝑂 (log 𝑚) out of 𝑚), so reaching the next
+                                                                            mapped index takes many dice rolls (𝑚/𝑂 (log 𝑚) on average). Our
+   The constraints above reject functions that decrease faster than         key idea is to directly sample the distance (number of indices) to
+1/𝑖, as well as functions that decrease slower than 𝑖 𝜖 /𝑖 for any 𝜖 > 0.   skip before reaching the next mapped index. We achieve it with
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                   Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+constant cost per sample, so we can jump from one mapped index                4.3    Resistance to Malicious Workload
+straight to the next in constant time.                                        In some applications, rogue users may inject items to Alice or Bob’s
+   We describe our algorithm recursively. Suppose that, according             sets. For example, in a distributed social media application where
+to our algorithm, a source symbol 𝑠 has been mapped to the 𝑖-th               servers exchange posts, users can craft any post they like. This
+coded symbol. We now wish to compute, in constant time, the next              setting may create an “adversarial workload,” where the hash of the
+index 𝑗 that 𝑠 is mapped to. Let 𝐺 be the random variable such that           symbol representing the user’s input does not distribute uniformly.
+𝑗 − 𝑖 = 𝐺 for a random 𝑠, and let 𝑃𝑔 (𝑔 ≥ 1) be the probability that          If the user injects into Bob’s set a source symbol that hashes to the
+𝐺 = 𝑔. In other words, 𝑃𝑔 is the probability that a random 𝑠 is not           same value as another source symbol that Alice has, then Bob will
+mapped to any of 𝑖 + 1, 𝑖 + 2, . . . , 𝑖 + 𝑔 − 1, but is mapped to 𝑖 + 𝑔,     never be able to reconcile its set with Alice. This is because Bob will
+which are all independent events. So,                                         XOR the malicious symbol into the coded symbol stream it receives
+  𝑃𝑔 = (1 − 𝜌 (𝑖 + 1))(1 − 𝜌 (𝑖 + 2)) . . . (1 − 𝜌 (𝑖 + 𝑔 − 1))𝜌 (𝑖 + 𝑔).     from Alice, but it will only cancel out the hash of Alice’s colliding
+                                                                              symbol from the checksum field, and will corrupt the sum field.
+Generating 𝑗 is then equivalent to sampling 𝑔 ← 𝐺, whose distri-                  The literature on set reconciliation is aware of this issue, but
+bution is described by 𝑃𝑔 , and then computing 𝑗 = 𝑖 + 𝑔.                     typically does not specify the required properties from the hash
+    However, since there are 𝑔 (which can go to infinity) terms in            function to mitigate it; most use hash functions with strong proper-
+𝑃𝑔 , it is still unclear how to sample 𝐺 in constant time. The key            ties such as random oracles [20], which have long outputs (e.g., 256
+observation is that the cumulative mass function of 𝐺, denoted as             bits). It is sufficient, however, to use a keyed hash function with
+𝐶 (𝑥), has a remarkably simple form. In particular,                           uniform and shorter outputs (e.g., 64 bits). This allows Alice and
+                                                                              Bob to coordinate a secret key and use it to choose a hash func-
+                      𝑥
+                     ∑︁               Γ(𝑖 + 1 + 𝛼1 )Γ(𝑥 + 𝑖 + 1)
+           𝐶 (𝑥) =         𝑃𝑔 = 1 −                                .    (2)   tion from the family of keyed hashes. Although with short hashes,
+                     𝑔=1              Γ(𝑖 + 1)Γ(𝑥 + 𝑖 + 1 + 𝛼1 )              an attacker can computationally enumerate enough symbols to
+                                                                              find a collision for an item that Alice has, the attacker does not
+We defer the step-by-step derivation to § B.                                  know the key, i.e., the hash function that Alice and Bob use, so
+   Let 𝐶 −1 (𝑟 ) be the inverse of 𝐶 (𝑥). The simple form of 𝐶 (𝑥)            she cannot target a collision to one of Alice’s symbols. This allows
+allows us to compute 𝐶 −1 (𝑟 ) easily, which we will soon explain.            Rateless IBLT to minimize the size of a coded symbol and save
+To sample 𝐺, we sample 𝑟 ← [0, 1) uniformly, and compute 𝑔 =                  bandwidth, particularly in applications where symbols are short
+⌈𝐶 −1 (𝑟 )⌉. To make the algorithm deterministic, 𝑟 may come from a           and checksums account for much of the overhead. In practice, we
+pseudorandom number generator seeded with the source symbol 𝑠.                use the SipHash [2] keyed hash function. A trade-off we make is
+The algorithm outputs 𝑖 + 𝑔 as the next index to which 𝑠 is mapped,           that Alice has to compute the checksums separately for each key
+updates 𝑖 ← 𝑖 + 𝑔, and is ready to produce another index. Because             she uses, which increases her computation load. We believe this is
+every source symbol is mapped to the first coded symbol (recall               a worthwhile trade-off as SipHash is very efficient, and we find in
+that 𝜌 (0) = 1), we start the recursion with 𝑖 = 0.                           experiments (§ 7.2) that computing the hashes has negligible cost
+   Finally, we explain how to compute 𝐶 −1 (𝑟 ). It is the most simple        compared to computing sums, which are still universal. Also, we
+if we set the parameter 𝛼 in 𝜌 (𝑖) to 0.5. Plugging 𝛼 = 0.5 into Eq. 2,       expect using different keys only in applications where malicious
+we get                                                                        workload is a concern.
+                                    𝑥 (2𝑖 + 𝑥 + 3)
+                     𝐶 (𝑥) =                          .
+                               (𝑖 + 𝑥 + 1)(𝑖 + 𝑥 + 2)
+                                                                              5     Analysis
+Its inverse is
+                              √︄                                              In this section, we use density evolution [18, 28] to analyze the
+                                  (3 + 2𝑖) 2 − 𝑟 3 + 2𝑖                       behavior of the peeling decoder when decoding coded symbols
+                  𝐶 −1 (𝑟 ) =                    −                            in Rateless IBLTs. We mathematically prove that as the difference
+                                    4(1 − 𝑟 )       2
+                                                     1
+                                                                              size 𝑑 goes to infinity, the overhead of Rateless IBLTs converges
+                            ≈ (1.5 + 𝑖)((1 − 𝑟 ) − 2 − 1).                    to 1.35; i.e., reconciling 𝑑 differences requires only the first 1.35𝑑
+                                                                              coded symbols. We then use Monte Carlo simulations to show
+For a generic 𝛼, we can use Stirling’s approximation [30], and get
+                                                                              the behavior for finite 𝑑. In particular, we show that the overhead
+                                                   1                        converges quickly, when 𝑑 is at the low hundreds.
+                                            𝑖 +1     𝛼
+                      𝐶 (𝑥) ≈ 1 −                        .                       Density evolution is a standard technique for analyzing the iter-
+                                          𝑥 +𝑖 +1
+                                                                              ative decoding processes in error correcting codes based on sparse
+Consequently,                                                                 graphs [18, 28], and has been applied to IBLTs with simpler map-
+                                                                              pings between source and coded symbols [15]. Its high-level idea is
+                  𝐶 −1 (𝑟 ) ≈ (𝑖 + 1)((1 − 𝑟 ) −𝛼 − 1).
+                                                                              to iteratively compute the probability that a random source symbol
+   In our final design, we set 𝛼 = 0.5. The main reason is that               has not been recovered while simulating the peeling decoder statis-
+computing 𝐶 −1 (𝑟 ) when 𝛼 = 0.5 only requires computing square               tically. If this probability keeps decreasing towards 0 as the peeling
+roots, while it otherwise involves raising 1 − 𝑟 to other non-integer         decoder runs for more iterations, then decoding will succeed with
+powers. We observe that the latter is significantly slower on older           probability converging to 1 [18, § 2]. The following theorem states
+CPUs. Meanwhile, as we will show in § 5, setting 𝛼 = 0.5 results in           our main conclusion. We defer its proof to § C.
+negligible extra communication compared to the optimal setting.
+Practical Rateless Set Reconciliation                                                                      ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+
+
+   Theorem 5.1. For a random set of 𝑛 source symbols, the probability                              4
+                                                                                                                                                      102
+that the peeling decoder successfully recovers the set using the first                           3.5                                                  103
+
+
+
+                                                                                Overhead (η*)
+𝜂𝑛 coded symbols (as defined in § 4.1) tends to 1 as 𝑛 goes to infinity,                           3                                                  104
+provided that 𝜂 is any positive constant that satisfies                                                                                               105
+                                                                                                 2.5                                                  106
+                                                  1
+                                                        
+                                                           𝑞
+                                                              
+                                                                                                   2                                                  107
+                                                      Ei − 𝛼𝜂                                                                                         DE
+                                  ∀𝑞 ∈ (0, 1] : 𝑒 𝛼               < 𝑞.   (3)                     1.5
+                                                                                                   1
+   Recall that Ei(·) is the exponential integral function;4 𝛼 is the                                   0    0.2      0.4   0.6         0.8        1
+parameter in the mapping probability 𝜌 (𝑖) = 1+𝛼𝑖     1 as discussed
+                                                                                                                    Parameter α
+in § 4.1. We stated Theorem 5.1 with respect to a generic set of
+source symbols and its corresponding coded symbol sequence; in
+                                                                               Figure 4: Relationship between the communication overhead
+practice, the set is 𝐴△𝐵. The decoder (Bob) knows the coded symbol
+                                                                               𝜂 ∗ and the parameter 𝛼 in 𝜌 (𝑖). “DE” shows results from the
+sequence for 𝐴 △ 𝐵 because he subtracts the coded symbols for 𝐵
+                                                                               density evolution analysis which assumes the difference size
+(generated locally) from those for 𝐴 (received from Alice) as defined
+                                                                               goes to infinity. Points show results from Monte Carlo simu-
+in § 3.
+                                                                               lations for various finite difference sizes. Each point is the
+   Theorem 5.1 implies that for any choice of parameter 𝛼, there
+                                                                               average over 100 runs.
+exists a corresponding threshold 𝜂 ∗ which is the smallest 𝜂 that
+satisfies Eq. 3. Any 𝜂 > 𝜂 ∗ also satisfies Eq. 3 because the left-hand
+side monotonically decreases with respect to 𝜂. (Intuitively, this                                3
+
+
+
+
+                                                                                Overhead (η*)
+must be true as a larger 𝜂 means more coded symbols, which should                                2.5
+be strictly beneficial for decoding.) As long as Bob receives more
+                                                                                                  2
+than 𝜂 ∗ coded symbols per source symbol, he can decode with high
+probability. In other words, 𝜂 ∗ is the communication overhead of                               1.35
+Rateless IBLTs, i.e., the average number of coded symbols required                                 1
+to recover each source symbol. 𝜂 ∗ is a function of 𝛼. As discussed                              0.5
+in § 4.2, we set 𝛼 = 0.5 in our final design to simplify the process                                100    101     102      103     104     105       106    107
+of generating mappings according to 𝜌 (𝑖). We solve for 𝜂 ∗ when                                                         Set Difference (d)
+𝛼 = 0.5 and get the following result.
+                                                                               Figure 5: Overhead of Rateless IBLTs at varying difference
+   Corollary 5.2. The average overhead of Rateless IBLTs converges
+                                                                               sizes 𝑑. We run 100 simulations for each data point and report
+to 1.35 as the difference size 𝑑 = |𝐴 △ 𝐵| goes to infinity.
+                                                                               the average. The shaded area shows the standard deviation.
+                                                                               The dashed line shows 1.35, the overhead predicted by density
+5.1      Monte Carlo Simulations                                               evolution.
+Theorem 5.1 and Corollary 5.2 from the density evolution analysis
+state the behavior of Rateless IBLTs when the difference size 𝑑
+goes to infinity. To understand the behavior when 𝑑 is finite, we                 The density evolution analysis also predicts how decoding pro-
+run Monte Carlo simulations, and compare the results with the                  gresses as the decoder receives more coded symbols. The fixed
+theorems.                                                                      points of 𝑞 in Eq. 3 represent the expected fraction of source sym-
+    Fig. 4 shows the main results. It compares the overhead predicted          bols that the peeling decoder fails to recover before stalling, as 𝑑
+by Theorem 5.1 and that observed in simulations. First, notice that            goes to infinity. Fig. 6 compares this result with simulations (we
+as the difference size increases, simulation results converge to the           plot 1 −𝑞, the fraction that the decoder can recover) and they match
+analysis for all 𝛼. How fast the results converge depends on 𝛼. For all        closely. There is a sharp increase in the fraction of recovered source
+𝛼 ≤ 0.55, convergence happens quickly, and the overhead observed               symbols towards the end, a behavior also seen in other codes that
+in simulations stays within 10% of the analysis even for the smallest          use the peeling decoder, such as LT codes [17].
+difference size we test. On the other hand, for 𝛼 = 0.95, simulation
+results are still 12% higher than the analysis at the largest difference       6                Implementation
+size we test. Second, the figure shows that setting 𝛼 = 0.5 is close           We implement Rateless IBLT as a library in 353 lines of Go code.
+to optimal for the communication overhead. Setting 𝛼 = 0.5 results             The implementation is self-contained and does not use third-party
+in 𝜂 ∗ = 1.35, while the optimal setting is 𝛼 = 0.64 which results in          code. In this section, we discuss some important optimizations in
+𝜂 ∗ = 1.31, a difference of only 3%.                                           the implementation.
+    Next, we focus on 𝛼 = 0.5, the parameter we choose for our final           Efficient incremental encoding. A key feature of Rateless IBLT
+design. Fig. 5 shows the overhead as we vary the difference size 𝑑.            is that it allows Alice to generate and send coded symbols one by
+It peaks at 1.72 when 𝑑 = 4 and then converges to 1.35 as predicted            one until Bob can decode. Suppose that Alice has generated coded
+by Corollary 5.2. Convergence happens quickly: for all 𝑑 > 128, the            symbols until index 𝑖 − 1, and now wishes to generate the 𝑖-th
+overhead is less than 1.40.                                                    coded symbol. She needs to quickly find the source symbols that
+                                                                               are mapped to it. A strawman solution is to store alongside each
+                ∫ ∞ 𝑒 −𝑡 𝑑𝑡
+4 Ei (𝑥 ) = −                 .                                                source symbol the next index it is mapped to, and scan all the source
+                 −𝑥    𝑡
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                                 Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+
+
+    Recovered Fraction (1-q)
+                                 1                                                          we use our implementation discussed in § 6. For regular IBLT and
+                                              Sim Diff=500                                  MET-IBLT, we implement each scheme in Python. We use the rec-
+                                0.8                    2000
+                                                     10000                                  ommended parameters [8, § 6.1][16, §§ V-A, V-C], and allocate
+                                0.6        Density Evolution                                8 bytes for the checksum and the count fields, respectively. For
+                                0.4                                                         PinSketch, we use Minisketch [23, § 6], a state-of-the-art implemen-
+                                                                                            tation [38] written in C++ and deployed in Bitcoin. For Merkle tries,
+                                0.2
+                                                                                            we use the implementation in Geth [10], the most popular client
+                                 0                                                          for Ethereum.
+                                      0   0.2 0.4 0.6 0.8 1 1.2 1.35 1.6 1.8            2
+                                          Coded Symbols Received / Set Difference (η)
+                                                                                            7.1    Communication Cost
+Figure 6: The fraction of recovered source symbols after re-                                We first measure the communication overhead, defined as the amount
+ceiving different number of coded symbols (normalized over                                  of data transmitted during reconciliation divided by the size of set
+the difference size 𝑑), as observed in simulations (average of                              difference accounted in bytes. We test with set differences of 1–400
+1000 runs), and as predicted by density evolution. Dashed                                   items. Beyond 400, the overhead of all schemes stays stable. The
+line shows 1.35, the overhead predicted by density evolution.                               set size is 1 million items (recall that it only affects Merkle trie’s
+                                                                                            communication cost). Each item is 32 bytes, the size of a SHA256
+                                                                                            hash, commonly used as keys in open-permission distributed sys-
+symbols to find the ones mapped to 𝑖. However, this takes 𝑂 (|𝐴|)                           tems [22, 35]. For Rateless IBLT and MET-IBLT, we generate coded
+time. In our implementation, we store pointers to source symbols                            symbols until decoding succeeds, repeat each experiment 100 times,
+in a heap. It implements a priority queue, where the priority is the                        and then report the average overhead and the standard deviation.
+index of the next coded symbol that a source symbol is mapped to.                           Regular IBLTs cannot be dynamically expanded, and tuning the
+A smaller value indicates higher priority. This ensures that source                         number of coded symbols 𝑚 requires precise knowledge of the size
+symbols used for generating the next coded symbol are always at                             of the set difference. Usually, this is achieved by sending an estima-
+the head of the queue so that the encoder can access them efficiently                       tor before reconciliation [8], which incurs an extra communication
+without scanning all the source symbols.                                                    cost of at least 15 KB according to the recommended setup [16,
+Variable-length encoding for count. Recall that the count field                             § V-C]. We report the overhead of regular IBLT with and without
+stores the number of source symbols that are mapped to a coded                              this extra cost. Also, unlike the other schemes, regular IBLTs may
+symbol during encoding. The standard approach is to allocate a                              fail to decode probabilistically. We gradually increase the number
+fixed number of bytes for it [8, 16], which inflates the size of each                       of coded symbols 𝑚 until the decoding failure rate drops below
+coded symbol by a constant amount. However, in Rateless IBLT,                               1/3 000.
+the value stored in count decreases with the index of the coded                                 Fig. 7 shows the overhead of all schemes except for Merkle trie,
+symbol according to a known pattern: the 𝑖-th coded symbol for                              whose overhead is significantly higher than the rest at over 40 across
+a set 𝑆 is expected to have a count of |𝑆 |𝜌 (𝑖). This pattern allows                       all difference sizes we test. Rateless IBLT consistently achieves lower
+us to aggressively compress the count field. Instead of storing the                         overhead compared to regular IBLT and MET-IBLT, especially when
+value itself, we can store the difference of the actual value and the                       the set difference is small. For example, the overhead is 2–4× lower
+aforementioned expected value, which is a much smaller number.                              when the set difference is less than 50. The improvement is more
+The node receiving the coded symbol can reconstruct the actual                              significant when considering the cost of the estimator for regu-
+value of count, because it knows 𝑁 (transmitted with the 0-th                               lar IBLTs. On the other hand, PinSketch consistently achieves an
+coded symbol) and 𝑖 (assuming a transport that preserves ordering).                         overhead of 1, which is 37–60% lower than Rateless IBLT. However,
+Instead of allocating a fixed number of bytes, we use variable-length                       as we will soon show, Rateless IBLT incurs 2–2 000× less compu-
+quantity [36] to store the difference, which uses ⌈log128 𝑥⌉ bytes to                       tation than PinSketch on both the encoder and the decoder. We
+store any number 𝑥. Using our approach, the count field takes only                          believe that the extra communication cost is worthwhile in most
+1.05 bytes per coded symbol on average when encoding a set of 106                           applications for the significant reduction in computation cost.
+items into 104 coded symbols, keeping the resulting communication                           Scalability of Rateless IBLT. We quickly remark on how Rateless
+cost to a minimum.                                                                          IBLT’s communication cost scales to longer or shorter items. Like
+                                                                                            other schemes based on sparse graphs, the checksum and count
+7                              Evaluation                                                   fields add a constant cost to each coded symbol. For Rateless IBLT,
+We compare Rateless IBLT with state-of-the-art set reconciliation                           these two fields together occupy about 9 bytes. Longer items will
+schemes, and demonstrate its low communication (§ 7.1) and com-                             better amortize this fixed cost. When reconciling shorter items, this
+putation (§ 7.2) costs across a wide range of workloads (set sizes,                         fixed cost might become more prominent. However, it is possible to
+difference sizes, and item lengths). We then apply Rateless IBLT                            reduce the length of the checksum field if the differences are smaller,
+to synchronize the account states of Ethereum and demonstrate                               because there will be fewer opportunities for hash collisions. We
+significant improvements over the production system on real work-                           found that hashes of 4 bytes are enough to reliably reconcile differ-
+loads (§ 7.3).                                                                              ences of tens of thousands. It is also possible to remove the count
+Schemes compared. We compare with regular IBLT [8, 13], MET-                                field altogether; Bob can still recover the symmetric difference as
+IBLT [16], PinSketch [7], and Merkle tries [39]. For Rateless IBLT,                         the peeling decoder (§ 3) does not use this field.
+Practical Rateless Set Reconciliation                                                                        ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+
+
+                           14                                                                scale to large differences. In Fig. 8, we plot in dashed lines the
+                                                         Rateless IBLT                       time it takes to finish encoding. As the difference size increases by
+
+
+
+
+  Communication Overhead
+                           12                                MET-IBLT
+                                                          Regular IBLT                       50 000×, the encoding time of Rateless IBLT grows by less than 6×.
+                           10                  Regular IBLT + Estimator                      Meanwhile, the encoding time of PinSketch grows by 5 000×.
+                                                             PinSketch
+                            8
+                                                                                             Decoding. Fig. 9 shows the decoding throughput (solid lines) and
+                            6                                                                time (dashed lines), defined similarly as in the encoding exper-
+                                                                                             iment. We do not make a distinction of the set size, because it
+                            4
+                                                                                             does not affect the decoding complexity. (Recall that decoders op-
+                            2                                                                erate on coded symbols of the symmetric difference only.) Rateless
+                                                                                             IBLT achieves 10–107 × higher decoding throughput than PinSketch.
+                            0
+                                0   50   100   150 200 250       300      350     400        This is because decoding PinSketch is equivalent to interpolating
+                                                Set Difference                               polynomials [7], which has 𝑂 (𝑚 2 ) complexity [38], while decod-
+                                                                                             ing Rateless IBLT has only 𝑂 (𝑚 log(𝑚)) complexity thanks to the
+Figure 7: Communication overhead of various schemes. Each                                    sparse mapping between source and coded symbols. As the differ-
+item is 32 bytes. Shaded areas show the standard deviation                                   ence size grows by 50 000×, the decoding throughput of Rateless
+for Rateless IBLT and MET-IBLT. Regular IBLT + Estimator                                     IBLT drops by only 34%, allowing it to scale to large differences.
+shows the overhead of regular IBLT with an estimator for                                     For example, it takes Rateless IBLT 0.01 second to decode 105 differ-
+the size of set difference. We do not plot for Merkle Trie as                                ences. In contrast, it takes PinSketch more than a minute to decode
+its overhead is significantly higher (over 40) than the rest.                                104 differences.
+
+                                                                                             Scalability of Rateless IBLT. We now show that Rateless IBLT
+7.2                         Computation Cost                                                 preserves its computation efficiency when scaling to larger sets,
+There are two potential computation bottlenecks in set reconcilia-                           larger differences, and longer items.
+tion: encoding the sets into coded symbols, and decoding the coded                              The set size 𝑁 affects encoding, but not decoding, because the
+symbols to recover the symmetric difference. Encoding happens at                             decoder operates on coded symbols that represent the symmetric
+Alice, and both encoding and decoding happen at Bob. In this exper-                          difference. The computation cost of encoding grows linearly with
+iment, we measure the encoding and decoding throughput for sets                              𝑁 , as each source symbol is mapped to the same number of coded
+of various sizes and differences. We focus on comparing with PinS-                           symbols on average and thus adds the same amount of work. For
+ketch. We fix the item size to 8 bytes, because this is the maximum                          example, in Fig. 8, the encoding time for 103 differences is 2.9 mil-
+size that the PinSketch implementation supports. We do not com-                              liseconds when 𝑁 = 104 , and 294 milliseconds when 𝑁 = 106 , a
+pare with regular IBLT or MET-IBLT as we cannot find high-quality                            difference of 100× that matches the change in 𝑁 . Fig. 10 shows the
+open source implementations, and they have similar complexity as                             encoding time measured in experiments with the same configura-
+Rateless IBLT.5 We will compare with Merkle trie in § 7.3. We run                            tion for a wider range of 𝑁 .
+the benchmarks on a server with two Intel Xeon E5-2697 v4 CPUs.                                 The difference size 𝑑 affects both encoding and decoding. Recall
+Both Rateless IBLT and PinSketch are single-threaded, and we pin                             that Rateless IBLT uses about 1.35𝑑 coded symbols to reconcile 𝑑
+the executions to one CPU core using cpuset(1).                                              differences (§ 5). As 𝑑 increases, the encoder needs to generate more
+                                                                                             coded symbols. However, unlike PinSketch where the cost is linear
+Encoding. Fig. 8 shows in solid lines the encoding throughput,
+                                                                                             in 𝑑, the cost of Rateless IBLT grows logarithmically. For example,
+defined as the difference size divided by the time it takes for the
+                                                                                             in Fig. 8a, the encoding time grows by only 6× as the set difference
+encoder to generate enough coded symbols for successful recon-
+                                                                                             increases from 1 to 105 . This is because the mapping from source
+ciliation. It indicates the number of items that can be reconciled
+                                                                                             to coded symbols is sparse: each source symbol is only mapped to
+per second with a compute-bound encoder. Rateless IBLT achieves
+                                                                                             an average of 𝑂 (log 𝑑) coded symbols. The same result applies to
+2–2000× higher encoding throughput than PinSketch when recon-
+                                                                                             decoding. For example, in Fig. 9, the decoding throughput drops by
+ciling differences of 2–105 items. The significant gain is because the
+                                                                                             2× as the 𝑑 grows by 104 ×.
+mapping between source and coded symbols is sparse in Rateless
+                                                                                                The item size ℓ affects both encoding and decoding because it
+IBLT, and the sparsity increases rapidly with 𝑚, so the average
+                                                                                             decides the time it takes to compute the XOR of two symbols, which
+cost to generate a coded symbol decreases quickly. In comparison,
+                                                                                             dominates the computation cost in Rateless IBLT. Fig. 11 shows the
+generating a coded symbol in PinSketch always requires evaluating
+                                                                                             relative slowdown when as ℓ grows from 8 bytes to 32 KB. Initially,
+the entire characteristic polynomial, causing the throughput to
+                                                                                             the slowdown is sublinear (e.g., less than 4× when ℓ grows by 16×
+converge to a constant.
+                                                                                             from 8 to 128 bytes) because the other costs that are independent
+    As the difference size increases, the encoding throughput of
+                                                                                             of ℓ (e.g., generating the mappings) are better amortized. However,
+Rateless IBLT increases almost linearly, enabling the encoder to
+                                                                                             after 2 KB, the slowdown becomes linear. This implies that the data
+5 The complexity is linear to the average number of coded symbols each source symbol         rate at which the encoder can process source symbols, measured in
+is mapped to.This is 𝑂 (log(𝑚) ) for Rateless IBLT and MET-IBLT [16], and constant for       bytes per second, stays constant. For example, when encoding for
+regular IBLT, where 𝑚 is the number of coded symbols. However, the cost is amortized
+over the size of the set difference, which is 𝑂 (𝑚) . So, in all three IBLT-based schemes,   𝑑 = 1000, the encoder can process source symbols at 124.8 MB/s.
+the cost to encode for each set difference decreases quickly as 𝑚 increases.                 The same analysis applies to decoding. In comparison, the encoding
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                                                                                                                                                    Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+                                     Rateless IBLT time                                                                                            PinSketch time                                                                                 Rateless IBLT
+                                            throughput                                                                                                 throughput                                                                                    PinSketch
+
+
+
+
+Encoding Throughput (s-1)                                                                                     Encoding Throughput (s-1)                                                                    Decoding Throughput (s-1)
+                            106                                             103                                                           106                                   10-1                                                   107                                    103
+
+
+
+
+                                                                                       Encoding Time (s)                                                                               Encoding Time (s)                                                                             Decoding Time (s)
+                                                                                                                                                                                                                                                                              102
+                            105                                             102                                                                                                                                                        106                                    101
+                                                                                                                                          105                                   10-2                                                                                          100
+                            104                                             101                                                                                                                                                        105                                    10-1
+                            103                                             100                                                                                                                                                        104                                    10-2
+                                                                                                                                          104                                   10-3                                                                                          10-3
+                            102                                             10-1                                                                                                                                                       103                                    10-4
+                                                                                                                                                                                                                                                                              10-5
+                            101                                             10-2                                                          103                                   10-4                                                   102                                    10-6
+                               100   101    102 103 104        105                                                                           100     101       102        103                                                             100   101    102 103 104      105
+                                           Set Difference                                                                                             Set Difference                                                                                  Set Difference
+
+                                           (a) 𝑁 = 1 000 000                                                                                           (b) 𝑁 = 10 000
+                                                                                                                                                                                                                           Figure 9: Decoding throughput and
+                                                                                                                                                                                                                           time. Solid lines show the throughput
+                            Figure 8: Encoding throughput and time for sets of sizes 𝑁 = 1 000 000 and
+                                                                                                                                                                                                                           (left Y-axis), and dashed lines show the
+                            𝑁 = 10 000. Solid lines show the throughput (left Y-axis), and dashed lines
+                                                                                                                                                                                                                           decoding time (right Y-axis).
+                            show the encoding time (right Y-axis).
+
+
+
+
+    Encoding Time (s)
+                             102                                            103                                                                                     𝑂 (log(𝑁 )) round trips. As a result, some Ethereum replicas have
+
+
+                                                                 Slowdown
+                             100                                            102
+                                                                                                                                                                    reported spending weeks on state heal, e.g., [11]. In comparison,
+                                                                                                                                                                    Rateless IBLT does not have these issues. Its communication and
+                            10-2                                            101
+                                                                                                                                                                    computation costs depend only on the size of the difference rather
+                            10-4                                            100                                                                                     than the entire ledger state, and it requires no interactivity between
+                               103 104 105 106 107 108                             8                       32 128 0.5K 2K 8K 32K
+                                                                                                                                                                    replicas besides streaming coded symbols at line rate.
+                                       Set Size                                                              Item Size (bytes)
+                                                                                                                                                                    Setup. We compare state heal with Rateless IBLT in synchronizing
+         Figure 10: Encoding time of                               Figure 11: Slowdown when                                                                         Ethereum ledger states. We implement a prototype in 1,903 lines of
+         1 000 differences and vary-                               encoding items of different                                                                      Go code. The prototype is able to load a snapshot of the ledger state
+         ing set size 𝑁 .                                          sizes.                                                                                           from the disk, and synchronize with a peer over the network using
+                                                                                                                                                                    either scheme. For state heal, we use the implementation [12] in
+                                                                                                                                                                    Geth v1.13.10 without modification. For Rateless IBLT, we use our
+complexity of PinSketch increases linearly with ℓ, and the decoding                                                                                                 implementation discussed in § 6. We wrap it with a simple network
+complexity increases quadratically [7, 38].                                                                                                                         protocol where a replica requests synchronization by opening a TCP
+                                                                                                                                                                    connection to the peer, and the peer streams coded symbols until
+7.3                               Application                                                                                                                       the requesting replica closes the connection to signal successful
+                                                                                                                                                                    decoding.
+We now apply Rateless IBLT to a prominent application, the Ethereum
+                                                                                                                                                                        To obtain workload for experiments, we extract snapshots of
+blockchain. Whenever a blockchain replica comes online, it must
+                                                                                                                                                                    Ethereum ledger states as of blocks 18908312–18938312, correspond-
+synchronize with others to get the latest ledger state before it can
+                                                                                                                                                                    ing to a 100-hour time span between December 31, 2023 and January
+validate new transactions or serve user queries. The ledger state is
+                                                                                                                                                                    4, 2024. Each snapshot represents the ledger state when a block was
+a key-value table, where the keys are 20-byte wallet addresses, and
+                                                                                                                                                                    just produced in the live Ethereum blockchain.6 For each experi-
+the values are 72-byte account states such as its balance. There are
+                                                                                                                                                                    ment, we set up two replicas: Alice always loads the latest snapshot
+230 million accounts as of January 4, 2024. Synchronizing the ledger
+                                                                                                                                                                    (block 18938312); Bob loads snapshots of different staleness and syn-
+state is equivalent to reconciling the set of all key-value pairs, a
+                                                                                                                                                                    chronizes with Alice. This simulates the scenario where Bob goes
+natural application of Rateless IBLT.
+                                                                                                                                                                    offline at some point in time (depending on the snapshot he loads),
+   Ethereum (as well as most other blockchains) currently uses
+                                                                                                                                                                    wakes up when block 18938312 was just produced, and synchro-
+Merkle tries (§ 2) to synchronize ledger states between replicas. It
+                                                                                                                                                                    nizes with Alice to get the latest ledger state. We run both replicas
+applied a few optimizations: using a 16-ary trie instead of a binary
+                                                                                                                                                                    on a server with two Intel Xeon E5-2698 v4 CPUs running FreeBSD
+one, and shortening sub-tries that have no branches. The protocol is
+                                                                                                                                                                    14.0. We use Dummynet [29] to inject a 50 ms one-way propagation
+called state heal and has been deployed in Geth [10], the implemen-
+                                                                                                                                                                    delay between the replicas and enforce different bandwidth caps of
+tation which accounts for 84% of all Ethereum replicas [31]. Variants
+                                                                                                                                                                    10 to 100 Mbps.
+of Geth also power other major blockchains, such as Binance Smart
+Chain and Optimism.                                                                                                                                                 Results. We first vary the state snapshot that Bob loads and mea-
+   State heal retains the issues with Merkle tries despite the op-                                                                                                  sure the completion time and the communication cost for Bob to
+timizations. To discover a differing key-value pair (leaf), replicas                                                                                                synchronize with Alice. We fix the bandwidth to 20 Mbps. Fig. 12
+must visit and compare every internal node on the branch from                                                                                                       shows the results. As Bob’s state becomes more stale, more up-
+the root to the differing leaf. This amplifies the communication,                                                                                                   dates happen between his and the latest states, and the difference
+computation, and storage I/O costs by as much as the depth of                                                                                                       between the two grows linearly. As a result, the completion time
+the trie, i.e., 𝑂 (log(𝑁 )) for a set of 𝑁 key-value pairs. In addition,                                                                                            6 Ethereum produces a block every 12 seconds. Each block is a batch of transactions
+replicas must descend the branch in lock steps, so the process takes                                                                                                that update the ledger state.
+Practical Rateless Set Reconciliation                                                                                                                     ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+
+
+                            Rateless IBLT time               Merkle Trie time                                                                     1 RTT                 11 RTTs
+
+
+
+
+                                                                                                                  Bandwidth (Mbps)
+                                          data                           data                                                                20
+
+
+
+
+ Sync Completion Time (s)                                                                Data Transmitted (MB)
+                            300                                               600                                                                                                    Rateless IBLT
+                                                                                                                                             15                                        Merkle Trie
+                            250                                               500
+                                                                                                                                             10
+                            200                                               400
+                            150                                               300                                                             5
+                            100                                               200                                                             0
+                                                                                                                                                  0          0.5          1              1.5      2          2.5
+                             50                                               100
+                                                                                                                                                                              Time (s)
+                              0                                               0
+                               1/3 10 20 30 40 50 60 70 80 90 100
+                                               Staleness (hour)                                                  Figure 13: Time series of bandwidth usage when synchro-
+                                                                                                                 nizing Ethereum ledger states that are 1 block (12 seconds)
+                                 (a) Staleness between 20 minutes and 100 hours.                                 stale. The network link has 50 ms of propagation delay and
+
+
+
+
+ Sync Completion Time (s)
+                                                                                                                 20 Mbps of bandwidth. Time starts when Bob sees the TCP
+
+
+
+
+                                                                                         Data Transmitted (MB)
+                            25                                                      20
+                                                                                                                 socket open.
+                            20                                                      15
+                            15
+
+
+
+
+                                                                                                                  Sync Completion Time (s)
+                                                                                    10                                                       250
+                            10                                                                                                                                             Rateless IBLT
+                                                                                    5                                                        200                             Merkle Trie
+                             5
+                                                                                                                                             150
+                             0                                                      0
+                                 1 2   4    6      8 10 12 14        16   18   20                                                            100
+                                                Staleness (minute)
+                                                                                                                                              50
+                                 (b) Staleness between 1 minute and 20 minutes.                                                                   0
+                                                                                                                                                      0    20       40      60      80         100       ∞
+Figure 12: Completion time and communication cost when                                                                                                             Bandwidth (Mbps)
+synchronizing Ethereum ledger states at different staleness
+over a network link with 50 ms of propagation delay and 20                                                       Figure 14: Completion time when synchronizing Ethereum
+Mbps of bandwidth. A staleness of 𝑥 hours means the state                                                        ledger states that are 10 hours stale over a network link with
+is 𝑥-hours old when synchronization starts.                                                                      50 ms of propagation delay and different bandwidth.
+
+
+and the communication cost of both schemes increase linearly.                                                    Bob reach the bottom of their tries after 11 RTTs; before that, they
+Meanwhile, Rateless IBLT consistently achieves 4.8–13.6× lower                                                   do not know the actual key-value pairs that differ, and the network
+completion time, and 4.4–8.6× lower communication cost com-                                                      link stays almost idle.
+pared to state heal. As discussed previously, state heal has a much                                                 Finally, we demonstrate that Rateless IBLT consistently outper-
+higher communication cost because it requires transmitting the                                                   forms state heal across different network conditions. We fix Bob’s
+differing internal nodes of the Merkle trie in addition to the leaves.                                           snapshot to be 10 hours stale and vary the bandwidth cap. Fig. 14
+For example, this amplifies the number of trie nodes transmitted by                                              shows the results. Rateless IBLT is 4.8× faster than state heal at 10
+3.6× when Bob’s state is 30 hours stale. The higher communication                                                Mbps, and the gain increases to 16× at 100 Mbps. Notice that the
+cost leads to proportionately longer completion time as the system                                               completion time of state heal stays constant after 20 Mbps; it cannot
+is throughput-bound.                                                                                             utilize any extra bandwidth. We observe that state heal becomes
+    In our experiments, state heal requires at least 11 rounds of in-                                            compute-bound: Bob cannot process the trie nodes he receives fast
+teractivity, as Alice and Bob descend from the roots of their tries                                              enough to saturate the network. The completion time does not
+to the differing leaves in lock steps. Rateless IBLT, in comparison,                                             change even if we remove the bandwidth cap. In contrast, Rateless
+only requires half of a round because Alice streams coded symbols                                                IBLT is throughput-bound, as its completion time keeps decreasing
+without waiting for any feedback. This advantage is the most obvi-                                               with the increasing bandwidth. If we remove the bandwidth cap,
+ous when reconciling a small difference, where the system would                                                  Rateless IBLT takes 2.5 seconds to finish and can saturate a 170
+be latency-bound. For example, Rateless IBLT is 8.2× faster than                                                 Mbps link using one CPU core on each side.
+state heal when Bob’s ledger state is only 1 block (12 seconds) stale.                                              Before ending, we quickly discuss a few other potential solutions
+    We quickly highlight the impact of interactivity. Fig. 13 shows                                              and how Rateless IBLT compares with them. When Bob’s state
+traces of bandwidth usage when synchronizing one block worth of                                                  is consistent with some particular block, he may request Alice to
+state difference. For Rateless IBLT, the first coded symbol arrives                                              compute and send the state delta from his block to the latest block,
+at Bob in 1 round-trip time (RTT) after his TCP socket opens (0.5                                                which would be as efficient as an optimal set reconciliation scheme.
+RTT for TCP ACK to reach Alice, and another 0.5 RTT for the first                                                However, this is often not the case when Bob needs synchroniza-
+symbol to arrive). Subsequent symbols arrive at line rate, as the                                                tion, such as when he recovers from database corruption or he has
+peak at 1 RTT indicates. In comparison, for state heal, Alice and                                                downloaded inconsistent shards of state snapshots from multiple
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                                         Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+sources, routine when Geth replicas bootstrap [34]. Rateless IBLT                                           2.5
+(and state heal) does not assume consistent states. Coded symbols in                                                                          Rateless IBLT
+
+
+
+                                                                                            Overhead (η*)
+                                                                                                                                    Irregular Rateless IBLT
+traditional set reconciliation schemes like regular IBLT are tailored                                        2
+to a fixed difference size (§ 3). Alice has to generate a new batch of
+coded symbols for each peer with a different state. This would add                                          1.5
+minutes to the latency for large sets like Ethereum, incur significant
+computation costs, and create denial-of-service vulnerabilities.7 In
+                                                                                                             1
+contrast, Rateless IBLT allows Alice to prepare a single stream of                                            100   101        102       103     104         105       106
+coded symbols that is efficient for all peers. Because of linearity                                                              Set Difference (d)
+(§ 4), Alice can incrementally update the coded symbols as her
+ledger state changes. For an average Ethereum block, it takes 11 ms                        Figure 15: Communication overhead of Rateless IBLTs and
+to update 50 million coded symbols (7 GB) using one CPU core to                            Irregular Rateless IBLTs as the difference size changes. We
+reflect the state changes.                                                                 run 100 simulations for each data point and report the aver-
+                                                                                           age.
+8     Irregular Rateless IBLTs
+When designing Rateless IBLTs (§ 4.1), the key task was to define
+the mapping rule that decides whether a source symbol 𝑥 should                             optimal configuration
+be mapped to the 𝑖-th coded symbol. Lemmas 4.1 and 4.2 showed
+that the mapping rule cannot be uniform over coded symbols: the                                                       𝑐 = 3,
+probability that a random source symbol is mapped to the 𝑖-th                                                         𝑤 0, 𝑤 1, 𝑤 2 = 0.18, 0.56, 0.26,
+coded symbol must decrease with 𝑖. In other words, different coded                                                    𝛼 0, 𝛼 1, 𝛼 2 = 0.11, 0.68, 0.82.
+symbols are statistically inequivalent. On average, a coded symbol
+with a smaller index sees more source symbols mapped to it than                            As shown in Fig. 15, the resulting communication overhead con-
+one with a larger index does.                                                              verges to 1.10, which is 19% lower than Rateless IBLTs (§ 4) and
+    However, the same is not true for source symbols in our design:                        only 10% above the information-theoretic lower bound. Meanwhile,
+every subset of source symbols uses the same mapping probability                           encoding and decoding are 1.88 times slower than Rateless IBLTs.
+           1 with the same parameter 𝛼. This leaves a degree of
+𝜌 (𝑖) = 1+𝛼𝑖                                                                               As mentioned in § 4.2, the main reason is that computing mappings
+freedom which we did not explore. We may divide source symbols                             when 𝛼 ≠ 0.5 requires raising numbers to arbitrary non-integer
+into multiple subsets and use different 𝜌 (𝑖) (in particular, different                    powers, while the case of 𝛼 = 0.5 only requires computing square
+𝛼) for each subset. Similar techniques have successfully improved                          roots, which is faster on modern hardware. We leave further op-
+the communication costs of regular IBLTs [15]. In this section, we                         timizations of the parameters and the implementation to future
+apply this technique on Rateless IBLTs and discuss the implications.                       works.
+    Concretely, we partition source symbols into 𝑐 mutually exclu-
+sive subsets, where 𝑐 is a parameter. A random source symbol be-                           9                Conclusion
+longs to subset 𝑗 (0 ≤ 𝑗 < 𝑐) with probability 𝑤 𝑗 , which is another
+                                                                                           We designed, mathematically analyzed, and experimentally evalu-
+set of parameters. For a source symbol 𝑥, we choose the subset it
+                                                                                           ated Rateless IBLT. To the best of our knowledge, Rateless IBLT is
+belongs to based on its hash. For example, 𝑥 belongs to subset 𝑗
+   Í 𝑗 −1                   Í𝑗                                                             the first set reconciliation solution with universally low computa-
+if 𝑏=0 𝑤𝑏 ≤ Hash(𝑥) < 𝑏=0 𝑤𝑏 assuming the hash is uniformly                                tion cost and near-optimal communication cost across workloads.
+distributed in [0, 1). For each subset 𝑗, we define a parameter 𝛼 𝑗                        The distinguishing feature is ratelessness: it encodes any set into
+and use mapping probability 𝜌 𝑗 (𝑖) = 1+𝛼1 𝑗 𝑖 when mapping source                         an infinitely long codeword, of which any prefix is capable of rec-
+symbols in this subset. In other words, we replace 𝛼 with a subset-                        onciling a proportional number of differences with another set.
+specific 𝛼 𝑗 in the algorithm described in § 4.2. By convention, we                        Ratelessness simplifies deployment as there is no parameter; re-
+call this generalized design Irregular Rateless IBLTs. Rateless IBLTs                      duces overhead as nodes can incrementally send longer prefixes
+as discussed prior to this section is a special case where 𝑐 = 1,                          without over- or under-committing resources to fixed-sized code-
+𝑤 0 = 1, and 𝛼 0 = 0.5.                                                                    words; and naturally supports concurrent synchronization with
+    As mentioned, the main benefit of Irregular Rateless IBLTs over                        multiple nodes. We mathematically proved its asymptotic efficiency
+Rateless IBLTs is a lower communication cost. Unfortunately, the                           and showed that the actual performance converges quickly with ex-
+density evolution analysis does not produce a closed-form result                           tensive simulations. We implemented Rateless IBLT as a library and
+like the one in Theorem 5.1. To find a good configuration of 𝑐,                            benchmarked its performance. Finally, we applied Rateless IBLT
+𝑤 𝑗 , and 𝛼 𝑗 that minimizes the overhead, we use brute force and                          to a popular distributed application and demonstrated significant
+try different values in simulations. To limit the complexity of the                        gains in state synchronization over the production system.
+search, we set the number of subsets 𝑐 to 3 and found the following                           We point out a few interesting future directions: optimizing the
+                                                                                           parameters and the implementation of Irregular Rateless IBLTs; con-
+                                                                                           sidering scenarios where Alice and Bob’s sets change in the middle
+7 These issues also apply to the aforementioned state delta solution to a lesser degree,   of reconciliation; and designing efficient solutions for reconciliation
+because Alice has to compute the state deltas on the fly.                                  across more than two parties.
+Practical Rateless Set Reconciliation                                                                              ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+
+
+Acknowledgments                                                                               [19] Yaron Minsky, Ari Trachtenberg, and Richard Zippel. 2003. Set reconciliation
+                                                                                                   with nearly optimal communication complexity. IEEE Trans. Inf. Theory 49, 9
+We thank Francisco Lázaro for fruitful discussions. Lei Yang was                                   (2003), 2213–2218. https://doi.org/10.1109/TIT.2003.815784
+supported by a gift from the Ethereum Foundation. Yossi Gilad was                             [20] Michael Mitzenmacher and Rasmus Pagh. 2018. Simple multi-party set reconcili-
+                                                                                                   ation. Distributed Comput. 31, 6 (2018), 441–453. https://doi.org/10.1007/S00446-
+partially supported by the Alon Fellowship.                                                        017-0316-0
+                                                                                              [21] Michael Mitzenmacher and George Varghese. 2012. Biff (Bloom filter) codes: Fast
+This work does not raise any ethical issues. Appendices are sup-                                   error correction for large data sets. In Proceedings of the 2012 IEEE International
+porting material that has not been peer-reviewed.                                                  Symposium on Information Theory (ISIT 2012) (Cambridge, MA, USA). IEEE, New
+                                                                                                   York, NY, USA, 483–487. https://doi.org/10.1109/ISIT.2012.6284236
+                                                                                              [22] Satoshi Nakamoto. 2008. Bitcoin: A peer-to-peer electronic cash system.
+                                                                                              [23] Gleb Naumenko, Gregory Maxwell, Pieter Wuille, Alexandra Fedorova, and Ivan
+References                                                                                         Beschastnikh. 2019. Erlay: Efficient Transaction Relay for Bitcoin. In Proceedings
+ [1] Elli Androulaki, Artem Barger, Vita Bortnikov, Christian Cachin, Konstanti-                   of the 2019 ACM SIGSAC Conference on Computer and Communications Security
+     nos Christidis, Angelo De Caro, David Enyeart, Christopher Ferris, Gennady                    (London, United Kingdom) (CCS ’19). Association for Computing Machinery,
+     Laventman, Yacov Manevich, Srinivasan Muralidharan, Chet Murthy, Binh                         New York, NY, USA, 817–831. https://doi.org/10.1145/3319535.3354237
+     Nguyen, Manish Sethi, Gari Singh, Keith Smith, Alessandro Sorniotti, Chrysoula           [24] A. Pinar Ozisik, Gavin Andresen, Brian N. Levine, Darren Tapp, George Bis-
+     Stathakopoulou, Marko Vukolić, Sharon Weed Cocco, and Jason Yellick. 2018.                    sias, and Sunny Katkuri. 2019. Graphene: efficient interactive set reconcil-
+     Hyperledger fabric: a distributed operating system for permissioned blockchains.              iation applied to blockchain propagation. In Proceedings of the ACM Special
+     In Proceedings of the Thirteenth EuroSys Conference (Porto, Portugal) (EuroSys ’18).          Interest Group on Data Communication (Beijing, China) (SIGCOMM ’19). As-
+     Association for Computing Machinery, New York, NY, USA, Article 30, 15 pages.                 sociation for Computing Machinery, New York, NY, USA, 303–317. https:
+     https://doi.org/10.1145/3190508.3190538                                                       //doi.org/10.1145/3341302.3342082
+ [2] Jean-Philippe Aumasson and Daniel J. Bernstein. 2012. SipHash: A Fast Short-             [25] Neil Perry, Bruce Spang, Saba Eskandarian, and Dan Boneh. 2022. Strong
+     Input PRF. In 13th International Conference on Cryptology in India (INDOCRYPT                 Anonymity for Mesh Messaging. arXiv:2207.04145 [cs.CR]
+     2012) (Kolkata, India) (Lecture Notes in Computer Science, Vol. 7668). Springer,         [26] Aravindh Raman, Sagar Joglekar, Emiliano De Cristofaro, Nishanth Sastry, and
+     New York, NY, USA, 489–508. https://doi.org/10.1007/978-3-642-34931-7_28                      Gareth Tyson. 2019. Challenges in the Decentralised Web: The Mastodon Case.
+ [3] Burton H. Bloom. 1970. Space/time trade-offs in hash coding with allowable errors.            In Proceedings of the Internet Measurement Conference (Amsterdam, Netherlands)
+     Commun. ACM 13, 7 (jul 1970), 422–426. https://doi.org/10.1145/362686.362692                  (IMC ’19). Association for Computing Machinery, New York, NY, USA, 217–229.
+ [4] R. C. Bose and Dwijendra K. Ray-Chaudhuri. 1960. On A Class of Error Correcting               https://doi.org/10.1145/3355369.3355572
+     Binary Group Codes. Inf. Control. 3, 1 (1960), 68–79. https://doi.org/10.1016/           [27] Irving S. Reed and Gustave Solomon. 1960. Polynomial Codes Over Certain Finite
+     S0019-9958(60)90287-4                                                                         Fields. J. Soc. Indust. Appl. Math. 8, 2 (1960), 300–304. https://doi.org/10.1137/
+ [5] John W. Byers, Michael Luby, Michael Mitzenmacher, and Ashutosh Rege. 1998. A                 0108018
+     digital fountain approach to reliable distribution of bulk data. In Proceedings of the   [28] Thomas J. Richardson and Rüdiger L. Urbanke. 2001. The capacity of low-density
+     ACM SIGCOMM ’98 Conference on Applications, Technologies, Architectures, and                  parity-check codes under message-passing decoding. IEEE Trans. Inf. Theory 47,
+     Protocols for Computer Communication (Vancouver, British Columbia, Canada)                    2 (2001), 599–618. https://doi.org/10.1109/18.910577
+     (SIGCOMM ’98). Association for Computing Machinery, New York, NY, USA,                   [29] Luigi Rizzo. 1997. Dummynet: a simple approach to the evaluation of network
+     56–67. https://doi.org/10.1145/285237.285258                                                  protocols. SIGCOMM Comput. Commun. Rev. 27, 1 (jan 1997), 31–41. https:
+ [6] Lucien Le Cam. 1960. An approximation theorem for the Poisson binomial                        //doi.org/10.1145/251007.251012
+     distribution. Pacific J. Math. 10, 4 (1960), 1181 – 1197.                                [30] Herbert Robbins. 1955. A remark on Stirling’s formula. The American mathemat-
+ [7] Yevgeniy Dodis, Rafail Ostrovsky, Leonid Reyzin, and Adam D. Smith. 2008. Fuzzy               ical monthly 62, 1 (1955), 26–29.
+     Extractors: How to Generate Strong Keys from Biometrics and Other Noisy Data.            [31] Sonic. 2024. Ethereum Execution Client Diversity. https://execution-diversity.info
+     SIAM J. Comput. 38, 1 (2008), 97–139. https://doi.org/10.1137/060651380                       (retrieved January 22, 2024).
+ [8] David Eppstein, Michael T. Goodrich, Frank Uyeda, and George Varghese. 2011.             [32] J Michael Steele. 1994. Le Cam’s inequality and Poisson approximations. The
+     What’s the difference? efficient set reconciliation without prior context. In Pro-            American Mathematical Monthly 101, 1 (1994), 48–54.
+     ceedings of the ACM SIGCOMM 2011 Conference (Toronto, Ontario, Canada) (SIG-             [33] E. Summermatter and C. Grothoff. 2022. Byzantine Fault Tolerant Set Reconcilia-
+     COMM ’11). Association for Computing Machinery, New York, NY, USA, 218–229.                   tion. https://lsd.gnunet.org/lsd0003/.
+     https://doi.org/10.1145/2018436.2018462                                                  [34] Massimiliano Taverna and Kenneth G. Paterson. 2023. Snapping Snap Sync:
+ [9] Robert G. Gallager. 1962. Low-density parity-check codes. IRE Trans. Inf. Theory              Practical Attacks on Go Ethereum Synchronising Nodes. In 32nd USENIX Security
+     8, 1 (1962), 21–28. https://doi.org/10.1109/TIT.1962.1057683                                  Symposium (USENIX Security 23). USENIX Association, Anaheim, CA, 3331–3348.
+[10] The go-ethereum Authors. 2024. go-ethereum: Official Go implementation of the                 https://www.usenix.org/conference/usenixsecurity23/presentation/taverna
+     Ethereum protocol. https://geth.ethereum.org.                                            [35] Dennis Trautwein, Aravindh Raman, Gareth Tyson, Ignacio Castro, Will Scott,
+[11] The go-ethereum Authors. 2024. State heal phase is very slow (not finished after              Moritz Schubotz, Bela Gipp, and Yiannis Psaras. 2022. Design and evalua-
+     2 weeks). https://github.com/ethereum/go-ethereum/issues/23191.                               tion of IPFS: a storage layer for the decentralized web. In Proceedings of the
+[12] The go-ethereum Authors. 2024. trie package - go-ethereum. https://pkg.go.dev/                ACM SIGCOMM 2022 Conference (Amsterdam, Netherlands) (SIGCOMM ’22).
+     github.com/ethereum/go-ethereum/trie.                                                         Association for Computing Machinery, New York, NY, USA, 739–752. https:
+[13] Michael T. Goodrich and Michael Mitzenmacher. 2011. Invertible Bloom Lookup                   //doi.org/10.1145/3544216.3544232
+     Tables. In 49th Annual Allerton Conference on Communication, Control, and Com-           [36] Jianguo Wang, Chunbin Lin, Yannis Papakonstantinou, and Steven Swanson. 2017.
+     puting (Allerton 2011) (Monticello, IL, USA). IEEE, New York, NY, USA, 792–799.               An Experimental Study of Bitmap Compression vs. Inverted List Compression.
+     https://doi.org/10.1109/ALLERTON.2011.6120248                                                 In Proceedings of the 2017 ACM International Conference on Management of Data
+[14] Yilin Han, Chenxing Li, Peilun Li, Ming Wu, Dong Zhou, and Fan Long. 2020.                    (Chicago, Illinois, USA) (SIGMOD ’17). Association for Computing Machinery,
+     Shrec: bandwidth-efficient transaction relay in high-throughput blockchain sys-               New York, NY, USA, 993–1008. https://doi.org/10.1145/3035918.3064007
+     tems. In Proceedings of the 11th ACM Symposium on Cloud Computing (Virtual               [37] Gavin Wood. 2014. Ethereum: A secure decentralised generalised transaction
+     Event, USA) (SoCC ’20). Association for Computing Machinery, New York, NY,                    ledger.
+     USA, 238–252. https://doi.org/10.1145/3419111.3421283                                    [38] Pieter Wuille. 2018. Minisketch: a library for BCH-based set reconciliation.
+[15] Francisco Lázaro and Balázs Matuz. 2021. Irregular Invertible Bloom Look-Up                   https://github.com/sipa/minisketch.
+     Tables. In 11th International Symposium on Topics in Coding (ISTC 2021) (Montreal,       [39] Cong Yue, Zhongle Xie, Meihui Zhang, Gang Chen, Beng Chin Ooi, Sheng Wang,
+     QC, Canada). IEEE, New York, NY, USA, 1–5. https://doi.org/10.1109/ISTC49272.                 and Xiaokui Xiao. 2020. Analysis of Indexing Structures for Immutable Data. In
+     2021.9594198                                                                                  Proceedings of the 2020 ACM SIGMOD International Conference on Management of
+[16] Francisco Lázaro and Balázs Matuz. 2023. A Rate-Compatible Solution to the                    Data (Portland, OR, USA) (SIGMOD ’20). Association for Computing Machinery,
+     Set Reconciliation Problem. IEEE Trans. Commun. 71, 10 (2023), 5769–5782.                     New York, NY, USA, 925–935. https://doi.org/10.1145/3318464.3389773
+     https://doi.org/10.1109/TCOMM.2023.3296630
+[17] Michael Luby. 2002. LT Codes. In 43rd Symposium on Foundations of Computer Sci-
+     ence (FOCS 2002) (Vancouver, BC, Canada). IEEE Computer Society, Los Alamitos,
+     CA, USA, 271. https://doi.org/10.1109/SFCS.2002.1181950
+                                                                                              A     Inflexibility of Regular IBLTs
+[18] Michael G. Luby, Michael Mitzenmacher, and M. Amin Shokrollahi. 1998. Analysis           We state and prove Theorems A.1 and A.2, which show that the
+     of random processes via And-Or tree evaluation. In Proceedings of the Ninth
+     Annual ACM-SIAM Symposium on Discrete Algorithms (San Francisco, California,             efficiency of regular IBLTs degrades exponentially fast when being
+     USA) (SODA ’98). Society for Industrial and Applied Mathematics, USA, 364–373.           used to reconcile more or fewer differences than parameterized
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                         Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+for. We state the theorems with respect to generic sets of source           Theorem A.2. Consider a random set of 𝑛 source symbols and a
+symbols. When using IBLTs for set reconciliation (§ 3), the sets are     corresponding regular IBLT with 𝑚 coded symbols, where each source
+𝐴 △ 𝐵.                                                                   symbol is mapped to 𝑘 coded symbols. The peeling decoder tries to
+                                                                         recover all source symbols using the first 𝜂𝑛 coded symbols. 𝑘 and 𝜂
+   Theorem A.1. For a random set of 𝑛 source symbols and a cor-
+                                                                         are constants, and 𝜂𝑛 ≤ 𝑚. The probability that it succeeds decreases
+responding regular IBLT with 𝑚 coded symbols, the probability that
+                                                                         exponentially in 1 − 𝜂𝑛/𝑚.
+the peeling decoder can recover at least one source symbol decreases
+exponentially in 𝑛/𝑚.                                                       Proof. For the peeling decoder to succeed, each of the source
+                                                                         symbols must be mapped at least once to the first 𝜂𝑛 coded symbols.
+   Proof. For the peeling decoder to recover at least one source
+                                                                         Because each source symbol is uniformly mapped to 𝑘 of the 𝑚
+symbol, there must be at least one pure coded symbol at the begin-
+                                                                         coded symbols, the probability that one is only mapped to the
+ning. Otherwise, peeling cannot start, and no source symbol can
+                                                                         remaining 𝑚 − 𝜂𝑛 coded symbols that the decoder does not use
+be recovered. We now calculate a lower bound on the probability
+                                                                         (“missed”) is
+𝑝 nopure that no pure coded symbol exists. Note that there is another                               
+parameter for regular IBLTs, 𝑘, which determines the number of                              𝑚 − 𝜂𝑛 𝑚
+                                                                               𝑝 missone =           /
+coded symbols each source symbol is mapped to (§ 3). However, it                              𝑘          𝑘
+can be shown that the probability that no pure coded symbol exists                         (𝑚 − 𝜂𝑛)(𝑚 − 𝜂𝑛 − 1) . . . (𝑚 − 𝜂𝑛 − 𝑘 + 1)
+increases with 𝑘, so we set 𝑘 = 1 to get a lower bound.                                  =
+                                                                                                    𝑚(𝑚 − 1) . . . (𝑚 − 𝑘 + 1)
+   We consider the equivalent problem: if we throw 𝑛 balls (source                             𝜂𝑛  𝑘
+symbols) uniformly at random into 𝑚 bins (coded symbols), what is                        ≈ 1−          .
+                                                                                                𝑚
+a lower bound on the probability that no bin ends up having exactly
+                                                                                                                  𝑚−𝜂𝑛−𝑘+1            𝑚−𝜂𝑛
+one ball? We compute the number of ways 𝑓 such that at least one         The last step approximates 𝑚−𝑘+1 with 𝑚 . This does not
+bin has exactly one ball, which is the opposite of the event we are      change the result qualitatively because 𝑘 is a constant.
+interested in. We set aside one of the 𝑚 bins which will get exactly       The probability that no source symbol is missed is
+one ball, and assign one of the 𝑛 balls to this bin. We then throw the                               𝑝 nomiss = (1 − 𝑝 missone )𝑛
+remaining 𝑛 − 1 balls into the remaining 𝑚 − 1 bins freely. Notice
+that there are duplicates, so we get an upper bound                                                               ≤ 𝑒 −𝑛𝑝 missone
+                                                                                                                             𝜂𝑛 𝑘
+                          𝑓 ≤ 𝑚𝑛(𝑚 − 1)𝑛−1 .                                                                      = 𝑒 −𝑛 ( 1− 𝑚 ) .
+The total number of ways to throw 𝑛 balls into 𝑚 bins is                                                                                                    □
+                                       𝑛
+                                 𝑔 =𝑚 .
+                                                                         B     Calculation of 𝑃𝑔 and 𝐶 (𝑥)
+Each way of throwing is equally likely to happen, so the probability
+                                                                         In this section, we calculate 𝑃𝑔 and 𝐶 (𝑥) as defined in § 4.2.
+𝑝 nopure that no bin ends up with exactly one ball has a lower bound
+                                                                             𝑃𝑔 = (1 − 𝜌 (𝑖 + 1))(1 − 𝜌 (𝑖 + 2)) . . . (1 − 𝜌 (𝑖 + 𝑔 − 1))𝜌 (𝑖 + 𝑔)
+                    𝑝 nopure = 1 − 𝑓 /𝑔
+                                                                                                    𝑔−1
+                                  𝑚𝑛(𝑚 − 1)𝑛−1                                          1/𝛼     Ö       𝑖 +𝑛
+                              ≥ 1−                                              =
+                                       𝑚𝑛                                           𝑖 + 𝑔 + 1/𝛼 𝑛=1 𝑖 + 𝑛 + 1/𝛼
+                                  𝑛(𝑚 − 1)𝑛−1                                           (𝑖 + 1)𝑔−1
+                              =1−                                               =                    .
+                                     𝑚𝑛−1                                           𝛼 (𝑖 + 1 + 1/𝛼)𝑔
+                                        1 𝑛−1
+                                         
+                              = 1−𝑛 1−                                   Here, (𝑥)𝑛 is the Pochhammer symbol.8
+                                       𝑚
+                                                                            Before proceeding to calculate 𝐶 (𝑥), we first prove a useful iden-
+   We are interested in the event where peeling can start, which is      tity about quotients of Gamma functions,
+the opposite event. Its probability has an upper bound for 𝑛/𝑚 > 1
+                                                                                     Γ(𝑥)                  Γ(𝑥)          Γ(𝑥 + 1)
+                                                                                                                                 
+                                                                                                  1
+                       𝑝 haspure = 1 − 𝑝 nopure                                              ≡                       −              .
+                                                                                    Γ(𝑥 + 𝑦) 𝑦 − 1 Γ(𝑥 + 𝑦 − 1) Γ(𝑥 + 𝑦)
+                                           1 𝑛−1
+                                            
+                                                                         We start from the right-hand side,
+                                 ≤𝑛 1−
+                                           𝑚                                                      Γ(𝑥)        Γ(𝑥 + 1)
+                                                                                                                      
+                                                                                        1
+                                        𝑛−1                                                                 −
+                                 ≤ 𝑛𝑒 − 𝑚                                             𝑦 − 1 Γ(𝑥 + 𝑦 − 1) Γ(𝑥 + 𝑦)
+                                                                                                                         Γ(𝑥 + 1)
+                                                                                                                                  
+                                            𝑛
+                                 = 𝑜 (1.5 − 𝑚 ).                                        1         (𝑥 + 𝑦 − 1)Γ(𝑥)
+                                                                                    =                                  −
+                                                                                      𝑦 − 1 (𝑥 + 𝑦 − 1)Γ(𝑥 + 𝑦 − 1) Γ(𝑥 + 𝑦)
+                                                                   □
+                                                                                              (𝑦 − 1)Γ(𝑥) + Γ(𝑥 + 1) Γ(𝑥 + 1)
+                                                                                                                                 
+                                                                                        1
+                                                                                    =                                 −
+   The following theorem says that when dropping a fraction of a                      𝑦−1            Γ(𝑥 + 𝑦)            Γ(𝑥 + 𝑦)
+regular IBLT to reconcile a smaller number of differences 𝑛 with a                      Γ(𝑥)
+constant overhead 𝜂 (the ratio between the number of used coded                     =          .
+                                                                                      Γ(𝑥 + 𝑦)
+symbols and the number of source symbols 𝑛), the success proba-
+bility decreases quickly as a larger fraction gets dropped.              8 (𝑥 ) = 𝑥 (𝑥 + 1) . . . (𝑥 + 𝑛 − 1) .
+                                                                               𝑛
+Practical Rateless Set Reconciliation                                                            ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+
+
+The identity immediately implies the following                                     Recall that we want at least one pure symbol among the first
+                                                                                𝑚 coded symbols. Assume for contradiction that 𝑚 ≤ 𝜂|𝑆 |. Then,
+        ∑︁ Γ(𝑥)
+         𝑏
+                         1
+                             
+                                   Γ(𝑎)       Γ(𝑏 + 1)
+                                                       
+                    ≡                       −            .               (4)    failure happens with probability
+        𝑥=𝑎
+            Γ(𝑥 + 𝑦) 𝑦 − 1 Γ(𝑎 + 𝑦 − 1) Γ(𝑏 + 𝑦)
+                                                                                                         𝑚−1
+                                                                                                         Ö
+We now calculate 𝐶 (𝑥).                                                                       𝑃 fail =         (1 − 𝑃𝑖 )
+                   𝑥                                                                                     𝑖=0
+                  ∑︁
+      𝐶 (𝑥) =           𝑃𝑔                                                                               𝜂 |𝑆
+                                                                                                           Ö  | −1
+                  𝑔=1                                                                               ≥                (1 − 𝑃𝑖 )
+                   𝑥                                                                                       𝑖=0
+                  ∑︁      (𝑖 + 1)𝑔−1
+              =                                                                                                           𝛿 |𝑆 |𝜖 𝜂 |𝑆 |
+                                                                                                                                
+                                                                                                               𝛿 |𝑆 |𝜖
+                  𝑔=1
+                      𝛼 (𝑖 + 1 + 1/𝛼)𝑔                                                              ≥ 1 − 𝑒 · 1−𝜖 exp − 1−𝜖
+                                                                                                               𝜂           𝜂
+                         Γ(𝑖 + 𝑔)Γ(𝑖 + 1 + 1/𝛼)
+                   𝑥                                                                                                                 
+                  ∑︁                                                                                                          𝛿 |𝑆 |𝜖
+              =                                                                                                 𝜖 1+𝜖
+                                                                                                    ≥ 1 − 𝑒 · 𝛿𝜂 |𝑆 |  exp − 1−𝜖
+                  𝑔=1
+                      𝛼 Γ(𝑖 + 1)Γ(𝑖 + 1 + 𝑔 + 1/𝛼)                                                                            𝜂
+                                                                                                    > 1 − 𝜎.
+                  Γ(𝑖 + 1 + 1/𝛼) ∑︁     Γ(𝑖 + 𝑔)
+                                         𝑥
+              =
+                    𝛼 Γ(𝑖 + 1) 𝑔=1 Γ(𝑖 + 𝑔 + 1 + 1/𝛼)                                                                                                   □
+                                                                     !
+                  Γ(𝑖 + 1 + 𝛼1 )   Γ(𝑖 + 1)       Γ(𝑖 + 𝑥 + 1)                     We remark that a stronger result which only requires 𝜌 (𝑖) =
+              =                                −
+                    Γ(𝑖 + 1)     Γ(𝑖 + 1 + 𝛼1 ) Γ(𝑖 + 𝑥 + 1 + 𝛼1 )              𝜔 (log 𝑖/𝑖) can be shown with a very similar proof, which we omit
+                                                                                for simplicity and lack of practical implications. We may also con-
+                        Γ(𝑖 + 1 + 𝛼1 )Γ(𝑥 + 𝑖 + 1)
+              =1−                                          .                    sider a generalization of this lemma, by requiring there to be at least
+                        Γ(𝑖 + 1)Γ(𝑥 + 𝑖 + 1 + 𝛼1 )                              𝑘 coded symbols with at most 𝑘 source symbols mapped to each,
+The second last equality results from applying Eq. 4.                           for every 𝑘 ≤ |𝑆 |. (Lemma 4.1 is the special case of 𝑘 = 1.) This may
+                                                                                lead to an even tighter bound on 𝜌 (𝑖), which we conjecture to be
+C     Deferred Proofs                                                           𝜌 (𝑖) = 𝜔 (1/𝑖).
+    Lemma C.1 (Restatement of Lemma 4.1). Forany 𝜖 > 0, any                       Lemma C.2 (Restatement of Lemma 4.2). For any mapping
+mapping probability 𝜌 (𝑖) such that 𝜌 (𝑖) = Ω 1/𝑖 1−𝜖 , and any 𝜎 > 0,          probability 𝜌 (𝑖) such that 𝜌 (𝑖) = 𝑜 (1/𝑖), and any 𝜎 > 0, if there
+if there exists at least one pure coded symbol within the first 𝑚 coded         exist at least |𝑆 | non-empty coded symbols within the first 𝑚 coded
+symbols for a random set 𝑆 with probability 𝜎, then 𝑚 = 𝜔 (|𝑆 |).               symbols for a random set 𝑆 with probability 𝜎, then 𝑚 = 𝜔 (|𝑆 |).
+
+   Proof. We need to show     ∀𝜂 > 0 ∃|𝑆 | 0 > 0 ∀|𝑆 | > |𝑆 | 0 : 𝑚 > 𝜂|𝑆 |.      Proof. We need to show that ∀𝜂 > 0 ∃|𝑆 | 0 > 0 ∀|𝑆 | > |𝑆 | 0 :
+Because 𝜌 (𝑖) = Ω 1/𝑖 1−𝜖 , there exists 𝛿 > 0 and 𝑖 0 > 0, such that           𝑚 > 𝜂|𝑆 |. First, note that for there to be |𝑆 | non-empty symbols
+𝜌 (𝑖) ≥ 𝛿/𝑖 1−𝜖 for all 𝑖 > 𝑖 0 . Let 𝜌 0 be the smallest non-zero value        within the first 𝑚 coded symbols, 𝑚 cannot be smaller than |𝑆 |, so
+among 𝜌 (𝑖) for all 0 ≤ 𝑖 ≤ 𝑖 0 . Let                                           the statement is trivially true for 0 < 𝜂 < 1. We now prove for the
+                                         1         1                        case of 𝜂 ≥ 1.
+                               © 𝜂 1−𝜖 𝜖 1 𝛿 1−𝜖                                   For any 𝜂 ≥ 1, let 𝛿 = 4𝜂   1 . Because 𝜌 (𝑖) = 𝑜 (1/𝑖), there must
+               |𝑆 | 0 = max ­                              , |𝑆 | ∗ ®
+                                                                    ª
+                                              ,
+                                      𝛿         𝜂 𝜌0                            exist 𝑖 0 > 0 such that 𝜌 (𝑖) < 𝛿/𝑖 for all 𝑖 > 𝑖 0 . Let
+                               «                                    ¬
+where |𝑆 | ∗ is such that for all |𝑆 | > |𝑆 | ∗ ,                                               |𝑆 | 0 = max(2𝑖 0, 4𝜂 2 (1 − 2𝜂) log(𝜎)).
+                                                        
+                                                 𝛿 |𝑆 |𝜖                           For all 𝑖 ≥ |𝑆 |/2, the 𝑖-th coded symbol is non-empty with prob-
+                      𝑒 · 𝛿𝜂 𝜖 |𝑆 | 1+𝜖 exp − 1−𝜖 < 𝜎.
+                                                 𝜂                              ability
+                           
+                   𝛿 |𝑆 | 𝜖
+Note that exp 𝜂 1−𝜖 = 𝜔 |𝑆 | 1+𝜖 , so such |𝑆 | ∗ always exists.
+                                           
+                                                                                                           𝑃𝑖 = 1 − (1 − 𝜌 (𝑖)) |𝑆 |
+  For any 𝑖 ≥ 0, the 𝑖-th coded symbol is pure if and only if exactly
+                                                                                                                          2𝛿 |𝑆 |
+                                                                                                                              
+one source symbol is mapped to it, which happens with probability                                             < 1− 1−
+                                                                                                                          |𝑆 |
+                             𝑃𝑖 = |𝑆 |𝜌 (𝑖)(1 − 𝜌 (𝑖)) |𝑆 | −1                                                ≤ 2𝛿.
+                                ≤ 𝑒 · |𝑆 |𝜌 (𝑖)𝑒 − |𝑆 |𝜌 (𝑖 ) .                 The first inequality is because 𝜌 (𝑖) < 𝛿/𝑖 for 𝑖 ≥ |𝑆 |/2, and the
+The inequality comes from the fact that (1 − 𝑥) 𝑦 ≤ 𝑒 −𝑥 𝑦 for any              second inequality is because (1 − 𝑥) 𝑦 ≥ 1 − 𝑥𝑦 for any 𝑥 < 1 and
+0 ≤ 𝑥 ≤ 1 and 𝑦 ≥ 1.                                                            𝑦 ≥ 1.
+   By the definition of |𝑆 | 0 , for any |𝑆 | > |𝑆 | 0 and any 0 ≤ 𝑖 ≤ 𝜂|𝑆 |,      In order to get |𝑆 | non-empty symbols among the first 𝑚 coded
+either 𝜌 (𝑖) = 0, or 𝜌 (𝑖) ≥ (𝜂 |𝑆𝛿| ) 1−𝜖 and |𝑆 |𝜌 (𝑖) > 1. In either case,   symbols, there must be at least |𝑆 |/2 non-empty symbols from
+                                                                                index 𝑖 = |𝑆 |/2 to index 𝑖 = 𝑚 − 1. To derive an upper bond on this
+                                                      
+                                𝛿 |𝑆 |𝜖        𝛿 |𝑆 |𝜖                          probability, we assume that each is non-empty with probability 2𝛿,
+                     𝑃𝑖 ≤ 𝑒 · 1−𝜖 exp − 1−𝜖 .
+                                𝜂              𝜂                                which, as we just saw, is strictly an overestimate. By Hoeffding’s
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                 Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+                                                                          we solve in our analysis, which enables us to get the closed-form
+    Source symbols       𝑥0      𝑥1        𝑥2       𝑥3
+                                                                          expression in Theorem 5.1.
+
+                                                                             Proof. Consider 𝑛 random source symbols and its first 𝑚 coded
+                                                                          symbols. Let Λ be the random variable denoting the degree of a
+    Coded symbols        𝑎0      𝑎1        𝑎2       𝑎3      𝑎4   𝑎5       random source symbol. Let Λ𝑢 (0 ≤ 𝑢 ≤ 𝑚) be the probability that
+                                                                          Λ takes value 𝑢. Similarly, let Ψ be the random variable denoting
+                                                                          the degree of a random coded symbol. Let Ψ𝑣 (0 ≤ 𝑣 ≤ 𝑛) be the
+Figure 16: Example of the bipartite graph representation                  probability that Ψ takes value 𝑣. Define the probability generating
+of a set of source symbols, 𝑥 0, 𝑥 1, 𝑥 2, 𝑥 3 , and its first 6 coded    functions of Λ and Ψ,
+symbols, 𝑎 0, 𝑎 1, . . . , 𝑎 5 .                                                                            𝑚
+                                                                                                           ∑︁
+                                                                                                   Λ(𝑥) =      Λ𝑢 𝑥 𝑢 ,
+                                                                                                                𝑢=0
+inequality, the probability that there are at least |𝑆 |/2 non-empty                                             𝑛
+                                                                                                                ∑︁
+symbols has an upper bound                                                                         Ψ(𝑥) =             Ψ𝑣 𝑥 𝑣 .
+                                                     2!                                                       𝑣=0
+                                               |𝑆 |
+             𝑃succ < exp (|𝑆 | − 2𝑚) 2𝛿 −                                    We also consider the degree of a random edge. Let 𝜆 be the
+                                            2𝑚 − |𝑆 |
+                                                                          random variable denoting the source degree of a random edge. Let
+when 𝑚 ≤ ( 4𝛿 1 + 1 )|𝑆 |, which is true for all 𝑚 ≤ 𝜂|𝑆 |.
+                       2                                                  𝜆𝑢 (0 ≤ 𝑢 ≤ 𝑚) be the probability that 𝜆 takes value 𝑢. It is the
+  Assume 𝑚 ≤ 𝜂|𝑆 | for contradiction. By the definition of 𝛿, the         fraction of edges with source degree 𝑢 among all edges, i.e.,
+previous upper bound becomes
+                                                                                                              Λ𝑢 𝑢
+                                        
+                                                    |𝑆 |
+                                                                                                  𝜆𝑢 = Í𝑚
+                         𝑃succ < exp                         .                                              𝑤=0 Λ 𝑤 𝑤
+                                          4𝜂 2 (1 − 2𝜂)                                                    Λ𝑢 𝑢
+The right hand side monotonically decreases with |𝑆 |. So, by the                                        =      .
+                                                                                                           E(Λ)
+definition of |𝑆 | 0 , for all |𝑆 | > |𝑆 | 0 ,
+                                                                        Let 𝜆(𝑥) be the generating function of 𝜆, defined as
+                                               |𝑆 | 0
+                      𝑃succ < exp                          ≤ 𝜎.                                          𝑚
+                                                                                                         ∑︁
+                                       4𝜂 2 (1 − 2𝜂)                                           𝜆(𝑥) =          𝜆𝑢 𝑥 𝑢 −1
+                                                                □                                        𝑢=0
+                                                                                                                  𝑚
+   Theorem C.3 (Restatement of Theorem 5.1). For a random set                                             1 ∑︁
+                                                                                                    =             Λ𝑢 𝑢𝑥 𝑢 −1
+of 𝑛 source symbols, the probability that the peeling decoder success-                                   E(Λ) 𝑢=0
+fully recovers the set using the first 𝜂𝑛 coded symbols (as defined in                                   Λ′ (𝑥)
+§ 4) goes to 1 as 𝑛 goes to infinity. Here, 𝜂 is any positive constant                              =           .
+                                                                                                         E(Λ)
+such that                                   
+                                      1         𝑞                         Similarly, let 𝜑 be the random variable denoting the coded degree
+                                          Ei − 𝛼𝜂
+                     ∀𝑞 ∈ (0, 1] : 𝑒 𝛼              < 𝑞.                  of a random edge. Let 𝜑 𝑣 (0 ≤ 𝑣 ≤ 𝑛) be the probability that 𝜑 takes
+   Before proving the theorem, we introduce the graph represen-           value 𝑣. It is the fraction of edges with coded degree 𝑣 among all
+tation of a set of source symbols and the corresponding coded             edges, i.e.,
+symbols. Imagine a bipartite graph where each source or coded                                                  Ψ𝑣 𝑣
+                                                                                                   𝜑 𝑣 = Í𝑛
+                                                                                                            𝑤=0 Ψ𝑤 𝑤
+symbol is a vertex in the graph, and there is an edge between a
+source and a coded symbol if and only if the former is mapped to                                           Ψ𝑣 𝑣
+the latter during encoding. Fig. 16 is an example. We define the de-                                     =      .
+                                                                                                           E(Ψ)
+gree of a symbol as the number of neighbors it has in this bipartite
+graph, i.e., its degree as in graph theory. For example, in Fig. 16,      Let 𝜑 (𝑥) be the generating function of 𝜑, defined as
+source symbol 𝑥 0 has degree 4, and coded symbol 𝑎 1 has degree 2.                                        𝑛
+                                                                                                         ∑︁
+   We also define the degree of an edge in the graph [15]. The source                          𝜑 (𝑥) =         𝜑 𝑣 𝑥 𝑣−1
+degree of an edge is the degree of the source symbol it connects to,                                     𝑣=0
+                                                                                                                    𝑛
+and its coded degree is the degree of the coded symbol it connects                                        1 ∑︁
+to. For example, for the edge connecting 𝑥 3 and 𝑎 3 in Fig. 16, its                                 =            Ψ𝑣 𝑣𝑥 𝑣−1
+                                                                                                         E(Ψ) 𝑣=0
+source degree is 5 because 𝑥 3 has degree 5, and its coded degree is
+                                                                                                         Ψ′ (𝑥)
+2 because 𝑎 3 has degree 2.                                                                          =          .
+   We remark that density evolution is a standard technique [18, 28]                                     E(Ψ)
+of analyzing codes that are based on random graphs, such as LT [17]          Let us now consider Ψ(𝑥). Recall that each of the 𝑛 random
+and LDPC [9] codes. Our proof mostly follows these analysis, in           source symbols is mapped to the 𝑖-th coded symbol independently
+particular, [18, § 2] and [15, § III]. However, the mapping probability   with probability 𝜌 (𝑖). The degree of the 𝑖-th coded symbol thus
+                                                                                                                                            fol-
+𝜌 (𝑖) in Rateless IBLTs is a function whose parameter 𝑖 goes to           lows binomial distribution, which takes 𝑣 with probability 𝑛𝑣 𝜌 𝑣 (𝑖) (1−
+infinity as the set size goes to infinity. This is a key challenge that   𝜌 (𝑖))𝑛−𝑣 . Because we are interested in a random coded symbol, its
+Practical Rateless Set Reconciliation                                                         ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia
+
+
+index 𝑖 takes 0, 1, . . . , 𝑚 − 1 with equal probability 1/𝑚. By the law        Let 𝑞 denote the probability that a randomly chosen edge con-
+of total probability,                                                         nects to a source symbol that is not yet recovered. As decoding
+                              𝑚−1                                           progresses, 𝑞 is updated according to the following function [15, 18]
+                            1 ∑︁ 𝑛 𝑣
+                 Ψ𝑣 =                 𝜌 (𝑖)(1 − 𝜌 (𝑖))𝑛−𝑣 .
+                           𝑚 𝑖=0 𝑣                                                              𝑓 (𝑞) = 𝜆(1 − 𝜑 (1 − 𝑞))
+
+Plugging it into the definition of Ψ(𝑥), we get                                                       = 𝑒 −E(Λ)𝜑 (1−𝑞)
+                                                                                                             Í𝑚−1
+                          𝑛
+                         ∑︁                                                                           = 𝑒−    𝑖=0    𝜌 (𝑖 ) (1−𝑞𝜌 (𝑖 ) ) 𝑛−1
+                                                                                                                                               .
+             Ψ(𝑥) =            Ψ𝑣 𝑥   𝑣
+                         𝑣=0                                                     Let us consider 𝑓 (𝑞) when the number of source symbols 𝑛 goes
+                          𝑛   𝑚−1                                           to infinity, and the ratio of coded and source symbols is fixed, i.e.,
+                         ∑︁ 1 ∑︁ 𝑛
+                     =              𝜌 𝑣 (𝑖)(1 − 𝜌 (𝑖))𝑛−𝑣 𝑥 𝑣                 𝜂 = 𝑚/𝑛 where 𝜂 is a positive constant. Recall that 𝜌 (𝑖) = 1+𝛼𝑖 1 .
+                       𝑣=0
+                           𝑚 𝑖=0
+                                 𝑣
+                                                                              Notice that
+                          𝑚−1 𝑛  
+                        1 ∑︁ ∑︁ 𝑛                                                                𝑛𝑞                                    (𝑛−1)𝑞
+                     =              (𝑥𝜌 (𝑖)) 𝑣 (1 − 𝜌 (𝑖))𝑛−𝑣                                 𝑒 − 𝛼𝑖 ≤ (1 − 𝑞𝜌 (𝑖))𝑛−1 ≤ 𝑒 − 1+𝛼𝑖
+                       𝑚 𝑖=0 𝑣=0 𝑣
+                            𝑚−1
+                         1 ∑︁                                                 holds for all 𝑛 ≥ 1, 𝑖 ≥ 0, 𝛼 > 0, and 0 ≤ 𝑞 ≤ 1. We use this
+                     =         (1 − (1 − 𝑥)𝜌 (𝑖))𝑛 .                          inequality and the squeeze theorem to calculate the limit of the
+                         𝑚 𝑖=0
+                                                                              exponent of 𝑓 (𝑞) when 𝑛 goes to infinity.
+Here, the last step is because of the binomial theorem. Plugging it              We first calculate the lower bound.
+into the definition of 𝜑 (𝑥), we get                                                                                 𝜂𝑛−1
+                                                                                                                      ∑︁
+                           𝑛
+                                  𝑚−1
+                                  ∑︁                                                    lim − ln(𝑓 (𝑞)) = lim                 𝜌 (𝑖)(1 − 𝑞𝜌 (𝑖))𝑛−1
+                                                                                       𝑛→∞                   𝑛→∞
+             𝜑 (𝑥) =               𝜌 (𝑖)(𝜌 (𝑖)(𝑥 − 1) + 1)𝑛−1 .                                                       𝑖=0
+                         𝑚E(Ψ) 𝑖=0                                                                                   𝜂𝑛−1
+                                                                                                                      ∑︁
+By the handshaking lemma, which says the sum of the degree of                                            ≥ lim                𝜌 (𝑖)𝑒 −𝑛𝑞/(𝛼𝑖 )
+                                                                                                             𝑛→∞
+all source symbols should equal the sum of the degree of all coded                                                    𝑖=0
+symbols,                                                                                                             𝜂𝑛−1
+                                                                                                                      ∑︁         1
+                                                                                                         = lim
+                                                                                                                                   𝑛𝑞/(𝛼𝑖 )
+                                                                                                                     𝑖=0 (1 + 𝛼𝑖)𝑒
+                                  𝑛
+                                 ∑︁                  𝑚
+                                                     ∑︁                                                      𝑛→∞
+               𝑚E(Ψ) = 𝑚                  Ψ𝑣 𝑣 = 𝑛         Λ𝑢 𝑢 = 𝑛E(Λ).
+                                                                                                                       𝜂𝑛−1
+                                 𝑣=0                 𝑢=0                                                             1 ∑︁           1
+                                                                                                         = lim                                     𝑞 𝑛
+So, we can further simplify 𝜑 (𝑥) as                                                                         𝑛→∞ 𝑛
+                                                                                                                          𝑖=0   ( 𝑛1 + 𝛼 · 𝑛𝑖 )𝑒 𝛼 · 𝑖
+                                                                                                             ∫ 𝜂
+                                 𝑚−1                                                                                      1
+              𝜑 (𝑥) =
+                       1 ∑︁
+                               𝜌 (𝑖)(𝜌 (𝑖)(𝑥 − 1) + 1)𝑛−1 .                                              =         𝑞 𝑑𝑥
+                      E(Λ) 𝑖=0                                                                                0
+                                                                                                              𝛼𝑥𝑒 𝛼𝑥
+                                                                                                                    
+                                                                                                            1      𝑞
+   Next, let us consider Λ(𝑥). For a random source symbol, it is                                         = − Ei −      .
+                                                                                                            𝛼     𝛼𝜂
+mapped to the 𝑖-th coded symbol independently with probability
+𝜌 (𝑖). Its degree Λ is thus the sum of independent Bernoulli random           Here, Ei(·) is the exponential integral function.
+variables with success probabilities 𝜌 (0), 𝜌 (1), . . . , 𝜌 (𝑚 − 1), which     We then calculate the upper bound.
+follows Poisson binomial distribution. By an extension [32, § 5] to
+                                                                                                                  𝜂𝑛−1
+Le Cam’s theorem [6], we can approximate this distribution with                                                    ∑︁
+a Poisson distribution of rate 𝑚−1
+                                  Í                                                  lim − ln(𝑓 (𝑞)) = lim                𝜌 (𝑖)(1 − 𝑞𝜌 (𝑖))𝑛−1
+                                   𝑖=0 𝜌 (𝑖), i.e., E(Λ), with the total            𝑛→∞                 𝑛→∞
+                                                                                                                   𝑖=0
+variation distance between the two distributions tending to zero as
+                                                                                                                  𝜂𝑛−1
+𝑚 goes to infinity. That is,                                                                                       ∑︁               (𝑛−1)𝑞
+                                                                                                      ≤ lim               𝜌 (𝑖)𝑒 − 1+𝛼𝑖
+             ∞                                                                                           𝑛→∞
+                           (E(Λ))𝑢 𝑒 −E(Λ)
+                                                  𝑚−1                                                              𝑖=0
+             ∑︁                               2 ∑︁ 2
+                  Λ𝑢 −                     <          𝜌 (𝑖).                                                      𝜂𝑛−1
+            𝑢=0
+                                𝑢!           E(Λ) 𝑖=0                                                              ∑︁              1
+                                                                                                      = lim                            (𝑛−1)𝑞
+                                                                                                        𝑛→∞
+               1 for any 𝛼 > 0, the right hand side of the inequal-
+When 𝜌 (𝑖) = 1+𝛼𝑖                                                                                                   𝑖=0   (1 + 𝛼𝑖)𝑒 1+𝛼𝑖
+ity goes to zero as 𝑚 goes to infinity.                                                                                  𝜂𝑛−1
+                                                                                                                 1        ∑︁        1
+   Recall that the probability generating function of a Poisson ran-                                  = lim                            (𝑛−1)𝑞
+                                                                                                        𝑛→∞ (𝑛 − 1)𝑞           1+𝛼𝑖
+                                                                                                                              (𝑛−1)𝑞 𝑒
+dom variable with rate E(Λ) is                                                                                            𝑖=0           1+𝛼𝑖
+
+
+                                Λ(𝑥) = 𝑒 E(Λ) (𝑥 −1) .
+                                                                                                           ∫ 𝛼𝜂/𝑞
+                                                                                                        1            1
+                                                                                                      =                    𝑑𝑥
+                                                                                                        𝛼 0        𝑥𝑒 1/𝑥
+Plugging it into the definition of 𝜆(𝑥), we get                                                                    
+                                                                                                          1       𝑞
+                                                                                                      = − Ei −
+                                𝜆(𝑥) = 𝑒 E(Λ) (𝑥 −1) .
+                                                                                                                       .
+                                                                                                          𝛼     𝛼𝜂
+ACM SIGCOMM ’24, August 4–8, 2024, Sydney, NSW, Australia                                                  Lei Yang, Yossi Gilad, and Mohammad Alizadeh
+
+
+By the squeeze theorem,                                                      has a fixed point 𝑞 ∗ such that 𝑓 (𝑞 ∗ ) = 𝑞 ∗ , then the decoder will
+                                      1     𝑞
+                                                                           stop making progress after recovering (1 − 𝑞 ∗ )-fraction of source
+                   lim − ln(𝑓 (𝑞)) = − Ei −    .                             symbols, implying a failure.
+                  𝑛→∞                 𝛼     𝛼𝜂
+Plugging it into 𝑓 (𝑞), we have
+                                                          
+                                            1      𝑞
+                                            𝛼 Ei − 𝛼𝜂
+                        lim 𝑓 (𝑞) = 𝑒                          .
+                       𝑛→∞
+By standard results [18, § 2][15, § III.B] of density evolution analysis,
+if
+                                    𝑓 (𝑞) < 𝑞
+holds for all 𝑞 ∈ (0, 1], then the probability that all source symbols
+are recovered when the decoding process terminates tends to 1 as 𝑛
+goes to infinity. Plugging in the closed-form result of lim𝑛→∞ 𝑓 (𝑞),
+we get the condition
+                                           
+                                1        𝑞
+                                    Ei − 𝛼𝜂
+                            𝑒𝛼                  < 𝑞,
+which should hold for all 𝑞 ∈ (0, 1] for the success probability to
+converge to 1.                                                    □
+   We refer readers to the literature [18] for a formal treatment
+on density evolution, in particular the result [18, § 2.2] that ∀𝑞 ∈
+(0, 1] : 𝑓 (𝑞) < 𝑞 is a sufficient condition for the success probability
+to converge to 1, which we use directly in our proof. Here, we give
+some intuition. Recall that 𝑞 is the probability that a random edge
+in the bipartite graph connects to a source symbol that is not yet
+recovered. Let 𝑝 be the probability that a random edge connects
+to a coded symbol that is not yet decoded, i.e., has more than one
+neighbors that are not yet recovered. Density evolution iteratively
+updates 𝑞 and 𝑝 by simulating the peeling decoder. For a random
+edge with source degree 𝑢, the source symbol it connects to is not
+yet recovered if none of the source symbol’s other 𝑢 − 1 neighbors
+is decoded. This happens with probability 𝑝𝑢 −1 . Similarly, for a
+random edge with coded degree 𝑣, the coded symbol it connects to
+is not decoded if not all of the coded symbol’s other 𝑣 − 1 neighbors
+are recovered. This happens with probability 1 − (1 − 𝑞) 𝑣−1 .
+   Because 𝑞 and 𝑝 are the probabilities with regard to a random
+edge, we take the mean over the distributions of source and coded
+degrees of the edge, and the results are the new values of 𝑞 and 𝑝
+after one iteration of peeling. In particular, in each iteration [15, 18],
+                           ∑︁                     
+                     𝑝←         𝜑 𝑣 1 − (1 − 𝑞) 𝑣−1 ,
+                            𝑣
+                          ∑︁
+                     𝑞←         𝜆𝑢 𝑝𝑢 −1 .
+                            𝑢
+By the definition of the generating functions of 𝜑 and 𝜆, the above
+equations can be written as
+                           𝑝 ← 1 − 𝜑 (1 − 𝑞),
+                           𝑞 ← 𝜆(𝑝).
+Combine the two equations, and we get
+                         𝑞 ← 𝜆(1 − 𝜑 (1 − 𝑞)).
+Notice that its right hand side is 𝑓 (𝑞). Intuitively, by requiring
+𝑓 (𝑞) < 𝑞 for all 𝑞 ∈ (0, 1], we make sure that the peeling decoder
+always makes progress, i.e., the non-recovery probability 𝑞 gets
+smaller, regardless of the current 𝑞. Conversely, if the inequality
+

@@ -1,0 +1,29 @@
+*.aux
+*.log
+*.out
+*.blg
+*.bbl
+*.synctex*
+*.bak
+.DS_Store
+.venv/
+.aris/
+__pycache__/
+*.pyc
+*.pdf
+!plan/output/usenix/png/*.pdf
+
+# External dependencies (too large)
+plan/output/code/libOTe/
+plan/output/code/circuitPSU/
+plan/output/code/dujiajun-PSU/
+
+# Build artifacts
+*.o
+*.a
+*.so
+*.exe
+build/
+cmake-build*/
+CMakeCache.txt
+CMakeFiles/

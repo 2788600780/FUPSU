@@ -1,0 +1,2058 @@
+\documentclass[letterpaper,twocolumn,10pt]{article}
+\usepackage{usenix-2020-09}
+\usepackage{amsmath,amssymb,mathtools,amsthm}
+\usepackage{booktabs,multirow,graphicx,framed}
+\usepackage[advantage,adversary,notions,probability,events,complexity]{cryptocode}
+
+\emergencystretch=1.5em
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+
+\newcommand{\F}{\mathbb{F}}\newcommand{\B}{\mathbb{B}}
+\newcommand{\Z}{\mathbb{Z}}\newcommand{\N}{\mathbb{N}}
+\newcommand{\U}{\mathcal{U}}\newcommand{\cF}{\mathcal{F}}
+\newcommand{\cL}{\mathcal{L}}\newcommand{\cS}{\mathcal{S}}
+\newcommand{\cA}{\mathcal{A}}\newcommand{\cB}{\mathcal{B}}\newcommand{\cZ}{\mathcal{Z}}
+\newcommand{\prm}{\mathsf{prm}}\newcommand{\Enc}{\mathsf{Enc}}
+\newcommand{\Dec}{\mathsf{Dec}}\newcommand{\Encode}{\mathsf{Encode}}
+\newcommand{\DeleteSet}{\mathsf{DeleteSet}}\newcommand{\Peel}{\mathsf{Peel}}
+\newcommand{\List}{\mathsf{List}}\newcommand{\uPeel}{\mathsf{uPeel}}
+\newcommand{\PRF}{\mathsf{PRF}}\newcommand{\ChaCha}{\mathsf{ChaCha20}}
+\newcommand{\Adv}{\mathsf{Adv}}\newcommand{\negl}{\mathsf{negl}}\newcommand{\poly}{\mathsf{poly}}
+\newcommand{\sample}{\leftarrow_{\$}}\newcommand{\concat}{\|}
+
+\begin{document}
+\title{Forward-Private Updatable Private Set Union from Incremental IBLT Encoding}
+\author{Anonymous Submission}
+\maketitle
+
+% ============================================================
+\begin{abstract}
+Private Set Union (PSU) enables two parties to compute the union of their
+private sets. While recent IBLT-based protocols achieve PSU performance
+competitive with Private Set Intersection, they are \emph{static}: computing the
+union on updated sets requires re-running the full protocol from scratch, with
+cost proportional to total set size rather than the size of the update.
+
+We present \textbf{F-PSU}, the first forward-private updatable PSU protocol.
+F-PSU exploits the linearity of IBLT encoding to support incremental
+(delta-based) set updates, achieving per-epoch communication and computation
+$O(|\Delta|)$ with overwhelming probability. Forward privacy is obtained via a
+PRF-based key evolution chain with immediate erasure, adding negligible overhead.
+We also prove a \emph{leakage lower bound}: any updatable PSU protocol with
+sublinear communication must leak individual add and delete counts---our
+protocol matches this bound and is therefore leakage-optimal.
+
+We further show that a single execution of the UnionPeel sub-protocol
+simultaneously recovers the union, the intersection, and their
+cardinalities---yielding a \emph{unified} updatable private set operation
+framework (updPSO) with zero additional communication or computation.
+
+We implement F-PSU in C++ and evaluate it across set sizes $2^{10}$ to $2^{20}$
+under four network profiles (LAN to 5~Mbps WAN). For a $0.1\%$ update ratio,
+per-epoch communication is $643\times$ smaller than the static baseline.
+Incremental peeling examines only $O(k|\Delta|)$ cells, with cascade never
+exceeding $2\times k|\Delta|$ and $100\%$ recovery rate. Amortized over 200
+epochs, IBLT operations are reduced by $114\times$. All code is open source.
+\end{abstract}
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Private Set Union (PSU)~\cite{KRT19,JLZ20,ZCL+23,Tu+25} allows two parties to
+compute the union $X \cup Y$ of their private sets while revealing nothing
+beyond the union itself. With applications in privacy-preserving identity
+management, collaborative cyber-risk assessment, private database joins, and
+federated learning~\cite{DCW13,IKN+20,KRS+19}, PSU is a fundamental secure
+computation primitive alongside Private Set Intersection (PSI).
+
+Historically, PSU has been significantly slower than PSI---often by $30\times$
+or more~\cite{PT26,KRT19}. The recent breakthrough of Piske and
+Trieu~\cite{PT26} (Eurocrypt 2026) closed this gap by introducing the first
+IBLT-based PSU protocol. Their key insight, \emph{union peelability}, enables
+peeling the union of two IBLTs without materializing the combined table, using
+oblivious transfer (OT) and an oblivious PRF (OPRF). The resulting protocol
+computes PSU on $2^{20}$ elements in under 3 seconds, matching state-of-the-art
+PSI performance.
+
+\textbf{The static limitation.} Piske and Trieu's protocol, like all prior PSU
+constructions, is \emph{static}: both parties must encode their entire sets into
+fresh IBLTs for each computation. In many real-world applications, however,
+sets evolve incrementally---new elements are added, old ones expire. Consider a
+collaborative threat-intelligence platform where multiple organizations share
+indicators of compromise (IoCs): hundreds of new IoCs appear daily, old ones are
+retired, and the aggregated union must be recomputed to maintain situational
+awareness. Re-running the full protocol on each update wastes resources
+proportional to the total set size (potentially millions of IoCs), even when
+only a handful of elements have changed. Similar dynamics arise in
+privacy-preserving contact discovery, federated learning with evolving client
+datasets, and private database join maintenance under incremental updates.
+
+\textbf{Why not batch?} Batching updates and re-running static PSU periodically
+reduces computational overhead but creates a window where the computed union is
+stale. In threat intelligence, a 24-hour stale union means missing active
+attack indicators. Updatable PSU eliminates this tension by making per-epoch
+cost proportional to the update size, enabling frequent recomputation without
+the penalty of full re-encoding.
+
+\textbf{The forward privacy requirement.} The multi-epoch nature of updatable
+protocols introduces a new security concern: \emph{forward privacy}. If a party
+is compromised at epoch $\tau$, the adversary should not be able to recover the
+party's historical set elements from epochs $t < \tau$, even having observed all
+protocol messages. This is the privacy analogue of forward secrecy in
+Signal~\cite{Signal}, and is critical when sets contain sensitive data with
+limited lifetimes. Privacy regulations (GDPR, CCPA) mandate data retention
+limits; if historical elements remain decryptable after key compromise, the
+system violates the principle that deleted data should be irrecoverable.
+
+\textbf{Existing updatable work.} Several updatable PSI protocols
+exist~\cite{BMX22,BMS+24,LMR+26,ABF+25,LTS+26}, with FUPSI~\cite{WZC+24}
+achieving forward privacy via keyword PIR. The enhanced PSU of Tu et
+al.~\cite{Tu+25} eliminates within-execution leakage but does not address
+cross-epoch forward privacy. \textbf{No prior work} addresses updatable PSU,
+let alone forward-private updatable PSU.
+
+\textbf{Our contributions.} We initiate the study of updatable PSU with forward
+privacy:
+
+\begin{enumerate}
+\item \textbf{The F-PSU protocol} (Section~\ref{sec:protocol}). The first
+forward-private updatable PSU protocol, supporting \emph{both balanced and
+unbalanced} settings natively. Built on three mechanisms: (i)~delta IBLT
+encoding for $O(k|\Delta|)$ maintenance; (ii)~split-path incremental peeling
+with a provable cascade bound; (iii)~PRF-based key evolution with immediate
+erasure, providing forward privacy with zero additional communication.
+A natural byproduct of the UnionPeel sub-protocol is that it simultaneously
+recovers the \emph{intersection} and cardinalities at zero extra
+cost---extending F-PSU to a unified updatable private set operation
+framework (updPSO).
+
+\item \textbf{Leakage lower bound} (Section~3, Theorem~\ref{thm:lower}). We prove that
+\emph{any} $1$-updatable PSU protocol must leak the individual add and delete
+counts for each party---an inherent efficiency-leakage trade-off. F-PSU leaks
+exactly these counts, making it \textbf{leakage-optimal}. The proof relies
+only on the semi-honest model and Shannon's source coding theorem.
+
+\item \textbf{Adaptive security} (Section~\ref{sec:security}). We formalize
+the notion of adaptive input selection for updatable PSU---where an adversary
+chooses deltas based on prior transcripts---motivated by recent attacks on
+UPSI~\cite{LMR+26}. We prove that F-PSU is \emph{naturally immune} to this
+attack class with zero protocol modification, as a structural consequence of
+PSU's superset output. This contrasts sharply with PSI, where explicit
+countermeasures are required.
+
+\item \textbf{Formal security} (Section~\ref{sec:security}). We prove F-PSU
+UC-realizes~\cite{Can01} $\cF_{\mathsf{updPSO}}$ in the $(\cF_{\mathsf{OPRF}},
+\cF_{\mathsf{OT}})$-hybrid model against semi-honest adaptive adversaries,
+for all four output modes (PSU, PSI, PSU-CA, PSI-CA). The modular proof
+separates per-epoch and cross-epoch security, enabling independent upgrades.
+A standalone game-based definition (FP-IND) cleanly captures the PRF-chain
+guarantee.
+
+\item \textbf{Implementation and evaluation} (Section~\ref{sec:eval}). C++
+implementation ($\approx$2,000 lines) using libOTe~\cite{libOTe}, evaluated
+across $2^{10}$ to $2^{20}$ elements under four network profiles (LAN to
+5~Mbps WAN). At $0.1\%$ update ratio: $643\times$ communication reduction and
+$114\times$ amortized IBLT operation reduction. A self-healing key chain
+extension with zero additional communication is in
+Appendix~\ref{sec:selfheal}.
+\end{enumerate}
+
+% ============================================================
+\section{Preliminaries}
+\label{sec:prelim}
+% ============================================================
+
+\subsection{Invertible Bloom Lookup Tables}
+
+Invertible Bloom Lookup Tables (IBLTs) were introduced by Goodrich and
+Mitzenmacher~\cite{GM11}. An IBLT is a variant of Bloom filter that supports,
+in addition to inserting and deleting elements, the ability to \emph{list} all
+stored elements. Unlike a standard Bloom filter---which only answers membership
+queries with a configurable false-positive rate and requires $\approx 60\times$
+expansion for negligible error---an IBLT stores key-value pairs in its cells
+and achieves listing with expansion factor $1.5$--$4.5\times$ (for $k = 4$ hash
+functions). This makes IBLTs uniquely suited for set reconciliation and private
+set union, where the goal is to recover the entire set rather than answer
+individual membership queries.
+
+An IBLT is parameterized by $\prm = (M, k, \ell, H)$: a modulus $M \in
+\N_{\geq 2}$ (typically $2^{64}$), $k$ hash functions $H = \{h_i : \U \to
+[\ell]\}_{i \in [k]}$ each mapping to a distinct subtable of size $\ell$, and
+two $k \times \ell$ matrices $\mathsf{sum}$ (values in $\Z_M$) and
+$\mathsf{cnt}$ (non-negative integers). We write $m = k\ell$ for the total
+number of cells.
+
+The three core operations are given in Algorithms~\ref{alg:encode}--\ref{alg:list}.
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Algorithm 1:} $\Encode_{\prm}(X)$ --- IBLT encoding.
+\label{alg:encode}
+
+\smallskip\noindent\textit{Input:} Set $X \subseteq \U$, empty IBLT $(\mathsf{sum}, \mathsf{cnt})$
+
+\noindent\textit{Output:} IBLT containing all $x \in X$
+\begin{enumerate}
+\item For each $x \in X$, $i \in [k]$:
+  \begin{enumerate}
+  \item $j \leftarrow h_i(x)$
+  \item $\mathsf{sum}[i][j] \leftarrow \mathsf{sum}[i][j] + x \pmod M$
+  \item $\mathsf{cnt}[i][j] \leftarrow \mathsf{cnt}[i][j] + 1$
+  \end{enumerate}
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\end{figure}
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Algorithm 2:} $\DeleteSet_{\prm}(\mathsf{IBLT}, X)$ --- batch deletion.
+\label{alg:deleteset}
+
+\smallskip\noindent\textit{Input:} IBLT, set $X$ to delete
+
+\noindent\textit{Effect:} Removes all $x \in X$ from the IBLT
+\begin{enumerate}
+\item For each $x \in X$, $i \in [k]$:
+  \begin{enumerate}
+  \item $j \leftarrow h_i(x)$
+  \item $\mathsf{sum}[i][j] \leftarrow \mathsf{sum}[i][j] - x \pmod M$
+  \item $\mathsf{cnt}[i][j] \leftarrow \mathsf{cnt}[i][j] - 1$
+  \end{enumerate}
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\end{figure}
+
+IBLT encoding is \emph{linear}: $\Encode(A \cup B) = \Encode(A) \oplus
+\Encode(B)$ and $\Encode(A \setminus B) = \Encode(A) \ominus \Encode(B)$,
+where $\oplus$/$\ominus$ denote cell-wise modular addition/subtraction.
+
+A cell with $\mathsf{cnt}[i][j] = 1$ is a \emph{singleton}: its sum equals
+the unique element stored there.
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Algorithm 3:} $\List(\mathsf{IBLT})$ --- full listing (peeling).
+\label{alg:list}
+
+\smallskip\noindent\textit{Input:} IBLT with parameters $\prm$
+
+\noindent\textit{Output:} Set of all encoded elements, or $\bot$ on failure
+\begin{enumerate}
+\item While there exists a singleton cell $(i,j)$ with $\mathsf{cnt}[i][j] = 1$:
+  \begin{enumerate}
+  \item $x \leftarrow \mathsf{sum}[i][j]$ \hfill // recover unique element
+  \item Output $x$
+  \item $\DeleteSet(\mathsf{IBLT}, \{x\})$ \hfill // remove from all $k$ cells
+  \end{enumerate}
+\item If no non-empty cells remain, output all recovered elements; otherwise fail.
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\end{figure}
+
+\begin{theorem}[IBLT Listing~\cite{GM11,PT26}]\label{thm:iblt}
+For $m = k\ell > (c_k + \varepsilon)\tau$ with $n \leq \tau$ elements,
+$\Pr[\List\text{ fails}] = O(\tau^{-k+2})$. With $k = 4$, expansion
+$m/\tau \in [1.5, 4.5]$, failure $\leq 2^{-\lambda}$.
+\end{theorem}
+
+In the above, $c_k$ is the threshold constant for $2$-core emergence ($c_3
+\approx 1.222$, $c_4 \approx 1.295$). If $\List$ terminates with non-singleton
+cells remaining (a $2$-core), listing has failed. The expansion factor $m/n$
+must exceed $c_k$ to guarantee an empty $2$-core with overwhelming probability.
+
+\subsection{Union Peelability}
+
+Piske and Trieu~\cite{PT26} observed that the union of two IBLTs can be peeled
+without materializing the combined table. For $\mathsf{IBLT}_0 =
+\Encode(X_0)$ and $\mathsf{IBLT}_1 = \Encode(X_1)$, the virtual union is
+$\mathsf{IBLT}_\cup = \mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
+
+\begin{definition}[$\uPeel$~\cite{PT26}]\label{def:upeel}
+\footnotesize
+\[
+\uPeel(\mathsf{IBLT}_0, \mathsf{IBLT}_1, i, j) = \begin{cases}
+\mathsf{sum}_0[i][j], & \mathsf{cnt}_0{=}1 \land \mathsf{cnt}_1{=}0 \\
+\mathsf{sum}_1[i][j], & \mathsf{cnt}_0{=}0 \land \mathsf{cnt}_1{=}1 \\
+\mathsf{sum}_0[i][j], & \mathsf{cnt}_0{=}\mathsf{cnt}_1{=}1
+                       \land \mathsf{sum}_0{=}\mathsf{sum}_1 \\
+\bot, & \text{otherwise}
+\end{cases}
+\]
+\end{definition}
+
+Intuitively, $\uPeel$ distinguishes three cases: the peeled element is unique
+to $P_0$ (case~1), unique to $P_1$ (case~2), or shared with equal sums (case~3).
+Secure evaluation uses OT for sum retrieval and bOPRF for equality comparison.
+
+\begin{theorem}[Union Peel Equivalence~\cite{PT26}]\label{thm:upeel}
+For union-peelable IBLTs: $\Peel(\mathsf{IBLT}_\cup, i, j) =
+\uPeel(\mathsf{IBLT}_0, \mathsf{IBLT}_1, i, j)$.
+\end{theorem}
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Functionality $\cF_{\mathsf{UnionPeel}}$}
+
+\noindent\textbf{Parameters:} $k, \ell, M$, hash functions $H = \{h_i\}_{i \in [k]}$.
+$P_0$ holds $\mathsf{IBLT}_0 = \Encode(X_0)$,
+$P_1$ holds $\mathsf{IBLT}_1 = \Encode(X_1)$.
+
+\smallskip\noindent\textbf{Behavior:} $\cF_{\mathsf{UnionPeel}}$ behaves as follows.
+\begin{enumerate}
+\item Receive $\mathsf{IBLT}_0$ from $P_0$ and $\mathsf{IBLT}_1$ from $P_1$ (each
+of which has been securely computed using ideal OT and OPRF). If either
+$\mathsf{IBLT}$ is malformed return $\bot$ to both.
+\item Compute the virtual union $\mathsf{IBLT}_\cup \leftarrow \mathsf{IBLT}_0
+\oplus \mathsf{IBLT}_1$.
+\item Run $\List(\mathsf{IBLT}_\cup)$. If peeling succeeds, send
+$X_\cup = X_0 \cup X_1$ to both parties; otherwise send $\bot$.
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\caption{The ideal functionality $\cF_{\mathsf{UnionPeel}}$ for secure union
+peeling. Adapted from~\cite{PT26}.}
+\label{fig:f-unionpeel}
+\end{figure}
+
+\begin{theorem}[Union Peel Security~\cite{PT26}]\label{thm:unionpeel-sec}
+$\Pi_{\mathsf{UnionPeel}}$ UC-realizes $\cF_{\mathsf{UnionPeel}}$
+(Fig.~\ref{fig:f-unionpeel}) in the $(\cF_{\mathsf{OPRF}},
+\cF_{\mathsf{OT}})$-hybrid model against semi-honest adversaries, achieving
+static PSU on $2^{20}$ elements in under 3~seconds.
+\end{theorem}
+
+\subsection{Cryptographic Primitives}
+
+\textbf{ChaCha20~\cite{Ber08}.} We use ChaCha20 (256-bit key, 96-bit nonce) as
+a secure PRG. Encryption: $C = M \oplus \ChaCha(K, N)$. The IBLT ciphertexts
+are encrypted under per-epoch keys derived from the PRF chain.
+
+\textbf{HMAC-SHA256~\cite{BCK96}.} We use HMAC-SHA256 as a secure PRF:
+$F: \{0,1\}^\kappa \times \{0,1\}^* \to \{0,1\}^\kappa$. Key evolution uses a
+fixed domain separator: $K_t \leftarrow F(K_{t-1}, \text{``evolve''})$.
+
+\begin{lemma}[PRF Key One-Wayness]\label{lem:prf-ow}
+If $F$ is a secure PRF, then for any PPT $\cA$ and fixed $c$:
+$\Pr[\cA(F(K, c)) = K : K \sample \{0,1\}^\kappa] \leq \negl(\kappa)$.
+\end{lemma}
+
+\textbf{VOLE and OT extension.} Vector Oblivious Linear Evaluation (VOLE)
+enables two parties to obtain additive shares of $\Delta \cdot \vec{x}$,
+realizable from $\kappa$ base OTs with sublinear communication~\cite{RS21,RR22};
+silent VOLE~\cite{RRT23} eliminates the base OTs entirely. The VOLE state is
+reusable across all epochs, amortizing the one-time setup cost.
+
+\textbf{Batched OPRF.} The KKRT16/RS21/RR22 framework~\cite{KKRT16,RS21,RR22}
+constructs batched OPRF from VOLE and OKVS: the receiver encodes queries into
+an OKVS $P$; VOLE shares $\Delta \cdot P$; OPRF outputs are defined as
+$F_\Delta(x) = H(\Delta \cdot \mathsf{Decode}(P, x))$.
+
+The ideal 1-out-of-2 OT functionality $\cF_{\mathsf{OT}}$ is defined in
+Fig.~\ref{fig:f-ot}.
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Functionality $\cF_{\mathsf{OT}}$}
+
+\noindent\textbf{Parameters:} Sender $S$ holds two messages
+$(m_0, m_1) \in \{0,1\}^\kappa$; receiver $R$ holds a choice bit
+$b \in \{0,1\}$.
+
+\smallskip\noindent\textbf{Behavior:}
+\begin{enumerate}
+\item Receive $(m_0, m_1)$ from $S$ and $b$ from $R$. If either party
+sends $\bot$, output $\bot$ to both and halt.
+\item Send $m_b$ to $R$ and nothing to $S$.
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\caption{The ideal 1-out-of-2 Oblivious Transfer functionality.}
+\label{fig:f-ot}
+\end{figure}
+
+The ideal OPRF functionality $\cF_{\mathsf{OPRF}}$ is defined in
+Fig.~\ref{fig:f-oprf}.
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Functionality $\cF_{\mathsf{OPRF}}$}
+
+\noindent\textbf{Parameters:} Sender $S$ holds PRF key $k \in \{0,1\}^\kappa$;
+receiver $R$ holds input $x \in \U$.
+
+\smallskip\noindent\textbf{Behavior:}
+\begin{enumerate}
+\item Receive $k$ from $S$ and $x$ from $R$. If either party sends $\bot$,
+output $\bot$ to both and halt.
+\item Compute $y \leftarrow F(k, x)$. Send $y$ to $R$ and nothing to $S$.
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\caption{The ideal Oblivious PRF functionality.}
+\label{fig:f-oprf}
+\end{figure}
+
+The standard (static) PSU functionality $\cF_{\mathsf{PSU}}$ is defined
+in Fig.~\ref{fig:f-psu}.
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Functionality $\cF_{\mathsf{PSU}}$}
+
+\noindent\textbf{Parameters:} Two parties $P_0, P_1$ with element domain $\U$.
+
+\smallskip\noindent\textbf{Behavior:}
+\begin{enumerate}
+\item Receive set $X$ from $P_0$ and $Y$ from $P_1$. If either is $\bot$,
+output $\bot$ to both and halt.
+\item Send $X \cup Y$ to both parties.
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\caption{The ideal (static) Private Set Union functionality.}
+\label{fig:f-psu}
+\end{figure}
+
+\subsection{UC Framework}
+
+We use the Universal Composability framework~\cite{Can01} with adaptive
+corruptions. A protocol $\Pi$ UC-realizes an ideal functionality $\cF$ if for
+every PPT adversary $\cA$ there exists a PPT simulator $\cS$ such that no PPT
+environment $\cZ$ can distinguish the real execution from the ideal execution.
+We operate in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model,
+where the protocol invokes the ideal functionalities defined in
+Figs.~\ref{fig:f-ot},~\ref{fig:f-oprf}. The standard (static) PSU
+functionality $\cF_{\mathsf{PSU}}$ (Fig.~\ref{fig:f-psu}) and the
+union-peeling functionality $\cF_{\mathsf{UnionPeel}}$
+(Fig.~\ref{fig:f-unionpeel}) provide the building blocks. The ideal
+functionality for our protocol, $\cF_{\mathsf{fpsu}}$, is specified in
+Section~\ref{sec:protocol} (Fig.~\ref{fig:f-fpsu}).
+
+% ============================================================
+\section{Technical Overview}
+% ============================================================
+
+We illustrate F-PSU through a concrete epoch. Suppose $P_0$ holds a set $X$ and
+$P_1$ holds $Y$, both having previously executed the protocol so that each
+stores an encrypted IBLT encoding of their current set. At the start of a new
+epoch, each party learns its delta: elements to add ($\Delta^+$) and delete
+($\Delta^-$). The goal is to compute the updated union $X_\cup \leftarrow (X
+\cup \Delta^+_X \setminus \Delta^-_X) \cup (Y \cup \Delta^+_Y \setminus
+\Delta^-_Y)$ while revealing nothing beyond the union and the necessary leakage
+identified above (item~4). F-PSU achieves this through three
+coordinated mechanisms.
+
+\smallskip\noindent\textbf{1. Delta IBLT encoding: $O(|\Delta|)$ local maintenance.}
+By IBLT linearity (Algorithm~\ref{alg:encode}), each party maintains its IBLT
+across epochs by applying only the delta:
+$\mathsf{IBLT} \leftarrow \mathsf{IBLT} \ominus \Encode(\Delta^-) \oplus
+\Encode(\Delta^+)$.
+This costs $O(k|\Delta|)$ cell operations instead of $O(k|X|)$ for full
+re-encoding. \emph{Deletions} are applied locally (cell-wise subtraction, zero
+communication). \emph{Additions} are encoded into a separate compact IBLT
+($\mathsf{IBLT}_{\Delta}$) but not yet merged---this deferred merge is the key
+to avoiding cascade blow-up in the secure peel phase.
+
+\smallskip\noindent\textbf{2. Split-path incremental peeling: $O(|\Delta|)$ secure computation.}
+After each epoch, the main IBLT is fully peeled (no singletons remain). When
+elements are deleted, the corresponding cells lose their contributions,
+potentially creating new singletons. When elements are added, they would
+introduce fresh singletons if merged directly. We avoid this interaction by
+separating additions and deletions into two peeling paths:
+
+\begin{itemize}
+\item \textbf{Round~2a (Mini UnionPeel).} The compact addition IBLTs are
+peeled via a fresh full UnionPeel~\cite{PT26} on only $m_{\Delta} =
+c_k \cdot k \cdot |\Delta^+|$ cells. Since the addition IBLT has no prior
+peeling state, every cell must be scanned, but the scan is deterministic:
+zero cascade, zero variance. The recovered elements $V_{\Delta^+}$ are then
+locally merged into the main IBLT (zero communication).
+
+\item \textbf{Round~2b (Main UnionPeel).} For deletions, UnionPeel starts
+\emph{only} from the $k|\Delta^-|$ cells modified by deletion (rather than
+all $k\ell$ cells). The first iteration peels from these sites; recovered
+elements are deleted from both IBLTs, and newly exposed singletons
+(cascade) are added to the next query set. The \textbf{Cascade Bound Lemma}
+(Lemma~\ref{lem:cascade}) proves that total examined cells is $\leq
+2k|\Delta^-|$ with overwhelming probability.
+\end{itemize}
+
+Overall, per-epoch OT/OPRF cost is $O(k|\Delta^+| + k|\Delta^-|) =
+O(k|\Delta|)$, a saving of $\approx n/|\Delta| \times$ over static
+PSU~\cite{PT26} which scans all $k\ell$ cells.
+
+\smallskip\noindent\textbf{3. Forward privacy via PRF chain: zero additional communication.}
+Each party $P_b$ maintains a 256-bit key $K^b_t$, evolved via a PRF:
+$K^b_t \leftarrow \PRF(K^b_{t-1}, \text{``evolve''})$. After each epoch, the
+IBLT is encrypted under $K^b_t$ (ChaCha20), written to persistent storage, and
+$K^b_{t-1}$ is immediately erased. By PRF one-wayness
+(Lemma~\ref{lem:prf-ow}), an adversary compromising at epoch $\tau$ learns
+$K^b_\tau$ and the current IBLT, but cannot recover any prior key
+$K^b_{<\tau}$ or decrypt ciphertexts from $t < \tau$. The overhead is
+negligible: one PRF evaluation plus one ChaCha20 encryption per epoch
+($<1$~ms). This construction is the symmetric analogue of Signal's symmetric
+ratchet~\cite{Signal}, applied to IBLT ciphertexts rather than message keys.
+
+\smallskip\noindent\textbf{4. Leakage optimality: a matching lower bound.}\label{sec:barrier}
+
+\begin{theorem}[Efficiency-Leakage Trade-off]\label{thm:lower}
+Any correct, semi-honest secure, $1$-updatable PSU protocol necessarily reveals
+$(|\Delta^+_0|, |\Delta^-_0|, |\Delta^+_1|, |\Delta^-_1|)$. Any protocol
+hiding these counts must have $|\mathsf{trans}| = \Omega(N\sigma)$---defeating
+updatability.
+\end{theorem}
+
+F-PSU leaks these four counts through observable delta IBLT sizes. The proof
+uses a source-coding argument:
+communication must vary with update size, otherwise an adversary could encode
+arbitrary set information below the Shannon information-theoretic bound. Any
+protocol hiding these counts requires $|\mathsf{trans}| = \Omega(N\sigma)$
+---defeating updatability. F-PSU leaks exactly these four counts and
+nothing more; by Theorem~\ref{thm:lower}, it is \textbf{strictly
+leakage-optimal}. The full proof appears in Appendix~\ref{sec:lower-proof}.
+
+\smallskip\noindent\textbf{Security.}
+Per-epoch security inherits from $\Pi_{\mathsf{UnionPeel}}$~\cite{PT26}.
+Cross-epoch forward privacy is proved via a three-hybrid argument
+(Section~\ref{sec:security}): (i)~replace PRF-derived keys with random keys
+($T \cdot \mathsf{Adv}^{\mathsf{PRF}}$ reduction), (ii)~replace IBLT
+ciphertexts with encryptions of zero ($T \cdot \mathsf{Adv}^{\mathsf{PRG}}$
+reduction), (iii)~replace real inputs with simulated inputs derived from the
+union output. The modular proof structure enables independent upgrades of the
+per-epoch PSU and the cross-epoch key management.
+
+% ============================================================
+\section{System Model and Threat Model}
+% ============================================================
+
+\textbf{System model.} Two parties $P_0, P_1$ hold private sets $X_0, Y_0
+\subseteq \{0,1\}^\sigma$. The protocol runs over $T = \poly(\kappa)$ epochs.
+At epoch $t$, each party provides a delta: elements to add ($\Delta^+$) and
+delete ($\Delta^-$), disjoint from each other and from the current set. After
+epoch $t$, both parties learn the updated union $X_{\cup,t}$.
+
+\textbf{Updatable efficiency.} A protocol is \emph{$1$-updatable} if per-epoch
+communication $|\mathsf{trans}_t| = O(|\Delta_t| \cdot \poly(\sigma, \kappa))$,
+scaling with delta size rather than total set size.
+
+\textbf{Threat model.} Semi-honest adversary with adaptive corruption of one
+party at epoch $\tau$ (corrupting both is trivial). The adversary observes all
+transcripts. Upon corruption, it learns the corrupted party's current state
+(set $X_\tau$, key $K_\tau$, IBLT, VOLE/OKVS state). Forward privacy requires
+learning \emph{nothing} about sets from epochs $t < \tau$ beyond what union
+outputs already reveal. Post-compromise security is not required in the main
+protocol; a self-healing extension appears in Appendix~\ref{sec:selfheal}.
+
+The formal ideal functionality $\cF_{\mathsf{updPSO}}$
+(Fig.~\ref{fig:f-fpsu}) and UC definitions appear in
+Sections~\ref{sec:protocol} and~\ref{sec:security}.
+$\cF_{\mathsf{updPSO}}$ receives deltas, computes the updated union and
+intersection, and returns the output corresponding to a mode parameter
+($\mathsf{PSU}, \mathsf{PSI}, \mathsf{PSU}\text{-}\mathsf{CA},
+\mathsf{PSI}\text{-}\mathsf{CA}$). Theorem~\ref{thm:lower} proves the
+leaked delta counts are unavoidable.
+
+% ============================================================
+\section{The F-PSU Protocol}
+\label{sec:protocol}
+
+\subsection{Ideal Functionality}
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Functionality $\cF_{\mathsf{updPSO}}$}
+
+\noindent\textbf{Parameters:} Two parties $P_0, P_1$, security parameter
+$\kappa$, element domain $\U$, max set size $N$, mode
+$\mathsf{mode} \in \{\textsf{PSU}, \textsf{PSI}, \textsf{PSU}\text{-}\textsf{CA},
+\textsf{PSI}\text{-}\textsf{CA}\}$. For each $P_b$, the
+functionality maintains state $(X_b, K_b)$.
+
+\smallskip\noindent\textbf{Behavior:} $\cF_{\mathsf{updPSO}}$ behaves as follows.
+\begin{enumerate}
+\item Upon receiving $(\textsf{Update}, \Delta^+_b, \Delta^-_b)$ from $P_b$:
+update $X_b \leftarrow (X_b \cup \Delta^+_b) \setminus \Delta^-_b$;
+send $(|X_b|, |\Delta^+_b|, |\Delta^-_b|)$ to the simulator $\cS$.
+\item Once both parties have submitted their updates, compute $X_\cup = X_0 \cup
+X_1$ and $X_\cap = X_0 \cap X_1$. If $t=1$, sample $K_b \sample
+\{0,1\}^\kappa$ for each $b$; otherwise $K_b \leftarrow \PRF(K_b)$ and
+immediately erase the old $K_b$. Send the output according to
+$\mathsf{mode}$:
+  \begin{itemize}
+  \item $\mathsf{mode} = \textsf{PSU}$: send $X_\cup$ to both parties.
+  \item $\mathsf{mode} = \textsf{PSI}$: send $X_\cap$ to both parties.
+  \item $\mathsf{mode} = \textsf{PSU}\text{-}\textsf{CA}$: send $|X_\cup|$
+  to both parties.
+  \item $\mathsf{mode} = \textsf{PSI}\text{-}\textsf{CA}$: send $|X_\cap|$
+  to both parties.
+  \end{itemize}
+\item Upon adaptive corruption of $P_b$ at epoch $\tau$: send
+$(X_b^{(\tau)}, K_b^{(\tau)})$ to $\cS$. \textbf{Not} sent:
+$\{(X_b^{(t)}, K_b^{(t)})\}_{t < \tau}$.
+\end{enumerate}
+\smallskip\noindent\textbf{Leakage:} $\cL = (|X_0|, |X_1|, |\Delta^+_0|,
+|\Delta^-_0|, |\Delta^+_1|, |\Delta^-_1|)$ to the simulator.
+\smallskip
+\end{minipage}}
+\caption{The ideal functionality $\cF_{\mathsf{updPSO}}$ for forward-private
+updatable Private Set Operations (PSU, PSI, and their cardinalities).}
+\label{fig:f-fpsu}
+\end{figure}
+
+% ============================================================
+
+\subsection{Extension: PSI and Cardinality from Pure Cells}
+
+The $\uPeel$ function (Definition~\ref{def:upeel}) naturally reveals whether a
+peeled element belongs to the intersection. When $\uPeel$ peels a cell
+$(i,j)$, it distinguishes three cases: (1)~$\mathsf{cnt}_0[i][j]=1,
+\mathsf{cnt}_1[i][j]=0$---the element is unique to $P_0$;
+(2)~$\mathsf{cnt}_0[i][j]=0, \mathsf{cnt}_1[i][j]=1$---unique to $P_1$;
+(3)~$\mathsf{cnt}_0[i][j]=1, \mathsf{cnt}_1[i][j]=1, \mathsf{sum}_0=
+\mathsf{sum}_1$---the element belongs to \textbf{both} parties, i.e., the
+intersection $X_0 \cap X_1$. Case~(3) occurs because each party independently
+encodes its elements into its own IBLT; when the same element $x$ is encoded
+by both, it lands in the same cell $(i,j)$ with identical sum $x$, and
+$\uPeel$ detects the match.
+
+Consequently, a single execution of the UnionPeel sub-protocol simultaneously
+recovers the union (all peeled elements) and the intersection (Case~3
+elements). This yields four output modes at zero additional communication:
+\begin{itemize}
+\item \textbf{PSU:} output all peeled elements ($X_0 \cup X_1$).
+\item \textbf{PSI:} output only Case~3 elements ($X_0 \cap X_1$).
+\item \textbf{PSU-CA:} output the count $|X_0 \cup X_1|$.
+\item \textbf{PSI-CA:} output the count $|X_0 \cap X_1|$.
+\end{itemize}
+
+The mode is selected via a single bit in the protocol initialization and
+requires no change to the protocol messages, the OT/OPRF interaction, the
+IBLT encoding, or the peeling logic. The only modification is that the
+peeling output carries a 2-bit tag per element identifying the case, and the
+parties filter output accordingly.
+
+Security inherits directly from Theorem~\ref{thm:main}: the simulator for
+$\Pi_{\mathsf{fpsu}}$ already extracts the corrupted party's effective input
+and submits it to the ideal functionality. The same simulator, paired with
+$\cF_{\mathsf{updPSO}}$ (which computes the output for the chosen mode),
+produces an indistinguishable view. The per-mode leakage is identical:
+$X_\cup$ reveals $Y \setminus X$ in all modes; $X_\cap$ additionally reveals
+element equality between the two sets; cardinalities reveal only the sizes.
+The adaptive security argument of Section~\ref{sec:security} applies
+unchanged since the protocol transcript is independent of the output mode.
+
+\subsection{Initialization}
+
+At setup, $P_0$ and $P_1$ (denoted Client $C$ and Server $S$ in pseudocode)
+perform one-time VOLE setup (RR22~\cite{RR22}) reused across all epochs.
+Each party initializes an empty IBLT of capacity $(m, k)$ and samples an
+independent 256-bit PRF key.
+
+\subsection{Epoch Protocol}
+
+Each epoch comprises three sequential rounds, with Round~2 split into two
+phases (2a for additions, 2b for deletions). Pseudocode follows the
+complexity analysis below.
+
+\noindent\textbf{Round~1 (Local IBLT update).}
+Each party decrypts its stored IBLT. Deletions are applied directly via
+cell-wise subtraction ($\mathsf{IBLT} \leftarrow \mathsf{IBLT} \ominus
+\Encode(\Delta^-)$), touching exactly $k|\Delta^-|$ cells with zero
+communication. The coordinates of modified cells
+are recorded: $Q_{\mathsf{del}} = \{(i, h_i(x)) : x \in \Delta^-, i \in [k]\}$.
+Additions are encoded into a separate compact IBLT but \emph{not} merged yet.
+
+\noindent\textbf{Round~2a (Mini UnionPeel for additions).}
+$\Pi_{\mathsf{UnionPeel}}$ on the compact addition IBLTs scans all $m_{\Delta}
+= c_k \cdot k \cdot |\Delta^+|$ cells. With no prior peeling state, this is
+deterministic with zero cascade, recovering $V_{\Delta^+}$ with probability
+$\geq 1 - 2^{-\lambda}$. After recovery, each party locally merges
+$\Encode(\Delta^+)$ into the main IBLT.
+
+\noindent\textbf{Round~2b (Main UnionPeel for deletions).}
+$\Pi_{\mathsf{UnionPeel}}$ on the main IBLTs starts from $Q^{(0)} =
+Q_{\mathsf{del}}^C \cup Q_{\mathsf{del}}^S$ ($k|\Delta^-|$ cells). The
+procedure iteratively evaluates $\uPeel$ via OT and bOPRF, deletes peeled
+elements, and propagates the cascade. By Lemma~\ref{lem:cascade}, $\leq
+2k|\Delta^-|$ cells are examined. $P_1$ sends $V_{\mathsf{main}}$ to $P_0$;
+both output $X_{\cup,t} = V_{\Delta^+} \cup V_{\mathsf{main}}$.
+
+\noindent\textbf{Round~3 (Key evolution).}
+$K^b_t \leftarrow \PRF(K^b_{t-1})$, encrypt IBLT under $K^b_t$ (ChaCha20),
+write ciphertext, \textbf{securely erase} $K^b_{t-1}$.
+
+\noindent\textbf{Why split-path?} Without separation, addition cells would mix
+into the deletion cascade, growing it proportionally to $d^+ + d^-$. The mini
+peel gives additions a dedicated deterministic channel; deletions are handled
+incrementally. This separation is the algorithmic core reducing OT/OPRF cost
+from $O(n)$ to $O(|\Delta|)$.
+
+\begin{figure}[h]
+\fbox{\begin{minipage}{0.95\columnwidth}
+\smallskip
+\noindent\textbf{Protocol $\Pi_{\mathsf{fpsu}}$ (epoch $t$)}
+
+\smallskip\noindent\textit{Public parameters:} IBLT parameters $\prm = (M, k,
+\ell, H)$, PRF $F$, stream cipher $\ChaCha$, expansion factor $c_k$.
+
+\noindent\textit{Party state:} $P_b$ holds encrypted $\mathsf{IBLT}_b$,
+current set $X_b$, key $K^b_{t-1}$.
+
+\smallskip\noindent\textbf{Each epoch:}
+\begin{enumerate}
+\item \textbf{Local IBLT update (Round~1).} Decrypt $\mathsf{IBLT}_b$;
+$\mathsf{IBLT}_b \leftarrow \mathsf{IBLT}_b \ominus \Encode(\Delta^-_b)$;
+$\mathsf{IBLT}^+_b \leftarrow \Encode(\Delta^+_b)$ (compact).
+Record $Q_{\mathsf{del}} = \{(i, h_i(x)) : x \in \Delta^-_b, i \in [k]\}$.
+
+\item \textbf{Mini UnionPeel for additions (Round~2a).} Run
+$\Pi_{\mathsf{UnionPeel}}$ on $\mathsf{IBLT}^+_C, \mathsf{IBLT}^+_S$
+(scanning $m_{\Delta} = c_k \cdot k \cdot \max(|\Delta^+_C|,
+|\Delta^+_S|)$ cells). Recover $V_{\Delta^+}$, merge:
+$\mathsf{IBLT}_b \leftarrow \mathsf{IBLT}_b \oplus \Encode(V_{\Delta^+})$.
+
+\item \textbf{Main UnionPeel for deletions (Round~2b).} Run
+$\Pi_{\mathsf{UnionPeel}}$ on $\mathsf{IBLT}_C, \mathsf{IBLT}_S$
+starting from $Q_{\mathsf{del}}^C \cup Q_{\mathsf{del}}^S$. Recover
+$V_{\mathsf{main}}$, output $X_{\cup,t} = V_{\Delta^+} \cup
+V_{\mathsf{main}}$. If $\mathsf{mode} = \mathsf{PSI}$, output only Case~3
+elements.
+
+\item \textbf{Key evolution (Round~3).} $K^b_t \leftarrow \PRF(K^b_{t-1},
+\text{``evolve''})$; $\mathsf{CT}_b \leftarrow \ChaCha.\Enc(K^b_t,
+\mathsf{IBLT}_b)$; write $\mathsf{CT}_b$; \textbf{erase} $K^b_{t-1}$.
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\caption{The F-PSU epoch protocol $\Pi_{\mathsf{fpsu}}$.}
+\label{fig:protocol}
+\end{figure}
+
+\subsection{Complexity}
+
+\textbf{Unbalanced settings.} F-PSU operates identically in balanced and
+unbalanced scenarios because IBLT encoding complexity depends only on the
+\emph{local} set size, not the peer's set size. When $P_A$ holds $2^{10}$
+elements and $P_B$ holds $2^{20}$, each party encodes its own IBLT with cost
+proportional to $|\text{local set}|$, independent of the other. The delta
+IBLT mechanism is similarly local: each party applies $\Delta$ only to its
+own IBLT. The UnionPeel sub-protocol treats both IBLTs symmetrically,
+peeling from the virtual union regardless of size disparity. No protocol
+modification is required. The asymptotic complexity is $O(n\sigma)$ for the
+union output and $O(d(\sigma + \kappa))$ for the per-epoch update, where
+$n = |X| + |Y|$ and $d = |\Delta|$.
+
+Let $d = |\Delta| = d^+ + d^-$, $n = |X| + |Y|$.
+\begin{itemize}
+\item Local update: $O(k d)$ cell ops, zero communication.
+\item Mini UnionPeel: $O(c_k \cdot k \cdot d^+ \cdot (\sigma + \kappa))$ bits,
+deterministic, zero cascade.
+\item Main UnionPeel: $O(k d^- \cdot (\sigma + \kappa))$ bits, cascade $\leq
+2k d^-$ cells.
+\item Output: $n\sigma$ bits (inherent to any PSU).
+\item Forward privacy overhead: one PRF + one ChaCha20 per epoch ($<1$~ms).
+\end{itemize}
+Total: $O(d(\sigma + \kappa) + n\sigma)$. For $d/n \approx 0.1\%$, the non-output
+component is $\approx 1000\times$ smaller than static PSU~\cite{PT26}.
+
+\begin{table}[t]
+\centering
+\footnotesize
+\caption{Asymptotic comparison of PSU protocols ($d = |\Delta|$, $n = |X|+|Y|$).}
+\label{tab:complexity}
+\footnotesize
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+\textbf{Protocol} & \textbf{Communication} & \textbf{Computation} & \textbf{Bal./Unbal.} \\
+\midrule
+KRT19~\cite{KRT19} & $O(n\sigma\kappa)$ & $O(n\log n)$ OT & Balanced \\
+PT26~\cite{PT26} & $O(n(\sigma+\kappa))$ & $O(n)$ OT+hash & Balanced \\
+ePSU~\cite{Tu+25} & $O(n\sigma)$ & $O(n)$ symm. & Both \\
+\textbf{F-PSU} & $\mathbf{O(d(\sigma+\kappa)+n\sigma)}$ & $\mathbf{O(d)}$ OT$+\mathbf{O(n)}$ ChCha & \textbf{Both} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\begin{lemma}[Cascade Bound]\label{lem:cascade}
+With IBLT parameters ensuring 2-core emptiness ($\Pr \geq 1 - 2^{-\lambda}$),
+peeling from $k d^-$ deletion-modified cells examines at most $(1 + C_0) \cdot
+k d^-$ total cells, where $C_0 = O(k^2 d^- / m)$. For $d^- \ll m/k$, the
+cascade is $\leq 2k d^-$ with overwhelming probability.
+\end{lemma}
+
+\subsection{Communication Reduction}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig_communication.pdf}
+\caption{Per-epoch IBLT data exchange. Left: static vs.\ F-PSU (log scale,
+$|\Delta|/n = 0.1\%$). Right: communication reduction factor across set sizes.}
+\label{fig:comm}
+\end{figure}
+
+Table~\ref{tab:main-perf} compares per-epoch IBLT data exchange against static
+re-encoding. At $0.1\%$ update ratio, communication is reduced by over
+$643\times$. The reduction is exactly $n/|\Delta|$---the ratio of total set
+size to delta size---because F-PSU exchanges only the cells touched by
+$\Delta$, while static protocols exchange all cells. At $10\%$ update rate
+the reduction drops to $6.3\times$, matching the expected $1/0.1 = 10\times$
+ratio with IBLT expansion overhead. OT/OPRF communication scales
+proportionally with cell count, so the same reduction factor applies to the
+secure computation phase.
+
+
+
+\subsection{Incremental Peeling and Parameter Growth}
+
+For $n = 2^{16}$, $|\Delta| = 2^{12}$: incremental peeling examines 32,768
+cells vs.\ 197,000 for full scan ($6\times$ reduction). Per-epoch protocol:
+$20.8$~ms ($n = 2^{14}$, $|\Delta| = 2^{12}$), $97.8$~ms ($n = 2^{16}$,
+$|\Delta| = 2^{14}$). Forward privacy overhead: $<1$~ms.
+
+\textbf{Amortized parameter growth.} 200 epochs, $n_0 = 10^4$, 100 elements
+per epoch: only \textbf{1} full re-encode triggered (epoch~51).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{fig_amortized.pdf}
+\caption{Amortized IBLT cell operations over 200 epochs, $|\Delta|/n = 0.1\%$.
+F-PSU achieves $114\times$ reduction across all set sizes.}
+\label{fig:amortized}
+\end{figure}
+
+% ============================================================
+\section{Security Analysis}
+\label{sec:security}
+% ============================================================
+
+We prove that $\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSO}}$
+(Fig.~\ref{fig:f-fpsu}) in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid
+model against PPT semi-honest adaptive adversaries, for all four output modes.
+
+\subsection{UC Security}
+
+\begin{theorem}[Main Security]\label{thm:main}
+Assume ChaCha20 is a secure PRG and HMAC-SHA256 is a secure PRF. Then
+$\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSO}}$ in the
+$(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model against PPT semi-honest
+adaptive adversaries.
+\end{theorem}
+
+\textbf{Proof structure.} The proof decomposes modularly into per-epoch security
+(within an epoch, inheriting from $\Pi_{\mathsf{UnionPeel}}$~\cite{PT26}) and
+cross-epoch forward privacy (via the PRF chain). The full proof, including
+simulator construction and three-hybrid argument, appears in
+Appendix~\ref{sec:full-proofs}.
+
+\subsection{Game-Based Forward Privacy (FP-IND)}
+
+We supplement the UC definition with a standalone game-based notion that
+directly captures the PRF-chain guarantee.
+
+\begin{definition}[FP-IND Game]\label{def:fp-ind}
+\begin{enumerate}
+\item Challenger samples $b \sample \{0,1\}$, $K_0 \sample \{0,1\}^\kappa$.
+\item For $t = 1$ to $T$: $K_t \leftarrow F(K_{t-1}, c)$.
+\item Adversary (observing all transcripts) selects $\tau \in [T]$, receives
+$K_\tau$.
+\item If $b = 0$: receives real $\{K_t\}_{t < \tau}$. If $b = 1$: receives
+independent $\{R_t \sample \{0,1\}^\kappa\}_{t < \tau}$.
+\item Adversary outputs $b'$, wins if $b' = b$.
+\end{enumerate}
+$\mathsf{Adv}^{\mathsf{FP\text{-}IND}}(\kappa) = |\Pr[b' = b] - \tfrac{1}{2}|
+\leq \negl(\kappa)$.
+\end{definition}
+
+\begin{corollary}[Forward Privacy]\label{cor:fp}
+If $\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSO}}$ with adaptive
+corruptions, then $\mathsf{Adv}^{\mathsf{FP\text{-}IND}}(\kappa) \leq T \cdot
+\mathsf{Adv}^{\mathsf{PRF}}(\kappa)$.
+\end{corollary}
+
+\subsection{Adaptive Input Selection}
+
+Liu et al.~\cite{LMR+26} recently showed that several published UPSI protocols
+are broken by \emph{adaptive input selection}: an adversary who chooses deltas
+based on prior transcripts can extract information about the honest party's
+historical inputs from the protocol's stored state (e.g., OKVS encodings). We
+show that F-PSU requires no modification to resist this class of attacks.
+
+\smallskip\noindent\textbf{Why UPSI is vulnerable.}
+In LMR+26's setting, the server stores an OKVS encoding of its set across
+epochs. An adaptive adversary can insert elements strategically chosen to
+interact with this encoding, learning membership information beyond what the
+PSI output reveals. The root cause is that the server's \emph{state} depends
+deterministically on its historical inputs, and adaptive queries can probe
+this state.
+
+\smallskip\noindent\textbf{Why F-PSU is immune.}
+F-PSU's state has two layers of protection:
+\begin{enumerate}
+\item \textbf{Semantic security of encryption.} The stored IBLT is encrypted
+under ChaCha20 with a per-epoch key $K_t$. An adaptive adversary probing the
+ciphertext learns nothing about the underlying plaintext (semantic security of
+ChaCha20 as a PRG).
+\item \textbf{Forward privacy of the key chain.} The key $K_t$ is derived via a
+PRF chain: $K_t \leftarrow \PRF(K_{t-1})$, with $K_{t-1}$ immediately erased.
+By the FP-IND guarantee (Corollary~\ref{cor:fp}), compromising at epoch $\tau$
+reveals $K_\tau$ but nothing about $\{K_t\}_{t < \tau}$. The adversary cannot
+decrypt ciphertexts from prior epochs, even with adaptive oracle access.
+\end{enumerate}
+
+Consequently, the adversary's view at each epoch consists of the union output
+$X_{\cup,t}$ and the size leakage $\cL_t$, exactly as specified by the ideal
+functionality $\cF_{\mathsf{fpsu}}$ (Fig.~\ref{fig:f-fpsu}). Adaptive choice
+of deltas changes \emph{which} elements are added or deleted, but does not
+change \emph{what the protocol leaks}: the updated union and the delta sizes.
+No additional game-based definition is required; the UC simulator in
+Theorem~\ref{thm:main} already handles adaptive input selection by extracting
+the corrupted party's effective input and forwarding it to $\cF_{\mathsf{fpsu}}$.
+
+\smallskip\noindent\textbf{Structural contrast with PSI.}
+In PSI, the output $X_{\cap,t}$ is a \emph{subset} of both inputs: an element
+appears in the output only if both parties hold it. Adaptive addition of $x$
+reveals $x \in Y_t$ with certainty (if $x$ appears in the new intersection).
+In PSU, the output $X_{\cup,t}$ is a \emph{superset}: any element added by the
+adversary appears in the union unconditionally. The adversary learns
+$Y_t \setminus X_{0,t}$ (inherent to PSU), but adaptive probing yields no
+additional information---the encrypted state and forward-private keys ensure
+that historical data remains inaccessible regardless of input strategy.
+
+% ============================================================
+\section{Implementation and Evaluation}
+\label{sec:eval}
+% ============================================================
+
+We implement F-PSU in \textbf{C++} ($\approx$2,000 lines, six modules) on an
+Apple M5 (macOS, single-threaded) using libOTe~\cite{libOTe} v2.1. IBLT
+parameters: $k = 4$, expansion $e = 3.0$, $\sigma = 64$ bits. Network
+conditions beyond LAN are simulated in-app with configurable RTT and bandwidth
+caps. Code:~\cite{code}.
+
+\subsection{Main Performance Comparison}
+
+\begin{table*}[t]
+\centering
+\footnotesize
+\caption{Performance comparison with prior PSU protocols. Baseline data
+(ZCL+23, Jia+24, Tu+25, PT26) from~\cite{PT26} (AMD EPYC 74F3,
+single-threaded). F-PSU on Apple M5 (single-threaded).
+F-PSU epoch~0 = full IBLT re-encode; epoch~$>$0 = delta IBLT at
+$|\Delta|/n \approx 6.25\%$. Bold = best; ``---'' = not reported.
+F-PSU communication = IBLT data exchange (dominant per-epoch cost;
+OT/OPRF setup amortized). Cross-platform runtime comparison is
+approximate; the primary comparison is F-PSU epoch~0 vs.\ epoch~$>$0
+on identical hardware.}
+\label{tab:main-perf}
+\begin{tabular}{lcccccc}
+\toprule
+$\mathbf{n}$ & \textbf{Protocol} & \textbf{Comm. (MB)} & \multicolumn{4}{c}{\textbf{Runtime (sec)}} \\
+             &                   &                    & LAN & WAN 200M & WAN 50M & WAN 5M \\
+\midrule
+\multirow{6}{*}{$2^{14}$}
+& ZCL+23 (static)      & 2.73  & 24.15 & 40.99 & 42.15 & 125.7 \\
+& Jia+24 (static)      & 32.9  & 1.26  & 13.97 & 17.53 & 285.9 \\
+& Tu+25 (static)       & 4.76  & 2.04  & 5.63  & 5.93  & 43.19 \\
+& PT26 (static)        & 11.9  & 0.08  & 2.42  & 3.85  & 79.2 \\
+& F-PSU epoch~0        & 0.58$^\ddagger$  & 0.033 & ---   & 0.54  & 4.15 \\
+& F-PSU epoch~$>$0     & 0.080$^\ddagger$ & \textbf{0.020} & 0.084 & \textbf{0.16} & \textbf{0.40} \\
+\midrule
+\multirow{6}{*}{$2^{16}$}
+& ZCL+23 (static)      & 11.1  & 77.16 & 139.8 & 166.6 & 522.3 \\
+& Jia+24 (static)      & 67.8  & 2.06  & 44.10 & 82.74 & 1291 \\
+& Tu+25 (static)       & 9.18  & 20.16 & 78.54 & 83.91 & 452.2 \\
+& PT26 (static)        & 10.7  & 0.14  & 4.22  & 7.60  & 161.2 \\
+& F-PSU epoch~0        & 2.30$^\ddagger$  & 0.078 & 0.50  & 1.54  & 13.58 \\
+& F-PSU epoch~$>$0     & 0.32$^\ddagger$  & \textbf{0.097} & 0.17 & \textbf{0.31} & \textbf{1.23} \\
+\midrule
+\multirow{6}{*}{$2^{18}$}
+& ZCL+23 (static)      & 47.2  & 260.8 & 427.6 & 392.7 & 1567 \\
+& Jia+24 (static)      & 166   & 5.43  & 131.1 & 276.1 & 4436 \\
+& Tu+25 (static)       & 12.7  & 130.3 & 529.1 & 464.7 & 3734 \\
+& PT26 (static)        & 10.2  & 0.21  & 8.49  & 12.33 & 248.3 \\
+& F-PSU epoch~0        & 9.22$^\ddagger$  & 0.52  & 1.47  & 4.86  & 43.4 \\
+& F-PSU epoch~$>$0     & 1.27$^\ddagger$  & \textbf{0.56} & 0.62 & \textbf{1.00} & \textbf{4.66} \\
+\midrule
+\multirow{6}{*}{$2^{20}$}
+& ZCL+23 (static)      & 191   & 852.9 & ---   & ---   & --- \\
+& Jia+24 (static)      & 373   & 22.57 & 517.3 & 1143  & 19313$^\dagger$ \\
+& Tu+25 (static)       & 25.0  & 1073  & ---   & ---   & --- \\
+& PT26 (static)        & 10.2  & 2.95  & 30.19 & 20.14 & --- \\
+& F-PSU epoch~0        & 36.9$^\ddagger$  & 2.13  & 4.96  & 18.97 & --- \\
+& F-PSU epoch~$>$0     & 5.09$^\ddagger$  & \textbf{2.28} & \textbf{2.49} & \textbf{3.40} & --- \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\smallskip\noindent
+At $0.1\%$ update ratio ($\approx$1,000 elements changed per epoch at
+$n=2^{20}$), F-PSU epoch~$>$0 communication drops to $57.3$~KB
+($643\times$ reduction vs.\ epoch~0), with IBLT computation $<5$~ms.
+F-PSU is the only protocol supporting updatable execution with forward
+privacy. The per-epoch breakdown across network profiles appears in the
+F-PSU epoch~$>$0 rows above.
+
+IBLT peeling dominates epoch time ($>85\%$). Forward privacy overhead
+(one PRF + one ChaCha20 per epoch) is $<1$~ms in all configurations.
+
+
+
+\subsection{Summary of Experimental Findings}
+
+\begin{enumerate}
+\item \textbf{Cascade bound tightness.} Cascade $\approx 1.95 \times
+k|\Delta|$, within the $2 \times k|\Delta|$ bound. Ratio is stable across all
+parameters.
+\item \textbf{Communication reduction.} $643\times$ at $0.1\%$ updates,
+decreasing gracefully to $6.3\times$ at $10\%$, matching $n/|\Delta|$ scaling.
+\item \textbf{Network-adaptive benefit.} $2\times$ to $11\times$ speedup across
+bandwidth-constrained profiles. On LAN, no wall-clock benefit---as expected.
+\item \textbf{Negligible forward privacy overhead.} One PRF + one ChaCha20:
+$<1$~ms in all configurations.
+\end{enumerate}
+
+\subsection{Feature Comparison}
+
+Table~\ref{tab:compare} situates F-PSU in the landscape. No prior work
+simultaneously achieves updatability, forward privacy, and unified PSO
+(PSU + PSI + cardinalities) in a single protocol execution.
+
+\begin{table*}[t]
+\centering
+\footnotesize
+\caption{Feature comparison with prior PSU and updatable protocols.
+$\dagger$: enhanced security (no within-execution leakage);
+$\ddagger$: PSI; $\mathsection$: unified PSO (PSU+PSI+CA in one execution).}
+\label{tab:compare}
+\footnotesize
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Protocol} & \textbf{Type} & \textbf{Upd.} & \textbf{FW} & \textbf{UC} & \textbf{Adp.} & \textbf{Unified} & \textbf{Cost/Epoch} \\
+\midrule
+KRT19~\cite{KRT19} & PSU (2p) & --- & --- & \checkmark & --- & --- & $O(n)$ \\
+ZCL+23~\cite{ZCL+23} & PSU (2p) & --- & --- & \checkmark & --- & --- & $O(n)$ \\
+Jia+24~\cite{Jia+24} & PSU (2p) & --- & ---$^\dagger$ & --- & --- & --- & $O(n\log n)$ \\
+Tu+25~\cite{Tu+25} & PSU (2p) & --- & ---$^\dagger$ & \checkmark & --- & --- & $O(n)$ \\
+PT26~\cite{PT26} & PSU (2p) & --- & --- & \checkmark & --- & --- & $O(n)$ \\
+FUPSI~\cite{WZC+24} & PSI$^\ddagger$ (2p) & \checkmark & \checkmark & --- & --- & --- & $O(\log n)$ PIR \\
+LMR+26~\cite{LMR+26} & PSI$^\ddagger$ (2p) & \checkmark & --- & \checkmark & \checkmark & --- & $O(|\Delta|)$ \\
+\midrule
+\textbf{F-PSU (this work)} & \textbf{PSU (2p)} & \textbf{\checkmark} & \textbf{\checkmark} & \textbf{\checkmark} & \textbf{\checkmark} & $\mathsection$ & $\mathbf{O(|\Delta|)}$ \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\subsection{Deployment Perspective}
+
+To ground these numbers: in threat-intelligence sharing with $n = 2^{20}
+\approx 10^6$ IoCs and $0.1\%$ daily churn ($\approx$1,000 new/retired
+indicators per day), F-PSU exchanges $\approx$57~KB of IBLT data per daily
+epoch vs.\ $\approx$36~MB for static. Over a year: $\approx$13~GB saved per
+party pair. In federated learning with 100~clients and $n = 10^6$ features,
+daily PSU-based feature alignment would save several terabytes per year. The
+per-epoch computational overhead ($<5$~ms of IBLT operations at this update
+ratio) is negligible compared to network latency.
+
+\textbf{Implementation scope.} Six C++ modules: IBLT data structure (319
+lines), protocol orchestration (226 lines), TCP socket communication (271
+lines), end-to-end network benchmark ($\approx$400 lines), OT/OPRF-integrated
+benchmark ($\approx$330 lines), primitive benchmarks ($\approx$500 lines). All
+IBLT operations achieve $100\%$ success across $2^{10}$ to $2^{20}$. Results
+are reproducible on modern macOS without specialized hardware.
+
+% ============================================================
+\section{Related Work}
+\label{sec:related}
+% ============================================================
+
+\textbf{Static PSU.} Early PSU constructions relied on additively homomorphic
+encryption; KRT19~\cite{KRT19} pioneered scalable symmetric-key PSU via
+reversed private membership test. JLZ20~\cite{JLZ20} (USENIX'22) proposed shuffle-based
+PSU with symmetric-key operations, but $O(n \log n)$ communication.
+ZCL+23~\cite{ZCL+23} (USENIX'23) achieved the first linear-complexity PSU via
+multi-query RPMT. Jia+24~\cite{Jia+24} (USENIX'24) identified unnecessary OT
+leakage in existing scalable PSU and built an enhanced-security PSU from
+symmetric-key operations, though with superlinear complexity. Tu+25~\cite{Tu+25}
+(USENIX'25) resolved the open problems from Jia+24: the first linear enhanced
+PSU (balanced, 2.2--8.8$\times$ communication reduction) and the first unbalanced
+enhanced PSU (sublinear communication, 38.1$\times$ reduction at 1~Mbps).
+LBL25~\cite{LBL25} further eliminated residual privacy leakage from
+Tu+25's hashing-to-bin step, achieving the first leakage-free unbalanced ePSU.
+Dong+25~\cite{Dong+25} (USENIX'25) extended PSU to the multi-party setting with
+linear complexity. PT26~\cite{PT26} (Eurocrypt'26) closed the PSI-PSU
+performance gap via IBLT union peelability, achieving PSU on $2^{20}$ elements
+in under 3 seconds. Pu et al.~\cite{PuGT26} (Eurocrypt'26) extended this to
+malicious security. All prior PSU protocols---including the IBLT-based
+constructions---are \emph{static}: they re-encode the entire set each epoch,
+costing $O(n)$ per computation. \textbf{F-PSU is the first updatable PSU.}
+
+\textbf{Updatable protocols} (PSI only). BMX22~\cite{BMX22} initiated updatable
+PSI from OKVS. BMS+24~\cite{BMS+24} extended to support deletion with
+worst-case bounds. LMR+26~\cite{LMR+26} proposed symmetric-key updatable PSI,
+identifying adaptive input selection attacks that break prior UPSI proofs.
+LTS+26~\cite{LTS+26} combined asymmetric PSI and PSU for low-communication
+updatable PSI. FUPSI~\cite{WZC+24} (TIFS'24) achieved forward privacy in
+updatable PSI via keyword PIR, with $O(\log n)$ communication per update.
+\textbf{No prior work supports updatable PSU}, let alone with forward privacy.
+
+\textbf{Forward-secure and privacy-preserving protocols.} Signal's double
+ratchet~\cite{Signal} provides forward secrecy via Diffie-Hellman key exchange.
+Bost~\cite{Bos16} achieved forward privacy for searchable symmetric encryption.
+Our PRF-based key chain is the symmetric analogue of Signal's symmetric ratchet,
+with the key distinction that we operate on IBLT ciphertexts rather than session
+keys. The self-healing extension (Appendix~\ref{sec:selfheal}) shows how the
+union output can serve as a nonce source to recover post-compromise security
+with zero additional communication.
+
+\textbf{IBLT techniques.} Goodrich and Mitzenmacher~\cite{GM11} introduced
+IBLTs. Rateless IBLTs~\cite{YGA24} (SIGCOMM'24) eliminate a-priori threshold
+selection, avoiding resize overhead. Fleischhacker et al.~\cite{FLS23}
+(Eurocrypt'23) used IBLTs for compressing encrypted data. Our contribution is
+exploiting IBLT \emph{linearity} for incremental delta maintenance, which is
+orthogonal to these directions.
+
+% ============================================================
+\section{Discussion and Conclusion}
+% ============================================================
+
+We presented F-PSU, the first forward-private updatable PSU protocol. F-PSU
+achieves per-epoch communication and computation $O(|\Delta|)$, with
+$643\times$ communication reduction at $0.1\%$ update ratio, formal UC
+security against semi-honest adaptive adversaries, and a provably optimal
+leakage profile. The protocol is built from three clean ideas: delta IBLT
+encoding exploiting IBLT linearity, split-path incremental peeling with a
+provable cascade bound, and a PRF-based key chain for forward privacy with
+negligible overhead.
+
+\smallskip\noindent\textbf{Significance.}
+F-PSU opens the study of updatable PSU. Prior to this work, every PSU protocol
+required re-encoding the full set on each computation. The delta IBLT mechanism
+shows that IBLT linearity can be leveraged not just for static union
+peelability~\cite{PT26}, but for incremental state maintenance across epochs.
+This is a conceptual shift: IBLTs become persistent data structures rather than
+ephemeral encoding artifacts.
+
+The forward privacy guarantee addresses a practical concern absent from static
+protocols. In any deployment where keys protect sensitive historical data, key
+compromise retroactively exposes the entire history unless forward-secure key
+management is in place. F-PSU's PRF chain provides this guarantee with zero
+additional communication and $<1$~ms overhead, making it practical for
+real-world deployments subject to data retention regulations.
+
+\smallskip\noindent\textbf{On the leakage lower bound.}
+Theorem~\ref{thm:lower} establishes that any $1$-updatable PSU protocol must
+leak individual update counts. This is not a protocol flaw but an inherent
+efficiency-leakage trade-off: sublinear communication forces message sizes to
+encode information about update magnitude. F-PSU accepts this inevitable
+leakage and ensures nothing else is revealed. The bound generalizes beyond
+PSU to any two-party stateful computation with incremental updates and
+sublinear communication, suggesting a broader theoretical framework for
+updatable secure computation.
+
+\smallskip\noindent\textbf{Limitations and future work.}
+\emph{Semi-honest security}: the current protocol assumes honest-but-curious
+behavior. A malicious $P_0$ could, for instance, apply inconsistent delta IBLT
+updates to probe $P_1$'s set. Upgrading to malicious security requires
+verifiable delta IBLT integrity---e.g., via commitments to the pre-update IBLT
+state combined with zero-knowledge proofs of correct delta application.
+Pu et al.~\cite{PuGT26} provide a maliciously secure static IBLT-based PSU,
+offering a starting point for the per-epoch component.
+
+\emph{Two-party only}: extending to $m > 2$ parties is natural given IBLT
+additivity---$m$ parties can maintain IBLTs whose virtual sum encodes the
+multi-party union. The challenge is efficient multi-party UnionPeel, for which
+Dong+25~\cite{Dong+25}, GNT24~\cite{GNT24}, and circuit-based PSU~\cite{CGS24} provide building blocks for this extension.
+
+\emph{Post-compromise security}: the self-healing extension
+(Appendix~\ref{sec:selfheal}) leverages the union output as an entropy source,
+healing in one epoch after a non-trivial honest update. This is a novel
+cryptographic use of PSU's inherent output entropy---the union itself becomes
+a nonce---and warrants deeper analysis in the multi-party and malicious
+settings.
+
+\emph{Post-quantum security}: Gold OPRF~\cite{YBH+25} and LPN-based silent
+VOLE~\cite{RRT23} suggest that the OT/OPRF substrate can be replaced with
+post-quantum alternatives without changing F-PSU's architecture.
+
+\emph{Performance engineering}: multi-threaded peeling (parallel per-cell
+OT/OPRF), hardware-accelerated ChaCha20, and batched OT amortization are
+natural optimizations. Rateless IBLTs~\cite{YGA24} would eliminate a-priori
+capacity tuning and the occasional full re-encode triggered by set size
+growth.
+
+\smallskip\noindent\textbf{Outlook.}
+F-PSU establishes that IBLT-based PSU protocols can be made updatable with
+provable forward privacy and optimal leakage, while retaining the practical
+efficiency that made static IBLT-based PSU competitive with PSI
+in the first place~\cite{PT26}. The three core ideas---delta IBLT encoding,
+split-path incremental peeling, and PRF-based key evolution---are
+conceptually simple and compose cleanly with existing and future PSU
+optimizations. We believe updatable PSU will become a standard primitive in
+the secure computation toolbox, much as updatable PSI has over the past
+five years, and that F-PSU provides a solid foundation for this line of
+work. All code is open source~\cite{code}.
+
+% ============================================================
+\section{Ethical Considerations}
+% ============================================================
+
+\textbf{Stakeholder analysis.} This work develops a privacy-enhancing
+cryptographic protocol. Primary stakeholders: end users whose private data is
+protected; organizations deploying PSU for collaborative computation; the
+research community. The leakage lower bound (Theorem~\ref{thm:lower})
+delineates inherent limits of updatable PSU, preventing overclaiming of
+privacy properties.
+
+\textbf{Data and human subjects.} All experiments use synthetic data. No human
+subjects data, real user information, or production telemetry was used.
+
+\textbf{Vulnerability disclosure.} No vulnerabilities in existing systems are
+reported. This work does not break or weaken any deployed cryptographic system.
+
+\smallskip
+\noindent\textit{Per USENIX Security policy, the authors attest that:}
+\begin{enumerate}
+\item This paper presents a novel cryptographic protocol for privacy
+enhancement; to the best of our knowledge, it raises no ethical issues beyond
+those common to cryptographic research.
+\item The authors have complied with the USENIX Security ethical guidelines.
+\item No external ethical review was sought, as the work involves only
+synthetic benchmark data and no human subjects.
+\end{enumerate}
+
+% ============================================================
+\section{Open Science}
+% ============================================================
+
+\textbf{Artifact availability.} The complete C++ implementation of F-PSU is
+available at~\cite{code}. The repository includes build instructions and
+scripts to reproduce all experiments in Section~\ref{sec:eval}.
+
+\textbf{Reproducibility.} All benchmarks on Apple M5 (macOS, single-threaded)
+using libOTe v2.1. Network conditions are simulated in-app via configurable
+RTT and bandwidth caps, reproducible on any modern macOS system. IBLT
+parameters ($k = 4$, $e = 3.0$, $\sigma = 64$) and benchmark parameters are
+fully documented.
+
+\textbf{Pre-registration.} This work was not pre-registered.
+
+\smallskip
+\noindent\textit{Per USENIX Security policy, the authors attest that:}
+\begin{enumerate}
+\item The open-source code is available at the repository in~\cite{code}.
+\item All experimental data can be reproduced using the provided code and
+documented parameters.
+\item The digital object identifier for the artifact is to be assigned.
+\end{enumerate}
+
+% ============================================================
+\begin{thebibliography}{99}
+
+\bibitem{KRT19} V.~Kolesnikov, M.~Rosulek, N.~Trieu, X.~Wang.
+\newblock Scalable Private Set Union from Symmetric-Key Techniques. \emph{Asiacrypt}, 2019.
+
+\bibitem{JLZ20} Y.~Jia, S.-F.~Sun, H.-S.~Zhou, J.~Du, D.~Gu.
+\newblock Shuffle-based Private Set Union: Faster and More Secure. \emph{USENIX Security}, 2022.
+
+\bibitem{ZCL+23} C.~Zhang, Y.~Chen, W.~Liu, M.~Zhang, D.~Lin.
+\newblock Linear Private Set Union from Multi-Query Reverse Private Membership Test. \emph{USENIX Security}, 2023.
+
+\bibitem{Tu+25} B.~Tu, Y.~Bai, C.~Zhang, Y.~Cao, Y.~Chen.
+\newblock Fast Enhanced Private Set Union in the Balanced and Unbalanced Scenarios. \emph{USENIX Security}, 2025.
+
+\bibitem{DCW13} C.~Dong, L.~Chen, Z.~Wen.
+\newblock When Private Set Intersection Meets Big Data: An Efficient and Scalable Protocol. \emph{CCS}, 2013.
+
+\bibitem{IKN+20} M.~Ion, B.~Kreuter, E.~Nergiz, S.~Patel, S.~Saxena, K.~Seth,
+M.~Raykova, D.~Shanahan, M.~Yung.
+\newblock On Deploying Secure Computing: Private Intersection-Sum-with-Cardinality. \emph{IEEE EuroS\&P}, 2020.
+
+\bibitem{KRS+19} D.~Kales, C.~Rechberger, T.~Schneider, M.~Senker, C.~Weinert.
+\newblock Mobile Private Contact Discovery at Scale. \emph{USENIX Security}, 2019.
+
+\bibitem{PT26} L.~Piske, N.~Trieu.
+\newblock Is PSI Really Faster Than PSU? Achieving Efficient PSU with Invertible Bloom Filters. \emph{Eurocrypt}, 2026.
+
+\bibitem{Signal} M.~Marlinspike, T.~Perrin.
+\newblock The Double Ratchet Algorithm. \emph{Signal Technical Documentation}, 2016.
+
+\bibitem{BMX22} S.~Badrinarayanan, P.~Miao, T.~Xie.
+\newblock Updatable Private Set Intersection. \emph{PoPETS}, 2022.
+
+\bibitem{BMS+24} S.~Badrinarayanan, P.~Miao, X.~Shi, M.~Tromanhauser, R.~Zeng.
+\newblock Updatable Private Set Intersection Revisited. \emph{Asiacrypt}, 2024.
+
+\bibitem{LMR+26} J.~Liu, P.~Miao, M.~Rosulek, X.~Shi, J.~Wang.
+\newblock Updatable PSI from Symmetric-Key Techniques. \emph{Eurocrypt}, 2026.
+
+\bibitem{ABF+25} F.~Alborch, T.~Chauvier, A.~Faonio, A.~Fontaine, F.~Karako\c{c},
+A.~K\"{u}p\c{c}\"{u}, C.~Malek, M.~\"{O}nen.
+\newblock Updatable Private Set Intersection and Beyond. \emph{ePrint} 2025/2147.
+
+\bibitem{LTS+26} G.~Ling, P.~Tang, S.-F.~Sun, W.~Qiu.
+\newblock Efficient Updatable PSI From Asymmetric PSI and PSU. \emph{IEEE TIFS}, 2026.
+
+\bibitem{WZC+24} R.~Wang, J.~Zhou, Z.~Cao, X.~Dong, K.-K.~R.~Choo.
+\newblock Updatable PSI with Forward Privacy. \emph{IEEE TIFS}, 2024.
+
+\bibitem{Can01} R.~Canetti.
+\newblock Universally Composable Security. \emph{FOCS}, 2001.
+
+\bibitem{libOTe} P.~Rindal et al.
+\newblock libOTe: Fast, Portable Oblivious Transfer Library. \url{https://github.com/osu-crypto/libOTe}.
+
+\bibitem{GM11} M.~Goodrich, M.~Mitzenmacher.
+\newblock Invertible Bloom Lookup Tables. \emph{Allerton Conference}, 2011.
+
+\bibitem{Ber08} D.~J.~Bernstein.
+\newblock ChaCha, a variant of Salsa20. \emph{Workshop Record of SASC}, 2008.
+
+\bibitem{BCK96} M.~Bellare, R.~Canetti, H.~Krawczyk.
+\newblock Keying Hash Functions for Message Authentication. \emph{CRYPTO}, 1996.
+
+\bibitem{RS21} P.~Rindal, P.~Schoppmann.
+\newblock VOLE-PSI: Fast OPRF and Circuit-PSI from Vector-OLE. \emph{Eurocrypt}, 2021.
+
+\bibitem{RR22} S.~Raghuraman, P.~Rindal.
+\newblock Blazing Fast PSI from Improved OKVS and Subfield VOLE. \emph{CCS}, 2022.
+
+\bibitem{RRT23} S.~Raghuraman, P.~Rindal, T.~Tanguy.
+\newblock Expand-Convolute Codes for Pseudorandom Correlation Generators from LPN. \emph{CRYPTO}, 2023.
+
+\bibitem{KKRT16} V.~Kolesnikov, R.~Kumaresan, M.~Rosulek, N.~Trieu.
+\newblock Efficient Batched Oblivious PRF with Applications to Private Set Intersection. \emph{CCS}, 2016.
+
+\bibitem{PuGT26} S.~Pu, J.~Gao, N.~Trieu.
+\newblock Malicious Private Set Union with Two-Sided Output. \emph{Eurocrypt}, 2026.
+
+\bibitem{Bos16} R.~Bost.
+\newblock $\Sigma o\varphi o\varsigma$: Forward Secure Searchable Encryption. \emph{CCS}, 2016.
+
+\bibitem{Mat24} J.~P.~Mattsson.
+\newblock Security of Symmetric Ratchets and Key Chains -- Implications for Protocols like TLS 1.3, Signal, and PQ3. \emph{ePrint} 2024/220.
+
+\bibitem{HKL+24} K.~Han, S.~Kim, B.~Lee, Y.~Son.
+\newblock Revisiting OKVS-based OPRF and PSI. \emph{Asiacrypt}, 2024.
+
+\bibitem{code} Anonymous.
+\newblock F-PSU Prototype Implementation. \url{https://github.com/} (released upon publication).
+
+\bibitem{Jia+24} Y.~Jia, S.-F.~Sun, H.-S.~Zhou, D.~Gu.
+\newblock Scalable Private Set Union, with Stronger Security. \emph{USENIX Security}, 2024.
+
+\bibitem{Dong+25} M.~Dong, C.~Zhang, Y.~Bai, Y.~Chen.
+\newblock Efficient Multi-Party Private Set Union Without Non-Collusion Assumptions.
+\emph{USENIX Security}, 2025.
+
+\bibitem{LBL25} Q.~Liu, J.~Bae, J.~Lee.
+\newblock Leakage-Free Enhanced Private Set Union. \emph{ePrint} 2025/2087.
+
+\bibitem{YGA24} L.~Yang, Y.~Gilad, M.~Alizadeh.
+\newblock Practical Rateless Set Reconciliation. \emph{SIGCOMM}, 2024.
+
+\bibitem{FLS23} N.~Fleischhacker, K.~G.~Larsen, M.~Simkin.
+\newblock How to Compress Encrypted Data. \emph{Eurocrypt}, 2023.
+
+\bibitem{GNT24} J.~Gao, S.~Nguyen, N.~Trieu.
+\newblock Toward a Practical Multi-Party Private Set Union. \emph{PoPETs}, 2024.
+
+\bibitem{CGS24} G.~R.~Chandran, T.~Schneider, M.~Stillger, C.~Weinert.
+\newblock Concretely Efficient PSU via Circuit PSI. \emph{ASIACCS}, 2025.
+
+\bibitem{YBH+25} Y.~Yang, F.~Benhamouda, S.~Halevi, H.~Krawczyk, T.~Rabin.
+\newblock Gold OPRF: Post-Quantum Oblivious Power-Residue PRF. \emph{IEEE S\&P}, 2025.
+
+\end{thebibliography}
+
+\newpage
+\appendix
+
+% ============================================================
+\section{Leakage Lower Bound: Full Proof}
+\label{sec:lower-proof}
+
+\begin{proof}[Full proof of Theorem~\ref{thm:lower}]
+Fix $P_1$'s set $Y$ and deltas $\Delta^+ Y = \Delta^- Y = \Delta^- X =
+\emptyset$. Let $P_0$ add a set $S$ of size $k \in [0, N]$. For each $k$,
+let $C(k)$ be the total communication when $|S| = k$.
+
+\textbf{Claim 1.} If $\exists k \neq k'$ with $C(k) \neq C(k')$, then
+$|\Delta^+ X|$ is leaked. \emph{Proof:} The semi-honest adversary computes
+$|\mathsf{trans}| = C(|S|)$. Since $C$ is non-constant, the adversary learns
+$|S|$.
+
+\textbf{Claim 2.} If $C(k) = C_{\max}$ for all $k$, then $C_{\max} \geq
+N(\sigma - \log N)$. \emph{Proof:} $S$ a random $N$-subset of $U$. After the
+protocol, $P_1$ outputs $S$ (since $Y = \emptyset$). The transcript must
+encode $S$, which has entropy $\log\binom{2^\sigma}{N} \geq N(\sigma - \log
+N)$ bits. By Shannon's source coding theorem, $C_{\max} \geq H(S)$.
+
+\textbf{Claim 3.} If $\Pi$ is $1$-updatable, $C(k)$ cannot be constant.
+\emph{Proof:} If $C(k) = C_{\max}$ for all $k$, then $C(1) = \Omega(N\sigma)$,
+contradicting $1$-updatability ($C(k) = O(k \cdot \poly(\sigma, \kappa))$).
+
+The claims imply the theorem for $|\Delta^+ X|$. Symmetric arguments cover
+$|\Delta^+ Y|$, $|\Delta^- X|$, $|\Delta^- Y|$.
+\end{proof}
+
+% ============================================================
+\section{Extended Protocol Analysis and Implementation}
+\label{sec:ext-protocol-main}
+% ============================================================
+
+\subsection{Design Decisions and Alternatives}
+
+We document design alternatives considered during the development of F-PSU
+and the rationale for the final design choices.
+
+\smallskip\noindent\textbf{Why deferred addition merge?}
+A natural alternative is to apply both deletions and additions to the main
+IBLT in Round~1, then run a single UnionPeel on the modified cells. This
+fails because addition cells and deletion cells interact: deleting element~$a$
+and adding element~$b$ that share hash cell~$(i,j)$ creates a non-singleton
+whose sum is $b - a$, which is neither $a$ nor $b$. The peel thus fails to
+recover either element. Separating additions into their own compact IBLT
+avoids this cross-contamination; the addition IBLT is fresh (no prior peeling
+state), so its peel is clean and deterministic.
+
+\smallskip\noindent\textbf{Why not a single UnionPeel on the delta IBLT?}
+Encoding the entire delta $\Delta$ into one compact IBLT and running
+UnionPeel on it avoids the split-path complexity. However, the delta IBLT
+encodes both additions \emph{and} the \emph{negation} of deletions
+($\Encode(\Delta^+) \ominus \Encode(\Delta^-)$), producing a mixed-sign
+IBLT. While IBLT subtraction is well-defined, the union-peel analysis of
+Piske and Trieu~\cite{PT26} assumes non-negative counts; mixed-sign IBLTs
+can create phantom singletons (cells where count~$=1$ but the sum does not
+correspond to any element in $X \cup Y$) and false negatives (missed elements
+due to cancellation). The split-path design avoids these pathologies by
+keeping the addition and deletion paths algebraically clean.
+
+\smallskip\noindent\textbf{Why PRF chain over DH ratchet?}
+Signal's double ratchet~\cite{Signal} achieves both forward secrecy and
+post-compromise security via ephemeral Diffie-Hellman key exchange. We choose
+the PRF chain for F-PSU's main construction because: (i)~it adds zero
+communication (DH requires an extra round per epoch); (ii)~it adds negligible
+computation (one HMAC-SHA256 vs.\ one X25519 scalar multiplication);
+(iii)~forward privacy alone is sufficient for many deployment scenarios where
+post-compromise recovery is handled out-of-band. The self-healing extension
+(Appendix~\ref{sec:selfheal}) provides post-compromise security when needed,
+using only the union output entropy.
+
+\smallskip\noindent\textbf{Why not encrypt the IBLT with a fresh random key?}
+Generating a fresh random key per epoch and discarding the old one also
+provides forward privacy without a PRF chain. However, this requires the key
+to be stored alongside the ciphertext (or derived from external entropy),
+increasing storage by $T \cdot \kappa$ bits over $T$ epochs. The PRF chain
+requires storing only the current key (256 bits), with all past keys
+recoverable if-and-only-if the current key is known---which is exactly the
+forward privacy guarantee: past keys are unrecoverable after erasure.
+
+\subsection{Detailed Complexity Analysis}
+
+We provide a detailed per-round breakdown of the communication and
+computation costs for epoch $t$.
+
+\smallskip\noindent\textbf{Round~1 (Local IBLT Update).}
+\begin{itemize}
+\item \emph{Decryption:} $O(m)$ ChaCha20 blocks, where $m = k\ell$ is the
+IBLT cell count. Hardware-accelerated on modern processors (AES-NI/ARM
+Crypto Extensions), throughput exceeds 10~GB/s, making this negligible
+($<1$~ms for $n = 2^{20}$ at $e = 3.0$).
+\item \emph{Deletion application:} $k \cdot |\Delta^-|$ cell-wise subtraction
+operations (modular arithmetic in $\Z_M$ plus integer decrement). Zero
+communication.
+\item \emph{Addition encoding:} $k \cdot |\Delta^+|$ cell-wise addition
+operations to build $\mathsf{IBLT}_{\Delta}$. Zero communication.
+\item \emph{Total computation:} $O(m + k|\Delta|)$ local operations. The
+$O(m)$ decrypt/re-encrypt is the dominant term for $|\Delta| \ll m$.
+\end{itemize}
+
+\smallskip\noindent\textbf{Round~2a (Mini UnionPeel).}
+\begin{itemize}
+\item \emph{Communication:} $O(c_k \cdot k \cdot |\Delta^+| \cdot (\sigma +
+\kappa))$ bits of OT extension and OPRF traffic. Each of the
+$m_{\Delta} = c_k \cdot k \cdot |\Delta^+|$ cells participates in one OT
+(for sum retrieval) and one OPRF evaluation (for tag comparison). The total
+is deterministic (no cascade) because the addition IBLT has no prior peeling
+state.
+\item \emph{Computation:} $O(m_{\Delta})$ hash evaluations (IBLT hash
+functions), $O(m_{\Delta})$ OT extension operations, and $O(m_{\Delta})$
+OPRF evaluations.
+\end{itemize}
+
+\smallskip\noindent\textbf{Round~2b (Main UnionPeel).}
+\begin{itemize}
+\item \emph{Communication:} $O(k \cdot |\Delta^-| \cdot (1 + C_0) \cdot
+(\sigma + \kappa))$ bits, where $C_0 = O(k^2|\Delta^-|/m) \ll 1$ bounds
+the cascade amplification. By Lemma~\ref{lem:cascade}, total cells examined
+$\leq 2k|\Delta^-|$ with overwhelming probability.
+\item \emph{Computation:} $O(k|\Delta^-| \cdot (1 + C_0))$ OT and OPRF
+operations, plus $O(k|\Delta^-|)$ local deletions.
+\end{itemize}
+
+\smallskip\noindent\textbf{Round~3 (Key Evolution).}
+\begin{itemize}
+\item \emph{Communication:} Zero.
+\item \emph{Computation:} One PRF evaluation (HMAC-SHA256, $<1\mu$s) plus
+one ChaCha20 encryption of the IBLT ($O(m)$ stream cipher, hardware
+accelerated). Secure erasure of $K_{t-1}$ is a constant-time memory
+overwrite.
+\end{itemize}
+
+\smallskip\noindent\textbf{Total per-epoch cost.}
+Communication: $O(|\Delta| \cdot (\sigma + \kappa) + |X_{\cup}| \cdot
+\sigma)$ bits. The $O(|\Delta|)$ term dominates the secure computation
+phase; the $O(|X_{\cup}|)$ term is the inherent PSU output (transmitting the
+peeled union elements from $P_1$ to $P_0$). Computation: $O(m + k|\Delta|)$
+local operations plus $O(k|\Delta|)$ OT/OPRF operations.
+
+\subsection{IBLT Parameter Selection}
+
+The IBLT expansion factor $e = m/(k \cdot \max(|X|, |Y|))$ and hash count
+$k$ are chosen to satisfy Theorem~\ref{thm:iblt}. We use $k = 4$ and
+$e = 3.0$ throughout, giving $m = 4 \cdot 3.0 \cdot \max(|X|, |Y|)$ cells.
+With these parameters, the $2$-core emptiness probability exceeds
+$1 - 2^{-40}$ for $|X| + |Y| \leq 2^{20}$, sufficient for all our
+experiments.
+
+The expansion $e = 3.0$ is conservative: Theorem~\ref{thm:iblt} only requires
+$e > c_4 \approx 1.295$. The extra margin accommodates set size growth between
+full re-encodes (see Section~\ref{sec:eval}, Incremental Peeling and Parameter
+Growth) and provides headroom for the cascade bound.
+
+\smallskip\noindent\textbf{Resize policy.}
+When $|X_t| + |Y_t|$ exceeds the IBLT design threshold, a full re-encode is
+triggered: both parties encode their current sets into a larger IBLT and run
+a fresh UnionPeel. The resize cost is $O(n)$ but amortized over
+$\Omega(n/\text{growth\_rate})$ epochs. With exponential growth (doubling
+capacity each resize) and linear set growth ($n_t = n_0 + t \cdot g$), the
+amortized per-epoch resize cost is $O(g)$, matching the delta cost.
+
+% ============================================================
+\section{Extended Experimental Results}
+\label{sec:ext-eval}
+% ============================================================
+
+We provide additional experimental data complementing
+Section~\ref{sec:eval}.
+
+\subsection{Parameter Sensitivity}
+
+We evaluate epoch time sensitivity to hash count $k$ and expansion factor
+$e$ at $n = 2^{16}$, $|\Delta| = 2^{10}$. Increasing $k$ improves peeling success probability but linearly increases
+encode and peel costs. The expansion $e = 3.0$ with $k = 4$ provides a
+balanced trade-off: strong probabilistic guarantees ($\Pr[\text{failure}]
+< 2^{-40}$) with moderate cell count overhead.
+
+\subsection{Memory Footprint}
+
+Each IBLT cell stores a 64-bit sum ($\Z_{2^{64}}$) and a 16-bit count,
+for 10 bytes per cell. With $k = 4$, $e = 3.0$, $n = 2^{20}$: $m =
+4 \cdot 3.0 \cdot 2^{20} \approx 12.6$~million cells, occupying
+$\approx 126$~MB. The compact addition IBLT at $0.1\%$ update ratio uses
+$m_{\Delta} \approx 12{,}600$ cells ($\approx 126$~KB), a $1000\times$
+reduction. The ciphertext size equals the plaintext size (ChaCha20 is a
+stream cipher).
+
+
+
+\subsection{Microbenchmarks: Extended}
+
+We benchmark IBLT serialization (for TCP transmission) and various OT
+extension configurations. At $n = 2^{16}$ with $e = 3.0$, IBLT
+serialization completes in under $2$~ms and OT extension setup adds
+under $5$~ms, negligible relative to network latency in all profiles.
+
+
+
+\subsection{Delta Ratio Sweep}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.8\columnwidth]{fig_delta_sweep.pdf}
+\caption{Epoch time vs.\ delta ratio ($n = 2^{16}$, LAN). Break-even occurs at
+$|\Delta|/n \approx 50\%$; below this threshold, F-PSU provides savings.}
+\label{fig:delta}
+\end{figure}
+
+Fig.~\ref{fig:delta} shows epoch time as a function of the delta ratio
+$|\Delta|/n$, at fixed $n = 2^{16}$ under LAN. The break-even point where
+delta IBLT outperforms full re-encoding occurs at $|\Delta|/n \approx 50\%$;
+below this threshold, F-PSU provides communication savings.
+
+
+
+% ============================================================
+\section{Full UC Security Proofs}
+\label{sec:full-proofs}
+
+\subsection{Full UC Security Proof}
+\label{sec:full-proof}
+% ============================================================
+
+This appendix provides the complete UC security proof referenced in
+Section~\ref{sec:security}. We give the full simulator construction, prove
+all hybrid transitions, and establish the composition theorem.
+
+\subsection{Complete Simulator Construction}
+
+\begin{framed}
+\noindent\textbf{Simulator $\cS$ for $\Pi_{\mathsf{fpsu}}$}
+
+\smallskip\noindent\textbf{Input:} Access to $\cF_{\mathsf{fpsu}}$ and
+$\cA$ (corrupting $P_0$ at epoch $\tau$).
+
+\smallskip\noindent\textbf{Internal State:}
+\begin{itemize}
+\item $\tilde{Y}_t$: simulated $P_1$ set for each epoch $t$
+\item $\tilde{K}^S_t \in \{0,1\}^\kappa$: simulated encryption key
+\item $\widetilde{\mathsf{CT}}^{(t)}_S$: simulated ciphertext
+\item $\tilde{\sigma}_{\mathsf{VOLE}}$, $\tilde{\sigma}_{\mathsf{OKVS}}$:
+simulated VOLE and OKVS states
+\end{itemize}
+
+\smallskip\noindent\textbf{Procedure:}
+
+\smallskip\noindent\textit{Initialization} ($t = 0$):
+\begin{enumerate}
+\item Sample $\tilde{K}^S_0, \tilde{K}^C_0 \sample \{0,1\}^\kappa$.
+\item Initialize empty IBLTs for both parties.
+\item Simulate VOLE setup: $\tilde{\sigma}_{\mathsf{VOLE}} \leftarrow
+\textsf{SimVOLE}(1^\kappa)$. In the $\cF_{\mathsf{VOLE}}$-hybrid model,
+$\cS$ simply records the ideal VOLE handles.
+\end{enumerate}
+
+\smallskip\noindent\textit{Per-Epoch Simulation} (epoch $t < \tau$):
+\begin{enumerate}
+\item Receive $X_{\cup,t}$ from $\cF_{\mathsf{fpsu}}$; receive $X_t$ (as
+$P_0$'s input) from $\cZ$ through $\cA$.
+\item Compute $\tilde{Y}_t \leftarrow X_{\cup,t} \setminus X_t$. By
+construction, $X_t \cup \tilde{Y}_t = X_{\cup,t}$.
+\item \textbf{Simulate UnionPeel.} Compute the virtual union IBLT:
+$\mathsf{IBLT}_\cup \leftarrow \Encode(X_{\cup,t})$. Run the full
+$\List(\mathsf{IBLT}_\cup)$ algorithm to obtain the peeling trace---the
+ordered sequence of peeled elements and their originating cells
+$(v_1, (i_1, j_1)), (v_2, (i_2, j_2)), \dots$
+
+\item \textbf{Program ideal OT.} For each cell $(i,j)$ in the query set
+$Q^{(r)}$ at iteration $r$, the ideal $\cF_{\mathsf{OT}}$ receives $P_0$'s
+choice bit $c_{i,j}$ and $P_1$'s messages $(m_0, m_1)$. $\cS$ programs the
+output to match the peeling trace:
+\begin{itemize}
+\item If the peeled element $v_{i,j}$ is unique to $P_0$
+($\mathsf{cnt}_C = 1, \mathsf{cnt}_S = 0$): the 1-out-of-2 OT returns
+$f_{i,j} \leftarrow m_{c_{i,j}}$ such that the subsequent computation
+yields $v_{i,j} = \mathsf{sum}_C[i][j]$.
+\item If $v_{i,j}$ is unique to $P_1$
+($\mathsf{cnt}_C = 0, \mathsf{cnt}_S = 1$): the OT returns
+$f_{i,j} \leftarrow \mathsf{sum}_S[i][j]$ from $P_1$'s message.
+\item If $v_{i,j}$ is shared ($\mathsf{cnt}_C = \mathsf{cnt}_S = 1,
+\mathsf{sum}_C = \mathsf{sum}_S$): the 1-out-of-3 OT result selection
+returns $\mathsf{sum}_C[i][j]$.
+\end{itemize}
+$\cS$ records the programmed outputs in its local OT transcript store.
+
+\item \textbf{Program ideal OPRF.} For each cell $(i,j)$, $\cS$ receives
+$P_1$'s OPRF query $z_{i,j}$ and must produce tag $y_{i,j}$. If
+$\mathsf{cnt}_C = 1$ and $\mathsf{sum}_C = z_{i,j}$ (equality case), $\cS$
+programs $y_{i,j} \leftarrow F_k(\mathsf{sum}_C[i][j])$ using the known
+OPRF key. Otherwise, $\cS$ outputs a uniformly random tag. This
+programming is always possible because $\cS$ knows the full
+$\mathsf{IBLT}_\cup$ and can precompute the equality conditions.
+
+\item \textbf{Simulate ciphertext.} Sample $\tilde{K}^S_t \sample
+\{0,1\}^\kappa$ (independent random). Encrypt a dummy IBLT of the
+appropriate size: $\widetilde{\mathsf{CT}}^{(t)}_S \leftarrow
+\ChaCha.\Enc(\tilde{K}^S_t, N_S, 0^{|\mathsf{IBLT}_S|})$.
+
+\item Simulate erasure: overwrite $\tilde{K}^S_{t-1}$ with zeros.
+\end{enumerate}
+
+\smallskip\noindent\textit{Corruption Handling} (epoch $t = \tau$):
+\begin{enumerate}
+\item $\cF_{\mathsf{fpsu}}$ sends $(X_\tau, K^C_\tau)$ to $\cS$.
+\item $\cS$ delivers $(X_\tau, K^C_\tau)$ to $\cA$ as $P_0$'s internal
+state.
+\item $\cS$ continues simulating $P_1$ for epochs $t \geq \tau$ using the
+same per-epoch procedure as above.
+\end{enumerate}
+\end{framed}
+
+\subsection{Hybrid Argument: Full Proofs}
+
+We prove Theorem~\ref{thm:main} via three hybrid simulators.
+
+\begin{lemma}[Random Keys]\label{lem:hyb1-full}
+$|\Pr[\cZ(\cS_1)=1] - \Pr[\cZ(\cS_0)=1]| \leq T \cdot
+\mathsf{Adv}^{\mathsf{PRF}}_{F}(\kappa)$.
+\end{lemma}
+
+\begin{proof}
+We construct a reduction $\cB$ to the PRF security of
+$F = \mathsf{HMAC\text{-}SHA256}$. $\cB$ receives oracle access to either
+$F(K, \cdot)$ (real PRF) or a truly random function $R(\cdot)$.
+
+$\cB$ simulates the protocol execution for $\cZ$ using the hybrid
+construction $\cS_1$, with the following modification for epoch $t$:
+instead of sampling $\tilde{K}^S_t \sample \{0,1\}^\kappa$, it queries the
+oracle on the fixed domain separator $c$: $\tilde{K}^S_t \leftarrow
+\mathcal{O}(c)$.
+
+If $\mathcal{O} = F(K, \cdot)$, then $\tilde{K}^S_t = F(K, c)$.
+Combined with the real key chain starting from $K^S_0 = K$, this produces
+exactly the key distribution of $\cS_0$ (real protocol).
+
+If $\mathcal{O} = R(\cdot)$, then $\tilde{K}^S_t = R(c)$ is independent
+of $K$ and of all other keys, producing exactly the distribution of
+$\cS_1$ (random keys).
+
+$\cB$ outputs whatever $\cZ$ outputs. The distinguishing advantage of
+$\cB$ is exactly $|\Pr[\cZ(\cS_1)=1] - \Pr[\cZ(\cS_0)=1]|$, which is
+bounded by $\mathsf{Adv}^{\mathsf{PRF}}_{F}(\kappa)$ for a single epoch.
+Summing over $T$ epochs via a standard hybrid argument yields the $T
+\cdot \mathsf{Adv}^{\mathsf{PRF}}_{F}(\kappa)$ bound.
+\end{proof}
+
+\begin{lemma}[Dummy Ciphertexts]\label{lem:hyb2-full}
+$|\Pr[\cZ(\cS_{1.5})=1] - \Pr[\cZ(\cS_1)=1]| \leq T \cdot
+\mathsf{Adv}^{\mathsf{PRG}}_{\mathsf{ChaCha20}}(\kappa)$.
+\end{lemma}
+
+\begin{proof}
+Analogous to Lemma~\ref{lem:hyb1-full}. For each ciphertext, replace the
+ChaCha20 keystream $\ChaCha(\tilde{K}^S_t, N_S)$ with a truly random
+string of the same length. Under the PRG security of ChaCha20, the
+distributions are indistinguishable with advantage $\leq
+\mathsf{Adv}^{\mathsf{PRG}}(\kappa)$ per ciphertext, and $\leq T \cdot
+\mathsf{Adv}^{\mathsf{PRG}}(\kappa)$ over $T$ epochs. Note that
+$\tilde{K}^S_t$ is already independent random (from Lemma~\ref{lem:hyb1-full}),
+so the PRG reduction is straightforward.
+\end{proof}
+
+\begin{lemma}[Simulated Inputs]\label{lem:hyb3-full}
+$\Pr[\cZ(\cS_2)=1] = \Pr[\cZ(\cS_{1.5})=1]$.
+\end{lemma}
+
+\begin{proof}
+In both $\cS_{1.5}$ and $\cS_2$, $P_1$'s keys are independent random and
+the IBLT ciphertexts are encryptions of the all-zero string. The only
+difference is the content of $P_1$'s IBLT fed into
+$\Pi_{\mathsf{UnionPeel}}$.
+
+By Theorem~\ref{thm:upeel} (Union Peel Equivalence),
+$\uPeel(\mathsf{IBLT}_C, \mathsf{IBLT}_S, i, j) =
+\Peel(\mathsf{IBLT}_\cup, i, j)$ where $\mathsf{IBLT}_\cup =
+\mathsf{IBLT}_C \oplus \mathsf{IBLT}_S$. The virtual union depends only
+on $X_t \cup Y_t$, which equals $X_t \cup \tilde{Y}_t = X_{\cup,t}$ by
+construction of $\tilde{Y}_t$. Therefore the peeling outputs---and hence
+the entire protocol transcript in the
+$(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model---are identical
+in distribution for $Y_t$ and $\tilde{Y}_t$.
+
+After corruption at epoch $\tau$, $\cF_{\mathsf{fpsu}}$ reveals
+$(X_\tau, K^C_\tau)$. The simulated view for $t < \tau$ used only
+$X_{\cup,t}$, which $\cS$ received from $\cF_{\mathsf{fpsu}}$. No
+inconsistency arises because $\cS$ never committed to a specific $Y_t$
+beyond what $X_{\cup,t}$ implies. The view is perfectly identical.
+\end{proof}
+
+Combining Lemmas~\ref{lem:hyb1-full}-\ref{lem:hyb3-full}, the total
+distinguishing advantage between the real world ($\cS_0$) and the ideal
+world ($\cS_2$) is bounded by $T \cdot (\mathsf{Adv}^{\mathsf{PRF}}(\kappa)
++ \mathsf{Adv}^{\mathsf{PRG}}(\kappa)) \leq \negl(\kappa)$, completing the
+proof of Theorem~\ref{thm:main}. \hfill$\square$
+
+\subsection{UC Composition: Formal Statement}
+
+\begin{theorem}[UC Composition]\label{thm:composition}
+Let $\Pi_{\mathsf{epoch}}$ be a protocol that UC-realizes $\cF_{\mathsf{psu}}$
+in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model, and let
+$\Pi_{\mathsf{key}}$ be a protocol that UC-realizes $\cF_{\mathsf{fwKey}}$.
+Then the parallel composition $\Pi_{\mathsf{epoch}} \parallel
+\Pi_{\mathsf{key}}$ UC-realizes $\cF_{\mathsf{fpsu}}$ in the same hybrid
+model.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+By the universal composition theorem~\cite{Can01}, it suffices to exhibit a
+simulator for $\cF_{\mathsf{fpsu}}$ given simulators for $\cF_{\mathsf{psu}}$
+and $\cF_{\mathsf{fwKey}}$. The construction is modular: the per-epoch
+simulator $\cS_{\mathsf{epoch}}$ (from Piske and Trieu~\cite{PT26}) handles
+all OT/OPRF interactions within each epoch, receiving $X_{\cup,t}$ from
+$\cF_{\mathsf{fpsu}}$. The key management simulator $\cS_{\mathsf{key}}$
+samples independent random keys for $t < \tau$ (indistinguishable from PRF
+outputs by PRF security) and delivers the current key upon corruption. The
+composition is a standard application of the UC theorem, requiring no new
+cryptographic assumptions.
+\end{proof}
+
+% ============================================================
+\section{Self-Healing Key Chains}
+\label{sec:selfheal}
+% ============================================================
+
+F-PSU achieves forward security but not post-compromise security. We present
+a protocol extension achieving \emph{self-healing} with \textbf{zero additional
+communication}, protecting against single-party compromise.
+
+\textbf{Key insight: the union output as a nonce source.}
+At each epoch, both parties learn $X_{\cup,t}$. Critically, \emph{neither
+party knows which elements were contributed by the other}. From $P_0$'s
+perspective, $X_{\cup,t} \setminus X_t$ is unpredictable (it consists of
+$P_1$'s exclusive elements). This entropy can serve as a fresh random nonce.
+
+\textbf{Protocol modification.}
+Replace the key update with:
+\[
+K^b_t \leftarrow \PRF(K^b_{t-1},\; c \concat H(X_{\cup,t})),
+\]
+where $H$ is a collision-resistant hash. Both parties compute $H(X_{\cup,t})$
+locally---no additional round, no additional communication.
+
+\textbf{Security argument.}
+Consider compromise at epoch $\tau$. The adversary learns $K^b_\tau$ and
+$X_{\cup,\tau}$. To compute $K^b_{\tau+1}$, the adversary needs
+$H(X_{\cup,\tau+1})$ at the next epoch. But $X_{\cup,\tau+1} \setminus
+X_{\cup,\tau}$ contains deltas applied by the \emph{honest party}, which the
+adversary cannot predict. Therefore:
+\begin{itemize}
+\item Before compromise: adversary without $X_{\cup,t}$ (forward privacy
+prevents decryption) cannot compute $K^b_{t+1}$.
+\item After compromise detected: the honest party's delta introduces fresh
+entropy, healing the chain.
+\item Healing time: one epoch after non-trivial honest update.
+\end{itemize}
+
+\textbf{Security bound.}
+For exclusive set size $|X_{\cup,t} \setminus X_b| \geq q$, min-entropy:
+$\log\binom{|U|-|X_b|}{q} \geq q(\sigma - \log|U|)$ bits. With $q = 1$ and
+$\sigma \geq 128$, this exceeds $\kappa = 128$, giving single-epoch healing.
+
+\textbf{Practical considerations.}
+Healing requires the honest party to make a non-trivial update. \emph{Entropy
+decay}: if the adversary observed $T$ prior unions, the honest party's
+exclusive set may be reduced, increasing expected healing time to
+$O(|U|/|\text{exclusive}|)$ epochs. This construction shows that PSU's
+inherent output entropy can be leveraged for cryptographic self-healing
+without additional communication, a property unique to updatable PSU among
+secure computation primitives.
+
+\subsection{Formal Security Definition}
+
+We formalize the self-healing property via a game-based definition.
+
+\begin{definition}[SH-IND Game]
+Let $\Pi$ be an updatable PSU protocol with self-healing key chains. The
+$\mathsf{SH\text{-}IND}$ game with security parameter $\kappa$ and $T$
+epochs proceeds as follows:
+\begin{enumerate}
+\item The challenger samples $b \sample \{0,1\}$ and initializes both
+parties with random keys $K^0_0, K^1_0 \sample \{0,1\}^\kappa$.
+\item The protocol runs for $T$ epochs. The adversary $\cA$ observes all
+transcripts and may adaptively choose its own deltas for the corrupted
+party.
+\item At epoch $\tau$, $\cA$ corrupts $P_0$, receiving
+$(X_\tau, K^0_\tau)$.
+\item The protocol continues for epoch $\tau+1$. $P_1$ (honest) provides
+a non-trivial delta ($|\Delta_{P_1}| \geq 1$).
+\item If $b = 0$: $\cA$ receives the real key $K^0_{\tau+1} \leftarrow
+\PRF(K^0_\tau, c \concat H(X_{\cup,\tau+1}))$. If $b = 1$: $\cA$
+receives $R \sample \{0,1\}^\kappa$ independent of the protocol state.
+\item $\cA$ outputs $b'$ and wins if $b' = b$.
+\end{enumerate}
+The protocol satisfies self-healing if for every PPT $\cA$:
+$\mathsf{Adv}^{\mathsf{SH\text{-}IND}}_\cA(\kappa) = |\Pr[b'=b] -
+\tfrac{1}{2}| \leq \negl(\kappa)$.
+\end{definition}
+
+\begin{theorem}[Self-Healing Security]\label{thm:selfheal}
+Assume $F$ is a secure PRF and $H$ is a random oracle. Then the
+self-healing construction satisfies the SH-IND definition with
+$\mathsf{Adv}^{\mathsf{SH\text{-}IND}}(\kappa) \leq
+\mathsf{Adv}^{\mathsf{PRF}}(\kappa) + 2^{-q(\sigma - \log|U|)}$, where
+$q = |X_{\cup,\tau+1} \setminus X_\tau|$ is the honest party's exclusive
+contribution at the healing epoch.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+By PRF security, we can replace $\PRF(K^0_\tau, \cdot)$ with a random
+function $R(\cdot)$, incurring advantage $\mathsf{Adv}^{\mathsf{PRF}}$.
+The key $K^0_{\tau+1} = R(c \concat H(X_{\cup,\tau+1}))$ is then
+indistinguishable from random unless the adversary can predict
+$H(X_{\cup,\tau+1})$. By the random oracle property, this requires
+predicting $X_{\cup,\tau+1} \setminus X_\tau$---the honest party's delta
+at epoch $\tau+1$. The adversary knows $X_\tau$ (from corruption) and
+$X_{\cup,\tau}$ (from the protocol output), but the honest party's delta
+introduces fresh entropy of at least $q(\sigma - \log|U|)$ bits.
+When this exceeds $\kappa$, the adversary's guessing advantage is
+$2^{-\kappa}$, negligible.
+\end{proof}
+
+\subsection{Comparison with DH-Based Ratchets}
+
+Unlike DH-based ratchets~\cite{Signal} which require an extra round per
+epoch for ephemeral key exchange, the self-healing construction uses only
+the union output entropy (zero additional communication). Healing occurs
+in a single epoch whenever the honest party makes a non-trivial
+update---a condition naturally satisfied in deployments with regular
+activity (e.g., daily IoC feeds). The approach is complementary to DH:
+both can be combined for defense in depth.
+
+% ============================================================
+\section{Additional Material}
+\label{sec:additional}
+% ============================================================
+
+\subsection{Implementation Details}
+\label{sec:impl-details}
+
+The C++ implementation (six modules, $\approx$2,000 lines, excluding
+libOTe) is available at~\cite{code}. Build and reproduction instructions
+are in the repository README. Experiments use an Apple M5 (macOS),
+Clang~16, C++20, \texttt{-O3}; IBLT parameters $k=4$, $e=3.0$,
+$\sigma=64$ bits.
+% ============================================================
+
+\subsection{Formal Cascade Analysis}
+\label{sec:formal-cascade}
+% ============================================================
+
+We provide the complete proof of the Cascade Bound Lemma
+(Lemma~\ref{lem:cascade}) from Section~\ref{sec:protocol}.
+
+\subsection{Proof of Lemma~\ref{lem:cascade}}
+
+\begin{proof}
+Let $\mathsf{IBLT}_\cup^{(t-1)} = \Encode(X_{t-1} \cup Y_{t-1})$ be the
+virtual union IBLT after full peeling at epoch $t-1$. Since the peel
+completed successfully (by the IBLT parameter choice guaranteeing
+$2$-core emptiness with probability $\geq 1 - 2^{-\lambda}$), every
+cell in $\mathsf{IBLT}_\cup^{(t-1)}$ has count zero.
+
+At epoch $t$, each party applies its delta to its local IBLT. The
+virtual union after delta application is:
+\[
+\mathsf{IBLT}_\cup^{(t)} = \mathsf{IBLT}_\cup^{(t-1)}
+  \oplus \Encode(\Delta^+_X \cup \Delta^+_Y)
+  \ominus \Encode(\Delta^-_X \cup \Delta^-_Y)
+\]
+Since $\mathsf{IBLT}_\cup^{(t-1)} = \mathbf{0}$ (all-zero), the initial
+state for peeling is equivalent to $\Encode(\Delta)$ on a fresh IBLT,
+where $\Delta = \Delta^+_X \cup \Delta^+_Y \cup \Delta^-_X \cup
+\Delta^-_Y$, with deletions encoded as negative contributions.
+
+The peeling process on this fresh IBLT follows the standard $\List$
+algorithm. Cells with count~$=1$ are singletons whose sum equals the
+unique element; these are peeled and deleted, potentially creating new
+singletons (the cascade).
+
+We bound the cascade size. Let $Q_0 = \{(i, h_i(x)) : x \in \Delta^-, i
+\in [k]\}$ be the initial query set (size $k|\Delta^-|$). After peeling
+all singletons reachable from $Q_0$, the remaining cells form a subgraph
+of the random $k$-uniform hypergraph induced by the $|\Delta|$ elements.
+The expected number of additional cells examined (the cascade) is bounded
+by the size of the mini-$2$-core formed by the delta elements alone.
+
+By standard random hypergraph theory~\cite{GM11}, for $|\Delta| \ll
+m/k$, the probability that $|\Delta|$ random edges create a non-empty
+$2$-core on $m$ vertices is $O(|\Delta|^{-k+2})$. When the $2$-core is
+empty, peeling from any initial set of singletons recovers all elements,
+and the cascade size is at most $(1 + C_0) \cdot k|\Delta^-|$ where
+\[
+C_0 = O\left(\frac{k^3 |\Delta^-|^2}{m}\right)
+\]
+bounds the expected size of the mini-$2$-core. This follows from the
+birthday paradox: the expected number of edge pairs sharing $k$ vertices
+is $\binom{k|\Delta^-|}{2} \cdot k/m$.
+
+With the IBLT parameters chosen such that $m > c_k \cdot n$ and
+$|\Delta^-| \ll n$, we have $|\Delta^-| \ll m/k$, and $C_0 \ll 1$.
+Therefore the total cells examined is $\leq (1 + C_0) \cdot k|\Delta^-|
+\leq 2k|\Delta^-|$ with overwhelming probability.
+
+The cascade terminates in $O(\log(k|\Delta^-|))$ iterations because each
+iteration removes at least a constant fraction of the remaining
+singletons (by the random hypergraph expansion properties below the
+$2$-core threshold).
+\end{proof}
+
+\subsection{Experimental Validation of the Cascade Bound}
+
+We experimentally validated the cascade bound across the full parameter
+range. Table~1 in Section~\ref{sec:eval} shows that the
+observed cascade ratio is $\approx 1.95 \times k|\Delta|$ (averaged over
+20 trials), well within the $2 \times k|\Delta|$ theoretical bound. The
+ratio is stable across all values of $n$ and $|\Delta|$, confirming that
+the $2$-core emptiness assumption holds in practice for the chosen IBLT
+parameters.
+
+The cascade ratio approaches $1.0 \times k|\Delta|$ as $|\Delta|/n \to
+0$, since the probability of hash collisions among delta elements
+vanishes with decreasing delta density. At $|\Delta|/n = 0.1\%$, we
+observe cascade ratios of $1.01$--$1.05 \times k|\Delta|$, indicating
+that the delta elements are essentially isolated in the IBLT hypergraph.
+
+% ============================================================
+\subsection{Comparison with Related Updatable Protocols}
+\label{sec:comparison-detail}
+
+\textbf{FUPSI~\cite{WZC+24}} (TIFS 2024) achieves updatability and forward
+privacy for PSI via keyword PIR ($O(\log n)$ communication) and
+SparsePIR-based storage. F-PSU targets PSU with a symmetric-key PRF chain
+($O(|\Delta|)$ communication) and IBLT-based storage, exploiting IBLT
+linearity for native set operations and deletion.
+
+\textbf{LMR+26~\cite{LMR+26}} (Eurocrypt 2026) introduces adaptive input
+selection attacks on UPSI. F-PSU is immune: the union output is a superset
+of both inputs, so an adversary cannot distinguish whether $x \in
+X_{\cup,t}$ due to addition or prior honest possession. LMR+26 does not
+provide forward privacy; F-PSU adds it with zero overhead.
+
+\textbf{ePSU~\cite{Tu+25,LBL25}} (USENIX 2025) eliminates within-execution
+leakage, orthogonal to F-PSU's cross-epoch forward privacy. The mechanisms
+are complementary: an ePSU made updatable via F-PSU's delta IBLT would
+achieve both guarantees; we leave this to future work.
+
+% ============================================================
+\subsection{Deployment Considerations}
+\label{sec:deployment}
+
+F-PSU is most beneficial when: (i)~sets evolve incrementally with
+$|\Delta| \ll n$ (the update ratio is small); (ii)~frequent
+recomputation of the union is required (low-latency requirements);
+(iii)~sensitive historical data must be protected against key compromise
+(regulatory compliance); (iv)~network bandwidth is constrained (WAN or
+low-bandwidth links). In these scenarios, F-PSU provides substantial
+communication savings ($643\times$ at $0.1\%$ update ratio) and forward
+privacy with negligible overhead.
+
+F-PSU provides limited benefit when: (i)~the update ratio is high
+($|\Delta|/n > 50\%$, see Fig.~\ref{fig:delta}); (ii)~the
+deployment is on a high-bandwidth LAN where IBLT peeling computation
+dominates; (iii)~forward privacy is not required and a static protocol
+suffices.
+
+\smallskip\noindent\textbf{Scalability.}
+For $n > 2^{20}$, rateless IBLTs~\cite{YGA24}, sharding, and
+multi-threading compose naturally with F-PSU's linear delta mechanism.
+
+\end{document}

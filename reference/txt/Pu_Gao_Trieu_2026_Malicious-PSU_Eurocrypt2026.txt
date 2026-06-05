@@ -1,0 +1,2043 @@
+                Malicious Private Set Union with
+                       Two-Sided Output
+
+                      Sihang Pu1 , Jiahui Gao2 , and Ni Trieu2
+                 1
+                     East China Normal University sihang.pu@gmail.com
+                 2
+                     Arizona State University [jgao76,nitrieu]@asu.edu
+
+
+
+Abstract. Private Set Union (PSU) allows two parties to compute the union of their pri-
+vate sets without revealing any additional information—in particular, it hides their common
+elements (the intersection). Although recent years have seen significant progress under the
+semi-honest model, resulting in several efficient two-party PSU protocols, notable gaps re-
+main: (1) some prior works model the semi-honest PSU functionality inaccurately, and (2)
+practical and scalable maliciously secure protocols are still lacking, except when relying on
+heavy generic techniques (e.g., FHE, GMW, or general purpose NIZK).
+In this paper, we address these issues directly and summarize our contributions as follows:
+ 1. We revisit the formal definition of PSU, covering both the standard one-sided function-
+    ality (where only one party receives the output) and the two-sided variant (where both
+    parties receive the output), refuting several flawed claims from prior work, and show that
+    the notion of “during-execution leakage” was not well-defined in the literature, since the
+    “enhanced” functionality is actually equivalent to the standard one.
+ 2. We show how one of the fastest semi-honest protocols can be strengthened against
+    malicious senders with a simple ad-hoc modification, while preserving its efficiency and
+    simplicity.
+ 3. As our main result, we present the first practical, concretely efficient, and maliciously
+    secure two-sided PSU protocol, achieving at least a quadratic improvement over prior
+    work. Along the way, we also resolve the challenge of assuring honest behavior for the
+    hash-to-curve function in the PSU context—a task generally regarded as impractical due
+    to the non-algebraic nature of the hash function.
+ 4. We implement both protocols and compare them with existing schemes. Our experiments
+    demonstrate that our maliciously secure protocols are only 1.1−2.4× slower than the
+    most efficient semi-honest protocols in the literature.
+                                                       Table of Contents
+
+
+Malicious Private Set Union with Two-Sided Output . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                  1
+  Sihang Pu , Jiahui Gao , and Ni Trieu
+1 Introduction . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    3
+  1.1 Our Contributions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .               4
+  1.2 Performance Highlights . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                    4
+  1.3 Related Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .            5
+2 Technical Overview . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .            5
+  2.1 Definition of Private Set Union . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                       6
+  2.2 Recap: Semi-Honest Protocol . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                         6
+  2.3 Warmup: PSU with Malicious Sender . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                 7
+  2.4 Main Result: PSU with Two-Sided Output . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                      8
+3 Preliminaries . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    12
+  3.1 Computational Assumptions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                        13
+  3.2 The Map-to-Point Function . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                      13
+  3.3 Arguments of Knowledge . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                     14
+4 Revisiting the PSU Functionality . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                     14
+  4.1 PSU Functionality for Semi-Honest Adversaries . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                      14
+  4.2 PSU Functionality for Malicious Adversaries . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                  17
+5 Warmup: PSU with Malicious Sender . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                          18
+  5.1 Protocol Description . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .               18
+  5.2 Efficiency Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .              19
+  5.3 Security Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .            20
+6 Main Protocol with Two-Sided Malicious Security . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                  20
+  6.1 Protocol Description . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .               21
+  6.2 Efficiency Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .              22
+  6.3 Security Analysis . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .            22
+  6.4 The Adapted Shuffling Argument . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                           22
+  6.5 The Batched Argument for DDH Relation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                    24
+7 Implementation and Performance . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                       24
+  7.1 Concrete Performance of Our Protocols . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                26
+A More Related Works . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .             31
+B Additional Preliminaries . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .             32
+  B.1 Universal Composability . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                    32
+  B.2 Idealized Models . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .             32
+C Trivial Instantiation of Standard PSU Functionality . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                  32
+D The Enhanced PSU Functionality from JSZG24 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .                                   33
+E Missing Proofs . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     34
+  E.1 Proof of Theorem 3 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .               34
+F PSU with Malicious Sender Realizing the Standard One-Sided Functionality . . . . . . . . . . .                                                       39
+1   Introduction
+
+Private set union (PSU) is a cryptographic protocol that enables two parties to compute the union
+of their private sets while leaking no additional information. A subtlety here is that even the set
+difference is revealed as part of the output, the intersection remains hidden.
+    PSU has a wide range of important applications. For instance, it supports privacy-preserving
+identity management systems, enabling private-ID functionality [BKM+ 20]. It can facilitate joint
+cyber risk assessment and management by allowing organizations to collaboratively construct and
+share IP blacklists or vulnerability data without disclosing sensitive details [HLS+ 16]. In private
+database systems, PSU enables full joins across multiple data sources while keeping the underlying
+records private [KRTW19]. It also plays a role in association rule learning [KC04], where it helps
+securely identify patterns across distributed datasets, and in joint graph computations [BS05],
+where parties can compute properties of a graph without exposing their individual components.
+In the domain of network security, PSU allows for the aggregation of multi-domain network events
+[BSMD10], making collective traffic analysis possible without revealing proprietary information.
+    Given these diverse applications, the design of efficient, scalable, and secure PSU protocols has
+become a critical research focus. In recent years, notable progress has been made in the two-party
+setting: Kolesnikov, Rosulek, Trieu, and Wang [KRTW19] introduced a practical oblivious transfer
+(OT)-based PSU framework secure against semi-honest adversaries, which has since been optimized
+and extended by numerous follow-up works [GMR+ 21,JSZ+ 22,ZCL+ 23,BPSY23,JSZG24], leading
+to significant efficiency gains.
+    Nevertheless, despite this progress, two fundamental limitations remain in the existing litera-
+ture, which we outline below.
+Semi-Honest Setting. Jia et al. [JSZG24] observe that the standard PSU functionality might
+leak the intersection to the receiver, because who could infer it from the received union and its own
+input. They further argue that this leakage might be critical if the receiver aborts early, and they
+denote it “during-execution leakage.” To mitigate this, they propose an “enhanced” functionality
+for stronger security. We find these claims unconvincing, and the enhanced functionality comes
+with additional overhead. This motivates us to ask:
+
+    Does standard functionality actually allow such leakage? More broadly, what is the proper
+                                       definition for PSU?
+
+Malicious Setting. While the semi-honest setting has seen rapid progress, only two works, to the
+best of our knowledge, have attempted to address malicious security.
+    The first, by Hazay and Nissim [HN12], observes that it is trivial to make PSU secure against
+malicious adversaries by simply having the sender transmit its items to the receiver in the clear.
+Although this may sound counterintuitive, it reflects the fact that a malicious receiver is very
+powerful in the ideal world: by submitting random inputs to the functionality, it can effectively
+extract the sender’s items. To account for this, they put forward the functionality with two-sided
+output for malicious security (see Section 2 for an intuitive explanation).
+    In the same work, they also proposed a protocol with quadratic (computational and commu-
+nication) overhead O(κ · (nℓ + N )) in the security parameter κ, where ℓ = κ is the item length
+and n, N the set size. While feasible in some sense, this approach is impractical—and, more se-
+riously, insecure due to flaws in their bucketing technique: precisely speaking, after applying the
+bucketing technique, the receiver can tell which buckets contain items lying in the set difference
+and which do not, as shown in [HN12, Page 27]. Buckets that do not contain those items still
+
+
+                                                 3
+have a non-negligible chance of holding intersections. For detailed attacks against such bucketing,
+see [JSZ+ 22]. 3
+    A later work [GHLL22] considered only the standard one-sided functionality with malicious
+senders, using fully homomorphic encryption (FHE). Thus, the following important question re-
+mains open:
+
+Is there a practical and highly scalable PSU protocol with two-sided output that is secure against
+                                      malicious adversaries?
+
+    Regarding the second question above, it may appear natural to assume that a malicious protocol
+with two-sided output is far more costly than its semi-honest counterpart. For example, in the case
+of private set intersection (PSI)—a closely related problem to PSU—the fastest known malicious
+PSI protocols with two-sided output [MPR+ 20, YLS+ 24] still require at least 9 − 110 hours of
+computation (with setup) for sets of size 220 , whereas semi-honest PSI can be completed in under
+a second (with setup) [RR22]. The gap should be even more striking for PSU, which is generally
+considered harder than PSI because it must also hide the intersection. As a result, even the best
+semi-honest PSU protocols today still take 76−127 seconds for sets of size 220 [ZCL+ 23, CZZ+ 24,
+TBZ+ 25].
+    However, we will show, perhaps surprisingly, that a malicious two-sided PSU protocol could be
+much simpler and substantially more efficient than two-sided PSI, taking only 184−192 seconds of
+computation for sets of size 220 . This is just 1.6−2.4× slower than the state-of-the-art semi-honest
+protocols.
+
+
+1.1    Our Contributions
+
+In this work, we address the questions above through the following contributions.
+
+ – In Section 4, we revisit the PSU functionality, covering both the standard FPSU with one-sided
+   output, and the two-sided output version FPSU2 . Along the way, we refute several flawed claims
+   from prior work, and show that the notion of “during-execution leakage” was not well-defined
+   in the literature—because the so-called “enhanced” functionality is actually equivalent to the
+   standard one (Theorem 1).
+ – In Section 5, we boost the security of a semi-honest instantiation of FPSU against malicious
+   senders with an ad-hoc fix, while retaining its simplicity and efficiency.
+ – In Section 6, as our main result, we introduce the first practical and efficient protocol for FPSU2
+   in the malicious setting. Our protocol achieves linear complexity in the security parameter,
+   significantly improving over the quadratic overhead in existing work [HN12], by leveraging new
+   ideas in non-standard ways.
+ – In Section 7, we implement both protocols and show that they are only 1.1−2.4× slower than
+   the state-of-the-art semi-honest protocols. We highlight the performance results in Section 1.2.
+
+
+1.2    Performance Highlights
+
+We briefly report the concrete performance of our protocols in Table 1, whereas detailed comparison
+and benchmark are presented in Section 7. Note that [ZCL+ 23] is the SKE variant and [CZZ+ 24]
+is the Curve25519 variant, as these two variants are the best performing ones. There is a recent
+3
+    Note that the same authors later withdrew this attack in a follow-up work [JSZG24], by stating that
+    the same leakage could also be derived from the functionality itself—a claim we refute in Section 4.
+
+
+                                                    4
+Table 1: Performance comparison for protocols with set size 220 over a LAN network. Here, 2M
+denotes malicious security for a two-sided output functionality, 1M denotes malicious security for
+a one-sided output functionality, and SH denotes semi-honest security for one-sided functionality.
+All protocols use 128-bit items, except [TBZ+ 25], which only supports 64-bit items. The symbol
+“−” indicates values not provided in their implementation.
+               Protocols                    Runtime (ms)                          Communication (KB)
+
+                                Offline        Online          Total          Offline       Online        Total
+             [ZCL+ 23]∗, SH   2, 377, 272       76, 170      2, 452, 996        78, 647     435, 977      514, 624
+             [CZZ+ 24], SH             24       108, 682      108, 706                0    105, 682      105, 682
+             [TBZ+ 25], SH             −        127, 739              −               −     262, 961            −
+             [GHLL22],1M          6, 180        310, 682         316, 862             5     233, 636      233, 641
+                Ours, 1M              24       137, 200         137, 224              0    151, 310      151, 310
+               Ours, 2M           8, 155       184, 421       192, 576                 0    327, 680     327, 680
+      [MPR+ 20] PSI, 2M              ≈0      35, 583, 000   35, 583, 000             ≈0     436, 719       436, 719
+       [YLS+ 24] PSI, 2M          > 108       2, 020, 400         > 108     30, 459, 555   287, 300    30, 746, 855
+      ∗
+          According to [BPSY23], the advancement of OKVS improves its efficiency by 6 ∼ 8%, but it still
+          yields prohibitive non-reusable offline overhead, making it impractical for large sets.
+
+
+
+work [CSSW25] improving the efficiency of [CZZ+ 24] by ∼ 10%, but their code has not been
+available yet for comparison.
+   Since no practical (or implementable) malicious PSU protocol with two-sided output exists in
+the literature, we compare instead against state-of-the-art two-sided malicious PSI protocols. For
+PSU, all runtime numbers are collected by running their open-sourced code on the same server (2.0
+GHz CPU, 24 GB RAM, with SIMD and AES-NI enabled, single-threaded). For PSI, we report
+the numbers directly from their papers, given the huge performance gap.
+
+
+1.3       Related Work
+
+To give a comprehensive overview, we survey existing two-party PSU protocols under the semi-
+honest model in Appendix A. We trace the evolution of semi-honest 2-party PSU protocols over
+the past few years [GMR+ 21, JSZ+ 22, ZCL+ 23, BPSY23, CZZ+ 24, CSSW25, JSZG24], all of which
+build on the OT-based framework introduced in [KRTW19].
+    In contrast, only two protocols address malicious security, namely [HN12] and [GHLL22], both
+of which are already discussed in this section.
+
+
+2     Technical Overview
+
+ In this section, we provide a high-level overview of our constructions. To set the stage, we start by
+recalling the functionality in Section 2.1. We next show how a semi-honest protocol (Section 2.2)
+can be extended to handle a malicious sender through an ad-hoc modification (Section 2.3), and
+conclude with our main two-sided output protocol built on new techniques (Section 2.4).
+
+
+                                                            5
+2.1     Definition of Private Set Union
+  We begin by recalling the standard PSU functionality with one-sided output below. The func-
+tionality FPSU takes as input a set W from the sender P1 and a set V from the receiver P0 , and
+returns the union V ∪ W to the receiver.
+  Functionality FPSU
+
+      – Wait for a set V = {v1 , . . . } ⊂ {0, 1}ℓ from party P0 .
+      – Wait for a set W = {w1 , . . . } ⊂ {0, 1}ℓ from party P1 .
+      – If |V | ̸= n or |W | ̸= N , send ⊥ to party P0 and halt.
+      – Send V ∪ W to party P0 and halt.
+Since the difference W \ V is inherently revealed as part of the output, the only information hidden
+from P0 is the intersection V ∩W within its own set V . In other words, P0 should not learn whether
+any particular element vi ∈ V belongs to the intersection.
+    In their recent work [JSZG24, Section 3.2], Jia et al. claim that P0 can select some “suitable”
+hash function to map both W \ V and V into buckets, and then apply an analysis from prior
+works [JSZ+ 22] to find the intersection. This claim, however, is flawed: since the intersection V ∩W
+is independent of the difference W \ V , it should remain perfectly hidden within V , even when
+P0 knows both V and W \ V . A thorough discussion regarding FPSU and its variants is provided
+in Section 4.
+
+2.2     Recap: Semi-Honest Protocol
+ Our starting point is a semi-honest protocol proposed by Chen et al. [ZCL+ 23, CZZ+ 24] which is
+one of the most efficient PSU protocols in the literature (as shown in Table 1). Assuming a cyclic
+group G = ⟨g⟩ with prime order p, parties P0 and P1 hold V and W as in Section 2.1, then the
+protocol works as follows:
+  Semi-Honest PSU
+                                                                            $
+  Step 1 P0 sends blinded elements xi := H(vi )k i∈[n] to P1 , where k ← Z∗p , and H is a
+                                      
+
+        hash function producing uniformly random group elements in G under the idealized
+        assumption.
+                                                        $
+  Step 2 P1 sends {yj := H(wj )s }j∈[N ] to P0 where s ← Z∗p .
+                                    
+  Step 3 P1 returns a shuffled list eπ(i) := xsi i∈[n] to P0 following a random permutation
+        π : [n] 7→ [n].
+              o unblind each ei∈[n] to get a sequence of bits bj∈[N ] indicating whether yj ∈
+  Step 4n P0 can
+              1/k
+             ei             .
+                    i∈[n]
+
+So far, this is exactly a shuffled OPRF [CHL22] built from Blinded DH exponentiation [Cha82]
+or Hashed Diffie-Hellman [NPR99] (hereafter denoted by HashDH), and the entire transcripts are
+pseudorandom under the generalized DDH assumption. Since the permutation is hidden, the only
+information P0 learned is whether wj∈[N ] ∈ V since
+                            n       o
+                                1/k
+                                       ⇐⇒ H(wj )s ∈ H(vπ−1 (i) )s i∈[n] ,
+                                                      
+                        yj ∈ ei
+                                      i∈[n]
+
+which also implies the cardinality of the intersection |V ∩ W |. To complete a PSU protocol, add
+the last step:
+
+
+                                                     6
+  Semi-Honest PSU (cont.)
+  Step 5 P0 and P1 input bj and (wj , ⊥) to an instance of OT functionality FOT for each
+        j ∈ [N ], which returns wj to P0 if bj = 0 and ⊥ if bj = 1. P0 outputs V ∪ {wj }bj =0 .
+
+   This protocol is simple, clean, secure against semi-honest adversaries, and enjoys strict linear
+communication and computational complexity.
+Towards Malicious Security. To enhance the above protocol with malicious security, it’s natural
+to consider using maliciously secure building blocks. However, a challenge arises that we still need
+to “bind” these blocks together, otherwise, a malicious receiver could arbitrarily choose its OT
+selection bits (i.e., bj in Step 5 above) even the shuffled OPRF and OT are both secure against
+malicious adversaries. It is unclear how to do this if we treat them as black boxes.
+    Perhaps counter-intuitively, the “binding” is not necessary for malicious security since Hazay
+and Lindell [HL10] showed that it’s trivial to secure against a malicious receiver: if the simulator
+S samples a random set of size |V | then sends it to FPSU , S would get honest sender’s set W
+from FPSU when the item universe is super-polynomially large since the intersection is empty with
+overwhelming probability. It further implies that a trivial protocol (that is, P1 directly sends W to
+P0 ) realizing FPSU against malicious adversaries, remains insecure against semi-honest adversaries
+(as the intersection should be hidden for semi-honest receivers). Please refer to Appendix C for
+more detail.
+    Given that the fully malicious security for FPSU is trivial, there are two viable options to upgrade
+a semi-honest protocol to anything non-trivial: either we consider the security against malicious
+sender and semi-honest receiver, or we consider the highly non-trivial functionality with two-sided
+output where both parties get the union V ∪ W . We discuss the former in Section 2.3 as a warmup
+and the latter in Section 2.4.
+
+
+2.3   Warmup: PSU with Malicious Sender
+
+ Intuitively, a malicious sender might arbitrarily choose OT messages in such a way that the honest
+receiver is unable to retrieve the intended item in W \ V . To mitigate such adversarial behavior,
+the simulator S must extract P1 ’s effective input during simulation. Without this extraction, S
+cannot appropriately instruct the ideal functionality FPSU to produce a consistent output for P0 .
+    If the shuffled OPRF described earlier were secure against malicious adversaries, S would be
+able to extract the input straightforwardly. However, the hash function H disrupts the underlying
+algebraic structure, making it challenging to achieve malicious security. While it is possible to make
+HashDH verifiable and UC-compatible, as shown in 2HashDH [JKK14], its verifiability for mali-
+cious security inherently conflicts with the shuffling property essential to the PSU protocol. Other
+maliciously secure shuffled OPRFs [MPR+ 20] built from significantly more expensive techniques
+which we will discuss in the next section.
+    We present a very simple ad-hoc fix to adapt the protocol in Section 2.2 to handle malicious
+senders. Instead of relying on malicious OPRF, we simply modify the Step 5 to:
+
+  Sender-Malicoius PSU
+  Step 5′ P0 and P1 input bj and (wj ∥ ϕj , ⊥) to FOT for each j ∈ [N ], where ϕj is a (zero
+         knowledge) argument of knowledge (AoK) to prove P1 knows some α ∈ Zp such that
+         H(wj )α = yj . Finally, P0 outputs V ∪ {wj }bj =0 ∧ ϕj is valid .
+
+
+                                                   7
+Here yj serves as a commitment of wj in some sense and P1 opens it during the OT phase. To see
+why this works, consider the following cases when ϕj is accepted:
+ – If wj ∈ V : no matter whether bj = 0, P0 always outputs wj ;
+                                                                                       1/k
+ – If wj ∈/ V : P0 only outputs wj when bj = 0. Recall bj = 0 indicates yj ∈       / {ei }, which
+   implies H(wj )k·α ∈
+                     / {ei }i∈[n] where {ei } are (adversarially) chosen by P1 in Step 3. However,
+                                                                     $
+      given H producing uniformly random group elements, k ← Zp and wj ∈      / V , H(wj )k remains
+      pseudorandom to P1 according to DDH. The adversary P1 can find α, e1 , . . . , en such that
+                   1/α
+      H(wj )k ∈ {ei } with only negligible probability. Therefore, P0 outputs wj with overwhelming
+      probability.
+    When ϕj is valid, the honest receiver P0 behaves exactly as if interacting with the functionality
+FPSU Since P1 receives no output and the only transcript (namely, {xi }) remains pseudorandom,
+the adapted protocol appears to enjoy the security against malicious senders. In this view, the
+effective input of P1 is precisely the set {wj | bj = 0 ∧ ϕj is valid}.
+Subtle Issue and the Relaxation. There is a subtle issue that needs to be addressed: how
+should invalid AoK be handled? Note that P0 cannot abort upon detecting an invalid AoK, as the
+adversary could exploit this behavior to determine whether wj ∈ V by intentionally attaching an
+invalid wj ∥ ϕj : P0 would only abort if wj ∈/ V , while it would receive ⊥ and not abort otherwise.
+Consequently, P0 must ignore any invalid AoK, even if it knows P1 is cheating.
+    However, this introduces a complication during simulation. The simulator S relies on valid
+wj as P1 ’s effective input, but the number of valid wj might not match the expected size of W .
+Additionally, S cannot simply pad the set to resolve this mismatch as it does not know V . To
+address this, we consider a relaxation of the functionality FPSU 4 such that it no longer enforces
+a strict check on the sender’s set size—mirroring malicious PSI protocols in the literature, which
+also allows a relaxed input size.
+    It is worth noting that the standard FPSU can also be realized without such relaxation by
+following a similar approach as what we show below. For completeness, we provide a detailed
+protocol realizing the standard FPSU in Appendix F.
+
+2.4     Main Result: PSU with Two-Sided Output
+  One-sided functionality for PSU is too limited in a malicious setting, as it gives the receiver too
+much power. The receiver could potentially learn far more information than it should without being
+detected by the honest sender. To mitigate this limitation and rule out trivial protocols, we adopt
+the two-sided PSU functionality FPSU2 proposed in [HN12] (shown below), which ensures that the
+honest party can detect whether the malicious party behaves in an unusual way. For example, P0
+may find it suspicious if P1 inputs a large set that has no intersection with P0 ’s set.
+
+    Functionality FPSU2
+
+      – Wait for a set V = {v1 , . . . } ⊂ {0, 1}ℓ from party P0 .
+      – Wait for a set W = {w1 , . . . } ⊂ {0, 1}ℓ from party P1 .
+      – If |V | ̸= n or |W | ̸= N , send ⊥ to both parties and halt.
+      – Send V ∪ W to the ideal adversary S.
+      – Upon receiving a signal {deliver, abort} from S, do the following and halt:
+
+4
+    Formally defined in Figure 2 (without highlighted code) of Section 4.
+
+
+                                                      8
+          • deliver: send V ∪ W to honest parties;
+          • abort: send ⊥ to honest parties;
+
+Achieving two-sided functionality FPSU2 is generally more challenging because it requires addressing
+the presence of a malicious receiver and tackling the “binding” challenge described in Section 2.2.
+Furthermore, the ad-hoc fix described in Section 2.3 no longer works: we have to enforce a check
+on the set size for both parties, as both receive the union.
+Potential Building Blocks. The first approach that comes to mind is to leverage the maliciously
+secure shuffled and distributed OPRF (sDOPRF) developed by Miao, Patel, Raykova, Seth, and
+Yung [MPR+ 20], where both parties learn a sequence of indication bits {bj } of the other party’s
+set (similar to what happens in Step 4).
+    Unfortunately, while this seems like a natural fit, the malicious sDOPRF has a significant
+downside: it’s expensive in both computation and communication. The protocol relies on obliviously
+evaluating Dodis-Yampolskiy PRF [DY05], which requires Paillier [JL09, CDGS19] or Camenisch-
+Shoup encryptions [CS03,MPR+ 20]. Both of them are far less efficient than DH-based approaches.
+In fact, the sDOPRF proposed in [MPR+ 20] is at least 195 times slower than the semi-honest
+shuffled HashDH. Another drawback of this protocol is that it relies on stronger assumptions than
+plain DDH, specifically the q-Diffie-Hellman Inversion assumption [MSK02, BB04] and the Strong
+RSA assumption [FO97].
+    Recently, there is a follow-up [YLS+ 24] replacing Camenisch-Shoup used in [MPR+ 20] with
+SPDZ [DPSZ12]. Thus it still depends on stronger assumptions (q-DHI and lattices) than DDH.
+While [YLS+ 24] is “somewhat” more efficient than [MPR+ 20] in the online phase—reducing run-
+time from 9 hours to 36 minutes—it requires super heavy and interactive offline computation and
+communication (29 GB of bandwidth and 110 hours of runtime for sets of size 220 , as we shown
+in Table 1).
+    Upon closer examination, we find that malicious sDOPRF is overkill for PSU. 5 We will show
+that it is sufficient to realize FPSU2 against malicious adversaries using a semi-honest shuffled
+HashDH, incorporated into a carefully and innovatively designed protocol.
+Strawman Protocol as a First Attempt. Instead of using OT, we modify the shuffled HashDH
+(described in Section 2.2) such that each party directly returns the unblinded elements that are in
+the set difference:
+
+    Malicious PSU (draft version)
+
+    Step 1′′ P0 computes K := g k , xi := H(vi )k i∈[n] , and P1 computes S := g s , {yj := H(wj )s }j∈[N ] .
+                                     
+
+            P0 and P1 exchange σ0 ← Hcom (K, {xi }) and σ1 ← Hcom (S, {yj }), where Hcom is an-
+            other hash function.
+    Step 2′′ P0 and P1 exchange K, {xi } and S, {yj } to check if σ0 or σ1 is consistent. a
+    Step 3′′ P0 sends uπ0 (j) := yjk j∈[N ] to P1 following π0 , and
+                     
+            P1 sends eπ1 (i) := xsi i∈[n] to P0 following π1 .
+                       n                                      o
+                                    1/k
+    Step 4′′ P0 sends e′i | e′i = ei ∧ e′i∈[n] ∈ / {yj }j∈[N ] to P1 , and
+                     n                                        o
+                                    1/s
+            P1 sends u′j | u′j = uj ∧ u′j∈[N ] ∈  / {xi }i∈[n] to P0 .
+
+
+
+5
+    For example, malicious sDOPRF implies two-sided PSI with cardinality (i.e., both parties only learn the
+    intersection cardinality). This, however, is not implied by two-sided PSU.
+
+
+                                                     9
+  Step 5′′ P0 and P1 computes {(u′j )1/k } and {(e′i )1/s }, respectively.
+   a
+       Precisely speaking, the parties should abort if they receive any xi = g or yi = g during the protocol,
+       where G = ⟨g⟩. For simplicity, we omit this standard check here and in the following sections.
+
+For the moment, let’s ignore the fact that this protocol does not produce output yet. It is easy to
+verify that P0 gets H(wj ) for wj ∈
+                                  / V when both parties are honest because
+                                             1/k
+                                          k/s
+                             (u′j )1/k = yj ′      = H(wj ′ ), where j ′ := π0−1 (j),
+
+and P1 only sends back u′j such that
+
+                    u′j ∈
+                        / {xi }i∈[n] ⇐⇒ u′j = H(wj ′ )k ∈
+                                                        / H(vi )k i∈[n] =⇒ wj ′ ∈
+                                                          
+                                                                                / V.
+
+The second implication holds with overwhelming probability since k ̸= 0 and H outputs uniformly
+random group elements. Then, it is clear that the above protocol is secure against semi-honest
+adversaries: the transcripts are either pseudorandom or correspond only to the set difference,
+revealing no information about the intersected items.
+    Without loss of generality, we assume P1 is corrupted by the adversary A as the protocol
+is symmetric from both sides and each party has the same code. To get malicious security, we
+first note that the Step 1′′ and Step 2′′ committing each party’s secret scalar before seeing any
+transcripts to prevent “rushing” adversaries, and it allows S to extract A’s effective input.
+    Remember that A might learn the intersection cardinality after Step 3′′ , so the simulator S
+should extract and input a consistent set to FPSU2 at the very beginning. That is, S should extract
+the input before simulating {xi }. Suppose both H and Hcom are random oracles simulated by S.
+                                                       $
+The simulator S programs H(wj ) to g r with r ← Z∗p . By checking query histories of Hcom and H,
+S is able to find S, {yj } and wj , respectively. Then S could know whether wj is an effective input
+                         ?
+of A by checking yj = S r .
+How to Reveal Correct Items? We want P0 to output {wj ∈               / V } instead of {H(wj )}wj /∈V .
+One might consider attaching a ciphertext ctj to each yj in Step 1′′ , where ctj encrypts wj using
+a pseudorandom key H(wj )r with a random r, and modifying Step 4′′ to send (u′j )r instead of
+u′j . However, achieving malicious security requires attaching proof to convince P0 that ctj is valid.
+This introduces the same issue discussed in Section 2.3, where A can deliberately attach an invalid
+proof to observe whether P0 aborts. We also cannot attach ctj only for wj ∈     / V in Step 4′′ since
+the permutation π0 is hidden from P1 . Moreover, proving the validity of ctj for every wj ∈ W is
+infeasible because H is not algebraic (unless we resort to generic approaches).
+      If H was not a hash function, but an injective one, this issue would disappear, as there would
+be no need for ctj or its corresponding proof: P0 could simply retrieve wj by inverting H(wj ). One
+of our key insights is that we can make H an invertible mapping instead of a compressing hash,
+by using group G in a non-black-box way. Specifically, when instantiating G over elliptic curves
+and selecting q ≈ 2γ , we define H := M2P ◦ Π, where Π : {0, 1}γ 7→ {0, 1}γ is an ideal permutation
+and M2P : Fq 7→ G is an invertible mapping from field elements to curve points with an unknown
+exponent. Assuming M2P is injective for the moment, we obtain its inverse H −1 := Π −1 ◦ M2P−1
+where M2P−1 : G 7→ Fq ∪ ⊥. Please refer to Section 3.2 for more detail.
+      Concretely, Elligator 2 [BHKL13] and its compatible curves can instantiate M2P as described
+in [AHH21]. To the best of our knowledge, this is the first work to employ Elligator in a non-
+standard way: we first apply the direct map and then use the inverse map to recover the encoded
+
+
+                                                       10
+item. In contrast, prior uses of Elligator either relied solely on the direct map M2P to “hash”
+into groups [AHH21], or only applied the inverse map M2P−1 in a rejection-sampling procedure to
+sample random bitstrings [MRR20, RT21].
+    It is important to note that in our case, H cannot be modeled as a random oracle, as its output
+distribution is far from uniform over G. Nevertheless, we can still extract effective inputs from A
+by programming Π(wj ) to M2P−1 (g r ) instead of programming on H. Another issue arises when H
+is no longer a random oracle: does DDH still hold for the tuple {g, g s , H(w), H(w)s }? Fortunately,
+a DDH-equivalent variant holds in this case when M2P is nearly injective 6 as shown in Lemma 1
+of Section 3.
+How to Prevent Dishonest Hashing? It is currently far away from the desired malicious
+security as P0 cannot catch any dishonest behavior of A (i.e., corrupted P1 ). For instance, assuming
+n = N , let us consider the following misbehaviors:
+ – A might set {yj := g rj }j∈[N ] in Step 1′′ , and send {ei := K ri }i∈[n] in Step 3′′ . Such behavior
+   cannot be caught by P0 as yjk = ej for every j ∈ [N ], which means P0 has nothing to send
+   in Step 4′′ and it expects nothing to receive from P1 . Thus there are no further communication
+   from either party until the protocol ends and P0 would just output V .
+ – Even it executes Step 3′′ honestly, A is always able to cheat in Step 1′′ . For example, A
+   could set {yj := H(wj )rj }j∈[N ] with different scalars, then A can easily learn whether wj ∈ V
+   after Step 3′′ by unblinding uπ0 (j) with rj to see whether
+                   1/r                       k/rj
+                                                    ∈ {xi }i∈[n] ⇐⇒ H(wj )k ∈ H(vi )k i∈[n]
+                       j
+                                                                             
+                  uπ0 (j) ∈ {xi }i∈[n] ⇐⇒ yj
+
+     holds, because each rj is bound to wj .
+The first issue can be addressed using the cut-and-choose paradigm, which allows P0 to verify that
+A generates each ei honestly. However, this approach is typically λ times more expensive, where λ
+is the statistical security parameter.
+    The second issue is more critical: directly proving that A executes Step 1′′ honestly is hard
+(or impractical) because of the non-algebraic nature of H.
+    Our second key idea is therefore to postpone this check (on Step 1′′ ) until the end of the
+protocol (i.e., lazy-check), while ensuring that all other steps are executed honestly beforehand.
+We present the final protocol below.
+
+    Malicious PSU (final version, informal)
+
+    Step 1∗ P0 computes K := g K , xi := H(vi ∥ 0γ−ℓ )k i∈[n] , and
+                                     
+                                 
+           P1 computes S := g s , yj := H(wj ∥ 0γ−ℓ )s j∈[N ] . They exchange σ0 ← Hcom (K, {xi })
+           and σ1 ← Hcom (S, {yj }).
+    Step 2∗ P0 and P1 exchange    K, {xi } and S, {yj }. They abort if σ1 or σ0 is invalid.
+    Step 3∗ P0 returns uπ0 (j) := yjk j∈[N ] with χ0 ← AoKRπ0 to P1 , and
+                        
+                      
+           P1 returns eπ1 (i) := xsi i∈[n] with χ1 ← AoKRπ1 to P0 .
+    Step 4∗ They abort if χ1 or χ0 is invalid. P0 computes
+
+                                       / {yjk }j∈[N ] , J ′ := π0 (j) ∈ [N ] | yjk ∈
+                                                             
+                   I := i ∈ [n] | ei ∈                                             / {ei }i∈[n]
+
+6
+    Here, nearly injective means it has at most cmax preimages for each mapped point, where cmax is a small
+    constant.
+
+
+                                                      11
+                          n            o
+                                   1/k
+              and sends    e′i := ei         with ϕ0 ← AoKIRDDH to P1 .
+                                       i∈I
+           Similarly, P1 computes
+
+                                         / {xsi }i∈[n] , I ′ := π1 (i) ∈ [n] | xsi ∈
+                                                              
+                   J := j ∈ [N ] | uj ∈                                            / {uj }j∈[N ]
+                      n             o
+                                1/s
+           and sends u′j := uj           with ϕ1 ← AoKJRDDH to P0 .
+                                     j∈J
+    Step 5∗ P0 aborts if ϕ1 is invalid, J ̸= J ′ , or any wj′ ← H −1 (u′j )1/k for j ∈ J does not
+                                                                                   
+
+           have γ − ℓ trailing zeros; otherwise P0 outputs V ∪ {wj′ }. P1 carries out a similar check
+           and derives the corresponding output.
+  In Step 3∗ , instead of following cut-n-choose, P1 attaches a specialized zero-knowledge argu-
+ment of knowledge AoK to prove {ei }i∈[n] is a permutated list of blinded xi :
+
+                 AoKRπ s ∈ Zp , π : [n] 7→ [n] | ∀ i ∈ [n], g s = S ∧ xsi = eπ(i) .
+                        
+
+The concrete construction of this AoK is described in Section 6.4 and is adapted from a shuffling
+argument [Gro10].
+    In Step 4∗ , P1 incorporates another batched AoK to demonstrate that every sent u′j are un-
+blinded uj :                    n                                       o
+                                                                1/s
+                           AoKJRDDH s ∈ Zp | ∀ j ∈ J, u′j = uj        ∧ g = S 1/s ,
+where the set J ⊂ [N ] denotes the set of indices corresponding to the set difference. The concrete
+construction of this AoK is given in Section 6.5. Once it is verified, P0 is convinced that
+                                             1/k
+                                                      1/(k·s)   1/s
+                                     u′π0 (j)      = uπ0 (j) = yj .
+
+   After the above two AoK are verified, we can address the dishonest hashing by restricting the
+domain size of items in Step 1∗ . If A generates yj dishonestly in Step 1∗ , i.e., yj ̸= H(·)s , then
+                             1/k
+P0 would realize that yj ∈
+                         / {ei }i∈[n] for any ei received from A. This follows from the fact that
+        1/k
+each ei = H(vπ−1 (i) )s , given that A is required to execute Step 3∗ honestly.
+                    1
+    This implies that π0 (j) ∈ J ′ , as shown in Step 4∗ . Consequently, P0 should be able to compute
+                  1/s                                                                 1/s
+(u′π0 (j) )1/k = yj in Step 5∗ ; otherwise, it aborts if j ∈   / J. Moreover, H −1 (yj ) produces a
+uniformly random element wj′ ∈ {0, 1}γ , since H −1 := Π −1 ◦ M2P−1 , where Π is modeled as an
+ideal permutation over {0, 1}γ , and M2P outputs group elements with unknown exponent.
+    By choosing the field size γ ≥ 2κ, item length ℓ so that γ − ℓ ≥ κ (where κ is the security
+parameter), and encoding each wj as H(wj ∥ 0γ−ℓ ), the probability that wj′ ∈ {0, 1}ℓ ∥ 0γ−ℓ is
+negligible. In other words, if A misbehaves in Step 1∗ , P0 would catch this by revealing invalid
+items (i.e., items outside the domain) and abort.
+
+3     Preliminaries
+In this work, the computational and statistical security parameters are denoted by κ, λ, respectively.
+We use [.] notation to refer to a set. For example, [m] implies the set {1, . . . , m}. Additionally, we
+use [i, j] to denote the set {i, . . . , j}. We denote the concatenation of two bit-strings x and y by
+x ∥ y.
+    For additional preliminaries—including the UC framework and the idealized functionalities for
+the random oracle FRO and ideal permutations FIP —we refer the reader to Appendix B.
+
+
+                                                      12
+3.1   Computational Assumptions
+
+Definition 1 (Generalized Decisional Diffie-Hellman). k-DDH states that given {G, p, g, g s , g r1 , . . . , g rk },
+g sr1 , . . . , g srk are pseudorandom.
+
+   Apart from the standard DDH, we state the non-uniform variant of the DDH assumption below
+and show it is equivalent to DDH as implicitly implied by [AHH21, Theorem 3.6]
+
+Definition 2 (DG -DDH). Given {G, p, g, g s , D1 , . . . , Dk } and a distribution DG over G, {D1s , . . . , Dks }
+                                    $
+are pseudorandom, where Di∈[k] ← DG .
+
+Lemma 1 (DG -DDH ⇔ DDH [AHH21]). Let G be a cyclic group of order p, 1G the identity
+element, and DG a probability distribution on G. If there exists a PPT rejection sampler RS for
+(G, DG ) with acceptance rate 1c , then the probability of PPT adversaries against DG -DDH and DDH
+of solving the respectively other problem differs by at most kDG (1G ) + p1 and solving k-DDH with
+the help of a DG -DDH adversary requires at most kc executions of RS on average.
+
+Proof (sketch). Given an adversary A against DG -DDH, the reduction R can solve DDH instance
+                                                                                       $
+(g, A, B, C) by invoking the rejection sampler RS on B r for randomized r ← Z∗p . Suppose B r
+passes the rejection sampling, then R feeds A with (g, A, B r , C r ) and outputs what A outputs.
+For k-DDH, R just repeats this process k times.
+    The other direction is trivial since DDH is self-reducible.                                ⊔
+                                                                                               ⊓
+
+
+3.2   The Map-to-Point Function
+
+We recall some curve-specific and invertible mapping M2P : Fq 7→ G and M2P−1 : G 7→ Fq ∪ ⊥.
+M2P maps a field element to a curve point with an unknown exponent. As investigated in [AHH21],
+we do not model M2P◦H entirely as a random oracle since the output of M2P is far from uniformly
+random.
+           |F |
+    Given |G|q is a constant and M2P has at most cmax preimages for each point, we recall the
+following lemmas from [AHH21].
+
+Lemma 2 (Existence of Rejection Sampler [AHH21]). There is a PPT rejection sampler
+                                            |F |
+for (G, DG ) with average acceptance rate |G|·cqmax . Therefore, Lemma 1 holds if cmax = poly(κ).
+
+                                                                                           $
+Lemma 3 (Uniform Inverse Map [AHH21]). For any uniformly sampled g ← G, M2P−1 (g)
+                                             |F |
+outputs results r ̸=⊥ with probability p ≥ |G|·cqmax and the distribution of outputs r ̸=⊥ is uniform
+in Fq .
+
+Concrete Instantiation. In this work, we choose a concrete instantiation of M2P and M2P−1
+as the direct map and the inverse map of Elligator 2 [BHKL13,Vai], which has cmax = 2. Note that
+the potential instantiation (i.e., elliptic curve) might have a small co-factor hc > 1, then in this
+case we consider |Gp | = |G|/hc and c′max = cmax · hc . In detail, the direct map is nearly injective
+that every r ∈ Fq maps to a different curve point, except that r and −r map to the same point. The
+inverse map outputs a random preimage of the given curve point by flipping the sign by outputting
+             $
+M2P−1 (R) ← {r, −r} such that M2P(±r) = R ∈ G.
+
+
+                                                    13
+    Parameters: A prover P and a verifier V.
+    Functionality:
+
+      – Upon receiving input (R, x, w) from P:
+         • Return (R, x, 1) to V if R(x, w) = 1, and return (R, x, 0) otherwise.
+
+                                      Fig. 1: Ideal Functionality FAoK
+
+
+3.3     Arguments of Knowledge
+  We recall a useful lemma below, which is used extensively in zero-knowledge arguments (and
+proofs).
+
+Definition 3 (Schwartz-Zippel Lemma). Let P [X1 , . . . , Xn ] be a non-zero multivariate poly-
+                                                                                                                 $
+nomial of degree d over Fq , then the probability of P (r1 , . . . , rn ) = 0 for randomly chosen r1 , . . . , rn ←
+                d
+Fq is at most q−1 .
+
+      In this work, we usually write (zero knowledge) arguments of knowledge (AoK) as
+
+                                           AoK {w | R(x, w) = 1}
+
+where x is the (publicly known) statement, w is the witness, and R is the relation we want to prove.
+We recall the ideal functionality for AoK in Figure 1. In practice (and in our implementations),
+we use the Fiat-Shamir heuristic [FS87] to compress an interactive public-coin protocol into non-
+interactive zero-knowledge (NIZK) in the random oracle model.
+    Regarding the UC-security, we assume the existence of straight-line extractor for any AoK used
+in this work and we assume they UC-realize the FAoK in the proof of our main protocols. There are
+multiple ways to make AoK UC-compatible and with different trade-offs which we outline below:
+ – Relying on the idealized group model [Sho97, Mau05]. In this case, the simulator S is able to
+   extract the randomness and the witness.
+ – Relying on UC-commitments as shown in [CF01, CLOS02, HM04].
+ – Using Fischlin transformation [Fis05] for Σ-protocols, which is about ∼ 20 times slower than
+   Fiat-Shamir as evaluated in [CL24].
+
+
+4      Revisiting the PSU Functionality
+We revisit the private set union functionality (recalled in Figure 2) by considering both semi-honest
+and malicious adversaries.
+
+4.1     PSU Functionality for Semi-Honest Adversaries
+In a very recent work by Jia et al. [JSZG24] (denoted JSZG24), the authors also revisit PSU
+functionality and protocols against semi-honest adversaries by making the following claims:
+ 1. In [JSZG24, Section 3.2], they show that, given the union and its own set, the receiver can
+    “. . . learn that items belonging to X ∩ Y with high probability”; they treat these shared items
+    as leakage under the standard functionality FPSU (Figure 2).
+
+
+                                                       14
+Parameters: Set sizes n and N , item length ℓ, and two parties: P0 and P1
+Functionality:
+
+  – Wait for a set V = {v1 , . . . } ⊂ {0, 1}ℓ from party P0 .
+  – Wait for a set W = {w1 , . . . } ⊂ {0, 1}ℓ from party P1 .
+  – If |V | ̸= n or |W | > N or |W | < N , send ⊥ to party P0 then halt .
+  – Send V ∪ W to party P0 and halt.
+
+Fig. 2: Ideal Functionality of Private Set Union FPSU . We also consider a relaxed functionality
+in Section 5 by ignoring the highlighted code.
+
+
+     – As a consequence of the above claim, the authors argue the bucketing attack from [JSZ+ 22]
+        is ineffective when applied to [KRTW19], since the same leakage can already be inferred
+        from the union.
+ 2. In [JSZG24, Section 3.3], they introduce what they call “during-execution leakage,” capturing
+    the fact that the receiver may abort before the protocol completes; they also recall an attack
+    by Guo et al. [GHL+ 22] to justify the practical relevance of such leakage.
+ 3. In [JSZG24, Section 4], they put forward an “enhanced PSU functionality” aimed at preventing
+    such during-execution leakage and providing stronger security.
+In this section, however, we argue that the above claims are inaccurate and provide the following
+corrections. Specifically, we show that (1) the functionality (and the union it reveals) does not intro-
+duce any meaningful leakage, so the bucketing attack [JSZ+ 22] remains effective against [KRTW19];
+(2) neither during-execution leakage nor the attack of Guo et al. [GHL+ 22] aligns with the standard
+semi-honest security model; and (3) the proposed “enhanced PSU functionality” neither captures
+during-execution behavior nor is it well defined.
+
+No Leakage from the Standard Functionality. Here we view “leakage derived from the union”
+as equivalent to “leakage from the functionality,” since the PSU functionality FPSU provides no
+other interface. Any information an adversary obtains must therefore come from the functionality’s
+output, namely the union.
+     Recall that the authors of [JSZG24] claim that, given access to a standard PSU functionality, a
+receiver can infer information about the intersection as follows. After receiving the union X ∪Y from
+FPSU , it forms the two sets X \Y and Y (where X and Y denote the sender’s and receiver’s inputs),
+and hashes them into two tables T0 and T1 , respectively, using an “appropriate” hash function h.
+They claim that if some bin is empty in T0 but occupied in T1 (e.g., ∃, i, yj such that h(yj ) = i,
+T0 [i] = ∅, and T1 [i] = yj ), then one can conclude with good probability that yj ∈ X ∩ Y . The
+intuition is that, when hashing X into a table with |X| ≈ |T0 |, empty bins should be rare; thus an
+empty bin T0 [i] suggests that some element x ∈ X that is missing from X \Y (i.e., some x ∈ X ∩Y )
+should have mapped to i-th bin. If additionally x and yj collide in that bin (as T1 [i] = yj ), there
+is a non-negligible probability to infer x = yj . This is essentially the bucketing attack of [JSZ+ 22],
+originally used against an earlier PSU protocol of [KRTW19] (denoted KRTW19).
+     However, that attack against KRTW19 relies on an implicit assumption that does not hold
+in the ideal world of PSU functionalities: namely, that the sender and receiver agree on the same
+randomly sampled hash function h. The bucketing attack is probabilistic, with its success proba-
+                                     $
+bilities taken over the sampling h ← H. In the ideal world, the receiver only observes X \ Y and
+Y , and no hash function is sampled by anyone; any probabilities the receiver computes (e.g., the
+
+
+                                                   15
+probability of an empty bin, or the probability that yj ∈ X ∩ Y ) come solely from its own choice of
+    $
+h ← H and therefore do not reveal information about the intersection. Hence, the attack is invalid
+in the ideal world.
+    In fact, given that the intersection X ∩ Y of two sets is indeed independent of its difference
+X \ Y , the intersection should be perfectly hidden in Y even with the knowledge of X \ Y and Y .
+In other words, when X \ Y and Y are fixed, the intersection X ∩ Y still has the full entropy and
+can be chosen independently from elements in Y . As a simple example, consider the sender holds
+X := {x, 4} where x ∈ [3] and receiver holds Y := {1, 2, 3}. In this case, the adversary (receiver) A
+obtains X ∪ Y = {1, 2, 3, 4}, which reveals no information about x except x ∈ [3]. It is clear that
+A can only guess x with probability no greater than 1/3, and information-theoretically cannot do
+any better.
+    Therefore, the standard functionality FPSU is well-defined for semi-honest adversaries and yields
+no leakage beyond the output.
+
+During-Execution Leakage Violates Semi-Honest Behavior. In [JSZG24, Section 3.3], the
+authors further observed that the protocol in [KRTW19] could let the receiver learn shared items
+during protocol execution (i.e., before an abort), rather than only after the protocol completes.
+They refer to this kind of leakage as “during-execution leakage.”
+   Moreover, to motivate the practical influence of such notion, they observe that such during-
+execution leakage can be leveraged by a realistic attack [GHL+ 22] to reveal more information 7 .
+   However, we would like to point out that the attack from [GHL+ 22] relies on a malicious receiver
+adaptively choosing its input set across many sessions, and therefore does not apply to semi-honest
+adversaries. Furthermore, the early-abort of a receiver already violates the standard semi-honest
+behavior of parties.
+
+Remark 1. We stress that the early-abort only lets the receiver learn its own output (e.g., part
+of the union items, the cardinality of the intersection, etc.) before the protocol completes. This is
+fundamentally different from the type of leakage discussed above, and learning the output before
+termination should not be considered a security issue in the semi-honest setting.
+    As a direction for future work, one could explore hybrid security models that explicitly account
+for during-execution behavior and sit between the semi-honest and malicious settings.
+
+The Enhanced Functionality is Not Well-Defined. The authors propose an “enhanced
+functionality” with stronger security (recalled in Figure 3) to formally model such during-execution
+leakage in [JSZG24, Section 4]. For clarity, we simplify the description by omitting unnecessary
+notions (e.g., session id, states of each party).
+    We show that this enhanced PSU functionality is actually equivalent to the standard func-
+tionality (i.e., there is no non-trivial difference) in either semi-honest or malicious settings. Our
+reduction works in the FPSU -hybrid setting within UC model, with black-box access to FPSU .
+    We provide detailed discussion and the proof of Theorem 1 in Appendix D.
+
+Theorem 1. The standard functionality FPSU defined in Figure 2 is equivalent to the “enhanced”
+functionality FePSU (recalled in Figure 3) within the UC framework, against both semi-honest and
+malicious adversaries. That is, any protocol realizing FPSU can also realize FePSU , and vice versa.
+7
+    This is a heuristic attack with non-negligible correctness error, and according to their experiments, they
+    can recover 30% ∼ 80% elements of the intersection in 70 ∼ 135 protocol invocations, when the set size
+    is ranging from 512 ∼ 2048.
+
+
+                                                      16
+      Parameters: Set sizes n and N , item length ℓ, and two parties: P0 and P1
+      Functionality:
+
+       – Wait for a set V = {vi , . . . } ⊂ {0, 1}ℓ from party P0 .
+       – Wait for a set W = {wi , . . . } ⊂ {0, 1}ℓ from party P1 .
+       – If |V | ̸= n or |W | ̸= N , send ⊥ to party P0 then halt.
+       – Upon receiving ⟨Response⟩ from S, send Z := V ∪ W to P0 .
+       – Send ⟨Finished⟩ to P1 .
+
+
+Fig. 3: The “enhanced” PSU Functionality FePSU from [JSZG24], with modifications highlighted
+in blue to show the differences from the standard FPSU functionality (Figure 2).
+
+
+    Loosely speaking (as a proof sketch), a sender can simply pass its input to FPSU and then
+immediately output ⟨Finished⟩, which suffices to realize FePSU . Note that ⟨Finished⟩ has to be
+sender’s output and cannot be any internal tape, otherwise not observable, since the environment
+only sees honest party’s output. Importantly, sender can even send ⟨Finished⟩ at any step since
+parties are interactive Turing machines in UC.
+    More broadly, when adversaries are semi-honest (which is the setting in [JSZG24]), we do not
+believe there is any meaningful difference between standalone and UC model, including for PSU.
+This is a folklore observation. For example, Maji, Prabhakaran, and Rosulek note on [MPR10, p.6]
+that “. . . we point out that the traditional (standalone) security definition is equivalent to the UC
+security definition, since the simulation required by semi-honest security does not, and need not,
+extract the inputs of the corrupt players . . . ”.
+
+
+4.2    PSU Functionality for Malicious Adversaries
+
+While the standard functionality is well-defined in semi-honest settings as discussed above, the
+malicious setting is a bit tricky. For instance, a malicious receiver might leverage the knowledge of
+the intersection cardinality and arbitrarily modify its input to extract additional information about
+the intersection, by using the attack mentioned in [GHL+ 22]. Though the cardinality is implied
+by the union of sets (i.e., it is part of the output of the functionality), the malicious receiver could
+abort the protocol as soon as it learns the cardinality.
+   However, as pointed out in [HL10, Example 2], PSU functionality against malicious adversaries
+can be trivially realized by communicating their sets in the plain, since a malicious receiver can
+extract the sender’s entire input by querying the functionality with randomized elements. For
+completeness, we provide a detailed discussion in Appendix C. This renders the above attack less
+powerful for the PSU context: a rational adversary might prefer not to abort the protocol so it can
+completely learn the sender’s set.
+
+
+Semi-honest Receiver and Malicious Sender. As discussed above and shown in [HL10],
+a protocol realizing the standard functionality (Figure 2) secure against malicious adversaries
+does not imply security against semi-honest adversaries. Therefore, the best we can hope for this
+functionality is the security against a semi-honest receiver and malicious sender (since the security
+against a malicious receiver is trivial).
+
+
+                                                   17
+Two-sided Output. To rule out trivial instantiations of PSU functionalities against malicious
+adversaries, Hazay and Lindell suggested the functionality with two-sided output [HL10]. This also
+makes sense in practice: if a malicious party P0 inputs a randomized set to learn the entire set of
+the other party P1 , P1 would be suspicious about P0 ’s behavior since the intersection is empty;
+whereas in standard functionality, the sender (P1 ) is oblivious about the receiver’s (P0 ) behavior.
+
+
+Parameters: Set sizes n and N , item length ℓ, and two parties: P0 and P1 .
+Functionality:
+
+    – Wait for a set V = {v1 , . . . } ⊂ {0, 1}ℓ from party P0 .
+    – Wait for a set W = {w1 , . . . } ⊂ {0, 1}ℓ from party P1 .
+    – If |V | ̸= n or |W | ̸= N , send ⊥ to both parties and halt.
+    – Send V ∪ W to the ideal adversary S.
+    – Upon receiving a signal {deliver, abort} from S, do the following and halt:
+        • deliver: send V ∪ W to honest parties;
+        • abort: send ⊥ to honest parties;
+
+                   Fig. 4: Ideal Functionality of Two-Sided Private Set Union PSU2 .
+
+
+   In Figure 4, we formally describe the PSU functionality with two-sided output, where the
+corrupted party may deviate from its input, may abort the procedure at any time, and may decide
+the time of message delivery (i.e., could be rushing).
+
+
+5     Warmup: PSU with Malicious Sender
+In this section, we present a simple PSU protocol designed for a semi-honest receiver and a malicious
+sender, which is particularly suited for one-sided input PSU scenarios. For a detailed discussion
+on the protocol addressing both malicious senders and receivers, we refer the reader to Section 4.2
+and Appendix C.
+
+5.1     Protocol Description
+Our protocol builds on the common framework of existing two-party semi-honest PSU protocols
+(see Section 2.3), with the key difference in the OT phase: the receiver is now able to prevent a
+malicious sender from injecting invalid inputs during OT execution. To achieve this, we require
+an AoK for each OT message, guaranteeing that the sender uses consistent inputs throughout the
+protocol. In particular, the AoK ensures that P1 knows the exponent k such that H(wi )k = yi . The
+full construction of our protocol is given in Figure 5.
+    Note that the OT execution can be optimized to reduce approximately half of the communica-
+tion cost for this step. This is possible because P0 discards the OT message when bi = 1. Recall
+that OT typically consists of two steps:
+
+ – Random OT: The sender obtain two random messages (r0 , r1 ), while the receiver obtains rb ,
+   where b is the receiver’s choice bit.
+ – OT Correction: The sender sends (r0 ⊕ m0 , r1 ⊕ m1 ) to the receiver, allowing the receiver to
+   unmask them and obtain mb , where (m0 , m1 ) are the sender’s OT messages.
+
+
+                                                     18
+Parameters:
+
+     – Set sizes n and N , item-length ℓ, security parameter κ, statistical parameter λ, a cyclic group G := ⟨g⟩
+       with prime order p, and two parties: P0 holding V = {v1 , . . . , vn } ⊂ {0, 1}ℓ , and P1 holding W =
+       {w1 , . . . , wN } ⊂ {0, 1}ℓ .
+     – An oblivious transfer and a non-interactive zero-knowledge AoK.
+     – Two one-way hash functions H : {0, 1}ℓ → G, and Hcom : {0, 1}⋆ → {0, 1}γ .
+
+Protocol:
+
+  I. Shuffle OPRF:
+      1. Each Pi chooses a random private exponent ki in the group G.
+      2. For each i ∈ [n], P0 computes xi = H(vi )k0 , and sends a set {xi }i∈[n] to P1 . Similarly, for each
+         i ∈ [N ], P1 computes yi = H(wi )k1 , and sends a set {yi }i∈[N ] .
+      3. P1 chooses a permutation function π : [n] → [n]. P1 computes a set E := {ei := xkπ(i) 1
+                                                                                                  }i∈[n] , and
+         sends it to P0 .
+ II. OT Phase:
+      1. P0 prepare a binary vector b of length N . For each i ∈ [N ], P0 computes yi′ = yik0 , sets bi = 0 if
+         yi′ ∈
+             / E, and bi = 1 if yi′ ∈ E.                
+      2. For each i ∈ [N ], P0 and P1 send bi and wi ∥ ϕi , ⊥ , respectively, to an OT instance, where
+         ϕi = AoK{k | H(wi )k = yi } is an argument of knowledge a AoK to prove that P1 knows some
+         exponent k such that H(wi )k = yi .
+      3. P0 sets R = ∅. For any i ∈ [N ] ∧ bi = 0, P0 receives wi′ ∥ ϕ′i from each OT instance. P0 discards
+         wi′ if ϕ′i is invalid; otherwise, sets R = R ∪ {wi′ }.
+      4. P0 outputs V ∪ R.
+ a
+     For example, ϕ = (c, z) where c = Hcom (H(wi ) ∥ yi ∥ H(wi )r ) and z = c · k1 + r
+
+               Fig. 5: Our PSU Protocol for Semi-Honest Receiver and Malicious Sender
+
+
+    In our case, the receiver never needs to unmask r1 ⊕ m1 when m1 = (⊥, ⊥). As a result, the
+sender can skip sending the second message in the correction phase. This reduces the communica-
+tion cost by nearly half, as the random OT phase incurs a fixed communication cost derived from
+the base OT.
+    Another optimization is that P1 can truncate the PRF values xkπ(i)
+                                                                     1
+                                                                        , which have a length equiv-
+alent to that of an elliptic curve point (e.g., approximately 2κ), to ⌈λ + log(nN )⌉ before sending
+X to the receiver. Similarly, the receiver can perform the same truncation on yik0 before executing
+the set membership check.
+
+
+5.2      Efficiency Analysis
+
+Our protocol has communication and computation costs that scale linearly with the number of
+parties, O(n + N ). Specifically, the communication cost is given by 2κ(n + N ) + n⌈λ + log(nN )⌉ +
+3κ2 + (|ϕ|κ + ℓ)N, where the first two terms arise from the shuffle OPRF phase, assuming the
+length of an elliptic curve point is 2κ; the third term corresponds to the base OT; and the last
+term accounts for the OT extension as ℓN and AoK as ϕκN , where ϕ = 3. When considering a
+typical parameter set where λ = 40, κ = 128, ℓ = 128 and assuming n = N for an easier analysis,
+the communication cost is (936 + 2 log(n))n + 49152 bits.
+
+
+                                                       19
+    Regarding the computational cost, our protocol requires 2(n + N ) + 3κ2 scalar multiplications,
+n + N hash-to-point evaluations, along with the additional cost of computing the AoK which costs
+3N scalar multiplications in total. We present the concrete performance results of our PSU protocol
+in Section 7.
+
+5.3     Security Analysis
+The security of our one-side PSU protocol is presented in the following theorem.
+
+Theorem 2. The protocol shown in Figure 5 realizes the relaxed functionality defined in Figure 2
+( without the highlighted code) in the standalone model by modeling H, Hcom as random oracles,
+against the malicious sender and semi-honest receiver.
+
+Proof. We begin by proving the protocol’s security against a semi-honest receiver, followed by
+addressing the case of a malicious sender.
+The receiver P0 is corrupted. Since P1 has no output and the adversary A is semi-honest, the
+simulator S only needs to simulate the transcripts. The simulation follows the same approach as
+in the semi-honest PSU protocol, with one additional step: S samples ϕi for each wi ∈ W using
+the zero-knowledge simulator of AoK.
+The sender P1 is corrupted. We first examine the transcripts. The simulator S can generate the
+first message from P0 (which is also the only transcript) by sampling {Ri }i∈[n] where Ri ← G. By
+the Decisional Diffie-Hellman (DDH) assumption, this is indistinguishable from the real protocol
+execution.
+     Now, let’s analyze the final output. S must provide an input to FPSU that ensures the hon-
+est party P0 receives the correct union. To do this, S observes the OT input of P1 , denoted as
+{wi′ ∥ ϕ′i , αi }i∈[N ] , and sends {wi′ }i∈[N ] to FPSU (without the highlighted code) to complete the
+simulation for every valid ϕi .
+     We now argue that this approach correctly simulates the final output. Consider the cases where
+ϕ′i is accepted, meaning there exists some k ∈ Z∗p such that H(wi′ )k = yi . In this case:
+ – If wi′ ∈ V , then P0 always outputs wj .
+ – If wi′ ∈/ V , then P0 only outputs wi′ when yik0 ∈   / E, which implies H(wi′ )k0 ·k ∈
+                                                                                        / E, where
+   E = {ei } is chosen by P1 in Step I.3. Since H produces uniformly random group elements
+   and k0 is sampled from Z∗p , the value H(wi′ )k0 remains pseudorandom to P1 (by the DDH
+   assumption) as long as H(wi′ )k0 ∈
+                                    / {xi }i∈[n] . The adversary A can only find values k, e1 , . . . , en
+                                1/k
+      such that, H(wi′ )k0 ∈ {ei      } with negligible probability. As a result, P0 outputs wi′ with
+      overwhelming probability.
+    For inputs {wi′ ∥ ϕ′i } where ϕ′i is invalid, P0 never outputs them unless wi′ ∈ V , and S does not
+include them in its input to FPSU . Therefore, the final output of P0 remains identical in both the
+simulated and real executions.                                                                       ⊔
+                                                                                                     ⊓
+
+
+6     Main Protocol with Two-Sided Malicious Security
+We provide a very efficient PSU protocol with two-sided malicious security in Figure 6 where we
+only describe the behavior for P0 since the protocol is symmetric from both sides. Note that we
+discard the explicit transformation between Fq and {0, 1}γ for brevity since we always consider a
+q ≈ 2γ .
+
+                                                    20
+6.1   Protocol Description
+
+
+Loosely speaking, we continue to use the semi-honest shuffled HashDH protocol. However, unlike
+existing frameworks that attach an OT phase to retrieve the set difference, we have each party
+directly return the “unblinded” elements in the difference. Then, we apply an “invertible” hash
+function to reveal the correct items. Please refer to Section 2.4 for high-level intuitions of the
+construction, and refer to Sections 6.4 and 6.5 for detailed construction of the corresponding zero-
+knowledge AoK.
+
+
+Parameters:
+
+  – Set sizes n and N , item-length ℓ, security parameter κ, statistical parameter λ, a cyclic group G := ⟨g⟩
+    with prime order p, and two parties: P0 holding V = {v1 , . . . , vn } ⊂ {0, 1}ℓ , and P1 holding W =
+    {w1 , . . . , wN } ⊂ {0, 1}ℓ .
+  – An invertible map-to-point function M2P : Fq 7→ G with cmax preimages described in Section 3.2, a
+    hash function Hcom : {0, 1}⋆ 7→ {0, 1}γ , and an ideal permutation Π : {0, 1}γ 7→ {0, 1}γ .
+  – AoK ideal functionalities for relations Rπ (Section 6.4) and RDDH (Section 6.5)
+
+Protocol:
+
+  I. Offline Setup:
+                                                $
+      1. P0 samples random private exponents k0 ← Z∗p , and computes h0 = g k0 .
+ II. Exchanging Committed Inputs (1st & 2nd Round):
+                                                                                           k
+      1. For each i ∈ [n], P0 pads vi with γ −ℓ zeros and computes xi = M2P Π(vi ∥ 0γ−ℓ ) 0 . P0 generates
+         a commitment σ0 ← Hcom (h0 , x1 . . . xn ).
+      3. P0 sends σ0 to P1 , and receives σ1 from P1 .
+      4. P0 sends h0 and the set {xi }i∈[n] to P1 , while receiving h1 , {yi }i∈[N ] from P1 . P0 aborts if
+         Hcom (h1 , y1 . . . yN ) ̸= σ1 .
+III. Shuffling Argument (3rd Round):
+      1. P0 computes {ui = yπk00 (i) }i∈[N ] and an adapted shuffling argument for Rπ : χ0 = AoK{π0 , k0 |
+         ui = yπk00 (i) }, where π0 : [N ] 7→ [N ] is a random permutation.
+      2. P0 sends {ui }i∈[N ] , χ0 to P1 , and receives {ei }i∈[n] , χ1 from P1 .
+      3. P0 verifies that χ1 is valid given {ei }i∈[n] , {xi }i∈[n] , h1 , and aborts otherwise.
+IV. Final Response (4th Round):
+                                          1/k                                                          1/k
+     1. P0 initializes a set E ′ := {(i, ei 0 )}i∈[n] , A := {(i, yi )}i∈[N ] . For each i ∈ [n], if ei 0 = yi′ for
+                                                         1/k
+        some i′ ∈ [N ], P0 updates E ′ = E ′ \ (i, ei 0 ) and A = A \ (i′ , yi′ ). P0 generates an argument for
+                                                                         1/k
+        RDDH : ϕ0 = AoK{k0 | ∀ (i, e′i ) ∈ E ′ , g k0 = h0 ∧ e′i = ei 0 }.
+     2. P0 sends E ′ , ϕ0 to P1 and receives   U  ′
+                                                    , ϕ 1 from P 1 . P 0 aborts if ϕ1 is invalid, or there exists any
+        (i, ·) ∈ A such that π0−1 (i), · ∈/ U ′.
+                                        
+                                                                             (1)    (c    )                    (j)
+     3. P0 initializes a set T := ∅. For each (i, u′i ) ∈ U ′ , find {ri , . . . , ri max } such that M2P(ri ) =
+           ′ 1/k0
+        (ui )      for any j ∈ [cmax ]. Then P0 updates T = T ∪ ti if there is some j ∈ [cmax ] such that
+                (j)
+        Π −1 (ri ) = ti ∥ 0γ−ℓ ; otherwise, P0 aborts.
+     4. P0 outputs V ∪ T .
+
+                    Fig. 6: Our PSU2 Protocol with Two-Sided Malicious Security
+
+
+
+
+                                                        21
+6.2   Efficiency Analysis
+
+The protocol presented in Figure 6 has strict linear communication and computational complexity
+O(n + N ). Similar to the efficiency analysis of our PSU protocol in Section 5, we consider a typical
+parameter set where λ = 40, κ = 128, ℓ = 128, γ = 2κ, q = 2255 − 19, cmax = 2 and assuming n = N
+for an easier analysis. In this way, each party needs to send less than (2n + 1 + |χ| + |ϕ|) · 2κ bits,
+where |χ| = 3n + 9 (Section 6.4) and |ϕ| = 2. Therefore, our total communication bandwidth is
+32 · 2 · (5n + 12) Bytes.
+    Regarding the computation, each party needs 4n − 2|V ∩ W | scalar multiplication over G, 2n −
+|V ∩W | calls for M2P or M2P−1 (which costs less than a fixed-base scalar multiplication [AFQ+ 14]),
+and additional computation costs for χ, ϕ which takes 9n − 3|V ∩ W | multiscalar multiplication in
+total (shown in Section 6.4 and Section 6.5). Please refer to Section 7 for more detail.
+Co-factor Issues. Concretely, when the underlying elliptic curve has a cofactor hc > 1 (i.e.,
+the elliptic curve group decomposes into hc prime-order subgroups), there can be up to cmax · hc
+curve points corresponding to a single encoded item. In particular, for each mapped primer-order
+subgroup element gi ∈ G, there are hc candidate curve points distributed across the cosets. To
+recover the real item ti , we enumerate these curve points, apply M2P−1 , and then perform at most
+cmax applications of Π −1 , until we find a unique (with overwhelming probability) ti satisfying
+M2P(Π(ti ∥ 0)) = gi . For Curve25519, we have cmax = 2 and hc = 8.
+    On average, this process requires about hc /2 evaluations of M2P−1 and cmax · hc /2 evaluations
+of Π −1 per encoded item. Importantly, these overheads remain marginal compared to the dominant
+cost of scalar multiplications.
+
+
+6.3   Security Analysis
+
+Theorem 3. Asssuming Hcom and Π instantiate FRO (Figure 9) and FIP (Figure 10) respectively,
+the protocol presented in Figure 6 UC-realizes the two-sided PSU functionality FPSU2 (Figure 4)
+in the {FRO , FIP , FAoK }-hybrid model, against malicious adversaries with q ≥ 2γ · (1 − 2−λ ), γ ≥
+κ + max(ℓ, log(nN · cmax )), and ℓ ≥ λ + log(nN ).
+
+Proof. Please refer to Appendix E.1 for more detail.
+
+
+6.4   The Adapted Shuffling Argument
+
+In this section, we present an adapted shuffling argument in Figure 7 to prove
+
+                    AoKRπ s ∈ Zp , π : [n] 7→ [n] | ∀ i ∈ [n] g s = h ∧ gis = hπ(i)
+                           
+
+                                                                            $
+for a statement {g, h, g1 , . . . , gn , h1 , . . . , hn ∈ G} where ∀i ∈ [n], gi ← G. It is built on the argument
+of shuffling homomorphic ciphertexts from [Gro10, Sect. 4].
+Zero-knowledge. The zero-knowledge is almost the same as in [Gro10, Sect. 4]. The simulator
+                                $
+S samples x1 , . . . , xn , v, v ′ ← Zp , and cπ = com(0), cd = com(0), cz = com(0). Then S sets
+      Qn          Qn                                     ′
+Gd = i=1 hzi i · i=1 gi−xi , gu = g v h−∆ , and cu = g v · com(x1 , . . . , xn ; 0)−∆ · c−v −∆
+                                                                                         z cd . Finally, S
+simulates ψ following the shuffling argument of known content.
+Soundness. Similar to [Gro10, Sect. 4], the extractor E can extract some permutation π ′ from
+                                                                                            ′
+ψ, and can extract s and srz + rd from {g, h, gu , v, ∆} and {g, cvz c∆    u
+                                                                      d /(cz com(x)), cu , v , ∆} as they
+
+
+                                                       22
+                                                $
+Parameter: Statement {g, g1 , . . . , gn ← G, h, h1 , . . . , hn ∈ G} and witness {s ∈ Zp , π : [n] 7→ [n]},
+                                                                                                        Q such mi
+that g s = h ∧ ∀ i ∈ [n], gis = hπ(i) . The (batched) Pedersen commitment com(m1 , . . . , mn ; r) = g r ni=1 fi
+                                $
+with uniformly random fi ← G. A prover P and a verifier V.
+Protocol:
+                                           $
+ 1. P samples Qd1 , . . . , dn , rd , rπ , rz ← Zp , computes cd = com(d1 , . . . , dn ; rd ), cπ = com(π(1), . . . , π(n); rπ ),
+                          di
+    and Gd = n     i=1 gi .
+ 2. P sends cπ , cd , Gd to V.
+                             $
+ 3. V sends z1 , . . . , zn ← Zp to P.
+                                                                                                      $
+ 4. P computes xi = s · zπ(i) + di . cz = com(zπ(1) , . . . , zπ(n) ; rz ), and samples u, u′ ← Zp .
+                                                            ′
+ 5. P sends x1 , . . . , xn , cz , gu = g u , cu = c−u
+                                                    z  · g u ) to V.
+                   $
+ 6. V sends ∆ ← {0, 1}γ to P.
+ 7. P sends v = ∆ · s + u, v ′ = ∆ · (srz + rd ) + u′ , and an argument (from [Gro10, Sec. 3]):
+
+                        ψ = AoK{π, rρ | cz c∆
+                                            π = com(zπ(1) + ∆π(1), . . . , zπ(n) + ∆π(n); rρ )}.
+
+ 8. V checks if ψ is valid, and the following equations hold
+
+                                                          cvz c∆
+                                     
+                                              ′
+                                     
+                                          gv =                  d
+                                                                             · cu ,
+                                                  com(x   , . . . , xn ; 0)∆
+                                     
+                                                        1
+                                     
+                                     
+                                     
+                                     
+                                            g v = h∆ · gu ,
+                                         n              n
+                                     
+                                     
+                                       Y x            Y
+                                                            hzi i .
+                                     
+                                     
+                                     
+                                          gi
+                                              i
+                                                = Gd ·
+                                               i=1               i=1
+
+
+                                    Fig. 7: Our Adapted Shuffling Argument.
+
+
+                                                                                         $
+are AoK for DDH relations. Given the argument is accepted and gi ← G, assuming gi = g ri with
+   $
+ri ← Z∗p , we have            Pn          Pn                  Pn
+                             g i=1 ri di g i=1 s·ri ·zπ(i) = g i=1 ri xi
+and xi = szπ′ (i) + di . By rearranging the terms, there is
+                                               n
+                                               X
+                                                     sri (zπ′ (i) − zπ(i) ) = 0.
+                                               i=1
+
+According to the Schwartz-Zippel lemma (Definition 3), except with probability 1/p, this equation
+equals zero only when π ′ = π.
+Efficiency of the Argument. This is a 5-move interactive public-coin protocol, so we can com-
+press it into a NIZK in the random oracle model by using Fiat-Shami transformation which is
+more practical. On the other hand, we can also get a NIZK in UC model by following the standard
+approaches as mentioned in Section 3.3.
+   The commitments cd , cπ and part of the computation of ψ for P can be done at the offline
+stage (without knowing the statement). Therefore, at the online stage, P needs 3n multiscalar
+multiplications over G; by applying batch verification [Gro10, Sect. 6], V can verify all of 3 com-
+mitments (where two of them are from ψ) in a single batch, therefore V needs 3n + 14 multiscalar
+multiplications over G. The proof size is (3n + 9) · 2κ bits in total.
+
+
+                                                              23
+6.5     The Batched Argument for DDH Relation
+
+For completeness, we present a batched version of AoK for DDH relations [CP93] in Figure 8 to
+prove
+                             AoKRDDH {s ∈ Zp | ∀ i ∈ [n] gis = hi }
+for a statement {g1 , . . . , gn , h1 , . . . , hn ∈ G}.
+
+
+Parameter: Statement {g1 , . . . , gn ∈ G, h1 , . . . , hn ∈ G} and witness s ∈ Zp , such that ∀ i ∈ [n], gis = hi .
+A prover P and a verifier V.
+Protocol:
+                             $
+    1. V sends a1 , . . . , an ← Zp to P.
+                   $                             ai ·r
+    2. P samples r ← Zp , computes R = n
+                                           Q
+                                            i=1 gi     , and sends R to V.
+                         γ
+    3. V sends ∆ ∈ {0, 1} to P.
+    4. P sends z = ∆ · s + r Q
+                             to V.
+                                    ai ·∆          ai ·z
+    5. V checks whether R · n             = n
+                                           Q
+                               i=1 hi        i=1 gi
+
+
+                                 Fig. 8: Batched Argument for DDH Relation.
+
+
+
+Zero-knowledge. The perfect zero-knowledge is straightforward by simulating the transcript as
+  $        $                 Qn
+z ← Zp , ∆ ← {0, 1}γ and R := i=1 h−a
+                                   i
+                                     i ·∆ ai ·z
+                                         gi .
+                                                                                                   ′
+Soundness. The extractor E can extract the witness in a standard way s′ = ∆−∆    z−z
+                                                                                      ′ . Assuming
+                                                                                    z−z ′
+      si          xi
+                                                                      Pn
+hi = gi and gi = g , V accepts two transcripts with the same R implies i=1 xi ·ai ( ∆−∆′ −si ) = 0.
+According to the Schwartz-Zippel lemma (Definition 3), except with probability 1/p, this equation
+equals zero only when ∀i ∈ [n], si = s′ and xi ̸= 0.
+Efficiency of the Argument. After applying Fiat-Shamir transformation, the proof size is 2 · 2κ
+bits as it only contains ∆ and z. Regarding the computation, P needs n multiscalar multiplications,
+and V needs 2n multiscalar multiplications.
+
+
+7      Implementation and Performance
+
+
+   We implement both of our protocols and compare them thoroughly with the state-of-the-art
+semi-honest PSU protocols in this section. We also provide a micro-benchmark for our two-sided
+protocol in Section 7.1 for better understanding of its efficiency. Our implementation will be made
+publicly available 8 .
+Environment. We ran all experiments on an Ubuntu server equipped with a 8-core (4th Gen)
+SapphireRapids Intel Xeon “Golden Cove” processor at 2.0 GHz and 24 GB of RAM. The system
+had AVX2 and AVX-512 (SIMD) instructions enabled, with AES-NI support, and all tests were
+performed single-threaded. To evaluate the performance of our protocol, we test it under different
+network conditions by configuring varying latencies and bandwidths using the Linux tc command.
+8
+    https://github.com/sihangpu/Malicious-Private-Set-Union
+
+
+                                                           24
+             Table 2: Running time and communication cost of our malicious PSU protocols, compared to the
+             state-of-the-art semi-honest and one-sided malicious protocols. The last line describes the blowup
+             factor of our malicious protocols compared to the baseline protocols: [ZCL+ 23] for the online
+             time and [CZZ+ 24] for the total time/communication.
+Set Size      Protocol                    Runtime (ms): Online Time (left); Total Time (right)                                  Comm. (KB)
+
+                             LAN (10 Gbps)                1 Gbps                  500 Mbps                 100 Mbps
+
+            [ZCL+ 23] SH    1, 427       59, 766     1, 290       75, 355     1, 428       76, 322      1, 537       79, 576           6, 974
+            [CZZ+ 24] SH     1, 667      1, 667       1, 886      1, 887       1, 963      1, 963        2, 019      2, 019           1, 657
+214        [GHLL22] 1M       4, 750      10, 867      5, 294      11, 888      5, 469      12, 120       5, 829      13, 063           3, 876
+
+                 Ours 1M     2, 384       2, 384      2, 403       2, 403      2, 455       2, 455       2, 565       2, 565           1, 934
+                 Ours 2M     2, 828       2, 941      3, 023       3, 140      3, 156       3, 269       3, 500       3, 622           5, 120
+
+            [ZCL+ 23] SH    4, 670      190, 179     5, 172      242, 411     5, 419      249, 435      6, 312      250, 393          27, 807
+            [CZZ+ 24] SH     6, 735      6, 736       7, 607      7, 607       7, 973      7, 973        8, 365      8, 366           6, 610
+216        [GHLL22] 1M      18, 353      24, 470     20, 646      27, 426     21, 657      28, 336      22, 923      29, 974          15, 507
+
+                 Ours 1M     8, 850       8, 851      9, 149       9, 150      9, 349       9, 350      10, 278      10, 279           7, 750
+                 Ours 2M    11, 303      11, 750     12, 383      13, 019     13, 548      14, 076      14, 205      14, 717          20, 480
+
+            [ZCL+ 23] SH   76, 170    2, 452, 996   86, 260    3, 317, 616   88, 546    3, 393, 033   108, 863    3, 744, 297        435, 977
+            [CZZ+ 24] SH   108, 682    108, 706     114, 681    114, 710     126, 332    126, 362      141, 871    141, 913         105, 682
+220        [GHLL22] 1M     310, 682      316, 862   352, 524      359, 202   355, 151      361, 689    378, 264      385, 392        233, 641
+
+                 Ours 1M   137, 200     137, 224    146, 158     146, 200    149, 349     149, 382     165, 975     166, 023         124, 934
+                 Ours 2M   184, 421     192, 576    200, 508     209, 485    207, 202     216, 115     230, 034     239, 125         327, 680
+
+                 Ours 1M     1.89×        1.26×       1.73×        1.18×       1.68×        1.18×        1.52×        1.16×            1.18×
+Blowup
+                 Ours 2M     2.42×        1.77×       2.32×        1.82×       2.34×        1.71×        2.11×        1.68×            3.10×
+
+
+
+             To simulate a LAN network, we set the bandwidth to 10Gbps with a round-trip latency of 1ms,
+             and for a WAN network, we set the bandwidth ranging from 100Mbps to 1Gbps with 80ms latency.
+             Parameters. Unless particularly specified, we use statistical parameter λ = 40, security parameter
+             κ = 128, and item length ℓ = 128 as common choices.
+             Implementation. Our implementation is written in Rust with around 2000 lines of code, where
+             we use the library curve25519-dalek to implement the prime order group G (in Edwards form),
+             and follow the explicit formula on https://elligator.org/formulas to implement the com-
+             patible Elligator 2 as M2P. Note that due to Elligator 2 maps field elements to Montgomery
+             points, we additionally rely on the conversion between Montgomery and Edwards point from
+             curve25519-dalek. We implement the ideal permutation by applying Luby-Rackoff [LR88] over
+             AES-128 with a fixed key. We use collision resistant hash function Blake2 to instantiate the random
+             oracle (in our protocols and corresponding zero-knowledge AoK with Fiat-Shamir transformation).
+             For our one-sided protocol, we additionally use maliciously secure OT extensions following Keller-
+             Orsini-Scholl [KOS15] from ocelot. 9
+             9
+                 https://galoisinc.github.io/swanky/ocelot
+
+
+                                                                    25
+Table 3: Micro-benchmark results (in milliseconds, ms) for our two-sided PSU protocol with sets of
+size 216 in the LAN network environment. The last row reports the percentage of the total runtime
+spent on each operation.
+Offline   1st & 2nd Rounds     Shuffling Argument                     Final Response                 Point Compression   Total
+
+          M2P    Blind (xi )   Shuffle (ui )   AoK (χ0 )   Unblind (E , u′i )
+                                                                         ′
+                                                                                AoK (ϕ0 )   M2P −1
+
+  447     602      1, 212        1, 212          864            2, 424            432       2, 444         1, 611        11, 750
+
+ 3.8%     5.1%     10.3%          10.3%          7.3%           20.6%             3.6%      20.8%          13.7%
+
+
+
+
+7.1     Concrete Performance of Our Protocols
+We present the comparison table in Table 2 and report a micro-benchmark of our two-sided proto-
+col in Table 3. For the baselines of semi-honest one-sided protocols, we choose the SKE variant
+from [ZCL+ 23] and the Curve25519 variant from [CZZ+ 24], as they achieve the lowest online
+time and the lowest total time, respectively (see Table 1). For malicious security, the protocol
+of [GHLL22] (we choose their fastest variant M4) is the only implementable PSU construction
+against malicious adversaries available in the literature, which also adopts the same relaxed func-
+tionality as our one-sided protocol in Section 5.
+Comparison with baselines. Our malicious one-sided protocol (1M) is only 1.52−1.89× slower in
+online time than the fastest semi-honest protocol [ZCL+ 23], while requiring just 1.18× more com-
+munication than the most compact one [CZZ+ 24]. In terms of total runtime, it is only 1.16−1.26×
+slower. Similarly, our two-sided protocol (2M) is only 2.11−2.42× slower in the online phase
+than [ZCL+ 23], with 3.10× more communication than [CZZ+ 24], and incurs just 1.68−1.77×
+slowdown in total runtime.
+Comparison with [GHLL22]. Relative to the only existing sender-malicious PSU protocol [GHLL22],
+our one-sided construction is 2.31−5.09× faster overall and yields 1.87−2.00× less communication.
+Benchmark. As shown in Table 3, our two-sided protocol spends 41.2% of its runtime in shuf-
+fled Diffie-Hellman (blinding/unblinding group elements), 25.9% in direct and inverse mappings
+between group elements and real items, and only 10.9% in zero-knowledge arguments. Perfor-
+mance can be further improved by about 15% if we forgo point compression, at the cost of higher
+communication.
+
+
+Acknowledgments.
+The second and third authors were partially supported by NSF award #2451972, and ARPA-H
+SP4701-23-C-0074.
+   Sihang Pu gratefully acknowledges partial support from the ERC under grant OBELiSC (101115790).
+
+
+References
+AFQ+ 14. Diego F. Aranha, Pierre-Alain Fouque, Chen Qian, Mehdi Tibouchi, and Jean-Christophe Za-
+         palowicz. Binary elligator squared. In Antoine Joux and Amr M. Youssef, editors, SAC 2014,
+         volume 8781 of LNCS, pages 20–37. Springer, Cham, August 2014.
+AHH21.   Michel Abdalla, Björn Haase, and Julia Hesse. Security analysis of CPace. In Mehdi Tibouchi
+         and Huaxiong Wang, editors, ASIACRYPT 2021, Part IV, volume 13093 of LNCS, pages 711–
+         741. Springer, Cham, December 2021.
+
+
+                                                               26
+BB04.    Dan Boneh and Xavier Boyen. Short signatures without random oracles. In Christian Cachin
+         and Jan Camenisch, editors, EUROCRYPT 2004, volume 3027 of LNCS, pages 56–73. Springer,
+         Berlin, Heidelberg, May 2004.
+BHKL13. Daniel J. Bernstein, Mike Hamburg, Anna Krasnova, and Tanja Lange. Elligator: elliptic-curve
+         points indistinguishable from uniform random strings. In Ahmad-Reza Sadeghi, Virgil D.
+         Gligor, and Moti Yung, editors, ACM CCS 2013, pages 967–980. ACM Press, November 2013.
+BKM+ 20. Prasad Buddhavarapu, Andrew Knox, Payman Mohassel, Shubho Sengupta, Erik Taubeneck,
+         and Vlad Vlaskin. Private matching for compute. Cryptology ePrint Archive, Paper 2020/599,
+         2020. https://eprint.iacr.org/2020/599.
+BPSY23. Alexander Bienstock, Sarvar Patel, Joon Young Seo, and Kevin Yeo. Near-optimal oblivious
+         key-value stores for efficient PSI, PSU and volume-hiding multi-maps. In Joseph A. Calandrino
+         and Carmela Troncoso, editors, USENIX Security 2023, pages 301–318. USENIX Association,
+         August 2023.
+BS05.    Justin Brickell and Vitaly Shmatikov. Privacy-preserving graph algorithms in the semi-honest
+         model. In Bimal K. Roy, editor, ASIACRYPT 2005, volume 3788 of LNCS, pages 236–252.
+         Springer, Berlin, Heidelberg, December 2005.
+BSMD10. Martin Burkhart, Mario Strasser, Dilip Many, and Xenofontas Dimitropoulos. SEPIA: Privacy-
+         Preserving aggregation of Multi-Domain network events and statistics. In 19th USENIX Secu-
+         rity Symposium (USENIX Security 10), Washington, DC, August 2010. USENIX Association.
+Can01.   Ran Canetti. Universally composable security: A new paradigm for cryptographic protocols.
+         In 42nd FOCS, pages 136–145. IEEE Computer Society Press, October 2001.
+CDGS19. Jan Camenisch, Angelo De Caro, Esha Ghosh, and Alessandro Sorniotti. Oblivious PRF on
+         committed vector inputs and application to deduplication of encrypted data. In Ian Goldberg
+         and Tyler Moore, editors, FC 2019, volume 11598 of LNCS, pages 337–356. Springer, Cham,
+         February 2019.
+CF01.    Ran Canetti and Marc Fischlin. Universally composable commitments. In Joe Kilian, editor,
+         CRYPTO 2001, volume 2139 of LNCS, pages 19–40. Springer, Berlin, Heidelberg, August 2001.
+Cha82.   David Chaum. Blind signatures for untraceable payments. In David Chaum, Ronald L. Rivest,
+         and Alan T. Sherman, editors, CRYPTO’82, pages 199–203. Plenum Press, New York, USA,
+         1982.
+CHL22.   Sı́lvia Casacuberta, Julia Hesse, and Anja Lehmann. SoK: Oblivious pseudorandom functions.
+         In 2022 IEEE European Symposium on Security and Privacy, pages 625–646. IEEE Computer
+         Society Press, June 2022.
+CL24.    Yi-Hsiu Chen and Yehuda Lindell. Optimizing and implementing fischlin’s transform for UC-
+         secure zero-knowledge. Cryptology ePrint Archive, Paper 2024/526, 2024.
+CLOS02. Ran Canetti, Yehuda Lindell, Rafail Ostrovsky, and Amit Sahai. Universally composable two-
+         party and multi-party secure computation. In 34th ACM STOC, pages 494–503. ACM Press,
+         May 2002.
+CP93.    David Chaum and Torben P. Pedersen. Wallet databases with observers. In Ernest F. Brickell,
+         editor, CRYPTO’92, volume 740 of LNCS, pages 89–105. Springer, Berlin, Heidelberg, August
+         1993.
+CS03.    Jan Camenisch and Victor Shoup. Practical verifiable encryption and decryption of discrete
+         logarithms. In Dan Boneh, editor, CRYPTO 2003, volume 2729 of LNCS, pages 126–144.
+         Springer, Berlin, Heidelberg, August 2003.
+CSSW25. Gowri R Chandran, Thomas Schneider, Maximilian Stillger, and Christian Weinert. Concretely
+         efficient private set union via circuit-based PSI. ACM AsiaCCS 2025, 2025.
+CZZ+ 24. Yu Chen, Min Zhang, Cong Zhang, Minglang Dong, and Weiran Liu. Private set operations
+         from multi-query reverse private membership test. In Qiang Tang and Vanessa Teague, editors,
+         PKC 2024, Part II, volume 14603 of LNCS, pages 387–416. Springer, Cham, April 2024.
+DCZB24. Minglang Dong, Yu Chen, Cong Zhang, and Yujie Bai. Breaking free: Efficient multi-party pri-
+         vate set union without non-collusion assumptions. Cryptology ePrint Archive, Paper 2024/1146,
+         2024. https://eprint.iacr.org/2024/1146.
+
+
+                                                 27
+DPSZ12.  Ivan Damgård, Valerio Pastro, Nigel P. Smart, and Sarah Zakarias. Multiparty computation
+         from somewhat homomorphic encryption. In Reihaneh Safavi-Naini and Ran Canetti, editors,
+         CRYPTO 2012, volume 7417 of LNCS, pages 643–662. Springer, Berlin, Heidelberg, August
+         2012.
+DY05.    Yevgeniy Dodis and Aleksandr Yampolskiy. A verifiable random function with short proofs and
+         keys. In Serge Vaudenay, editor, PKC 2005, volume 3386 of LNCS, pages 416–431. Springer,
+         Berlin, Heidelberg, January 2005.
+Fis05.   Marc Fischlin. Communication-efficient non-interactive proofs of knowledge with online extrac-
+         tors. In Victor Shoup, editor, CRYPTO 2005, volume 3621 of LNCS, pages 152–168. Springer,
+         Berlin, Heidelberg, August 2005.
+FO97.    Eiichiro Fujisaki and Tatsuaki Okamoto. Statistical zero knowledge protocols to prove modular
+         polynomial relations. In Burton S. Kaliski, Jr., editor, CRYPTO’97, volume 1294 of LNCS,
+         pages 16–30. Springer, Berlin, Heidelberg, August 1997.
+FS87.    Amos Fiat and Adi Shamir. How to prove yourself: Practical solutions to identification and
+         signature problems. In Andrew M. Odlyzko, editor, CRYPTO’86, volume 263 of LNCS, pages
+         186–194. Springer, Berlin, Heidelberg, August 1987.
+GHL+ 22. Xiaojie Guo, Ye Han, Zheli Liu, Ding Wang, Yan Jia, and Jin Li. Birds of a feather flock
+         together: How set bias helps to deanonymize you via revealed intersection sizes. In Kevin
+         R. B. Butler and Kurt Thomas, editors, USENIX Security 2022, pages 1487–1504. USENIX
+         Association, August 2022.
+GHLL22. Dov Gordon, Carmit Hazay, Phi Hung Le, and Mingyu Liang. More efficient (reusable) private
+         set union. Cryptology ePrint Archive, Paper 2022/713, 2022.
+GMR+ 21. Gayathri Garimella, Payman Mohassel, Mike Rosulek, Saeed Sadeghian, and Jaspal Singh.
+         Private set operations from oblivious switching. In Juan Garay, editor, PKC 2021, Part II,
+         volume 12711 of LNCS, pages 591–617. Springer, Cham, May 2021.
+GNT24.   Jiahui Gao, Son Nguyen, and Ni Trieu. Toward a practical multi-party private set union. In
+         The 24th Privacy Enhancing Technologies Symposium (PoPETs), pages 622–635, 2024.
+GPR+ 21. Gayathri Garimella, Benny Pinkas, Mike Rosulek, Ni Trieu, and Avishay Yanai. Oblivious
+         key-value stores and amplification for private set intersection. In Tal Malkin and Chris Peikert,
+         editors, CRYPTO 2021, Part II, volume 12826 of LNCS, pages 395–425, Virtual Event, August
+         2021. Springer, Cham.
+Gro10.   Jens Groth. A verifiable secret shuffle of homomorphic encryptions. Journal of Cryptology,
+         23(4):546–579, October 2010.
+HL10.    Carmit Hazay and Yehuda Lindell. A note on the relation between the definitions of security
+         for semi-honest and malicious adversaries. Cryptology ePrint Archive, Report 2010/551, 2010.
+HLS+ 16. Kyle Hogan, Noah Luther, Nabil Schear, Emily Shen, David Stott, Sophia Yakoubov, and
+         Arkady Yerukhimovich. Secure multiparty computation for cooperative cyber risk assessment.
+         In 2016 IEEE Cybersecurity Development (SecDev), pages 75–76, 2016.
+HM04.    Dennis Hofheinz and Jörn Müller-Quade. Universally composable commitments using random
+         oracles. In Moni Naor, editor, TCC 2004, volume 2951 of LNCS, pages 58–76. Springer, Berlin,
+         Heidelberg, February 2004.
+HN12.    Carmit Hazay and Kobbi Nissim. Efficient set operations in the presence of malicious adver-
+         saries. Journal of Cryptology, 25(3):383–433, July 2012.
+JKK14.   Stanislaw Jarecki, Aggelos Kiayias, and Hugo Krawczyk. Round-optimal password-protected
+         secret sharing and T-PAKE in the password-only model. In Palash Sarkar and Tetsu Iwata,
+         editors, ASIACRYPT 2014, Part II, volume 8874 of LNCS, pages 233–253. Springer, Berlin,
+         Heidelberg, December 2014.
+JL09.    Stanislaw Jarecki and Xiaomin Liu. Efficient oblivious pseudorandom function with applica-
+         tions to adaptive OT and secure computation of set intersection. In Omer Reingold, editor,
+         TCC 2009, volume 5444 of LNCS, pages 577–594. Springer, Berlin, Heidelberg, March 2009.
+JSZ+ 22. Yanxue Jia, Shifeng Sun, Hong-Sheng Zhou, Jiajun Du, and Dawu Gu. Shuffle-based private
+         set union: Faster and more secure. In Kevin R. B. Butler and Kurt Thomas, editors, USENIX
+         Security 2022, pages 2947–2964. USENIX Association, August 2022.
+
+
+                                                   28
+JSZG24.  Yanxue Jia, Shi-Feng Sun, Hong-Sheng Zhou, and Dawu Gu. Scalable private set union, with
+         stronger security. In Davide Balzarotti and Wenyuan Xu, editors, USENIX Security 2024.
+         USENIX Association, August 2024.
+KC04.    M. Kantarcioglu and C. Clifton. Privacy-preserving distributed mining of association rules
+         on horizontally partitioned data. IEEE Transactions on Knowledge and Data Engineering,
+         16(9):1026–1037, 2004.
+KOS15.   Marcel Keller, Emmanuela Orsini, and Peter Scholl. Actively secure OT extension with optimal
+         overhead. In Rosario Gennaro and Matthew J. B. Robshaw, editors, CRYPTO 2015, Part I,
+         volume 9215 of LNCS, pages 724–741. Springer, Berlin, Heidelberg, August 2015.
+KRTW19. Vladimir Kolesnikov, Mike Rosulek, Ni Trieu, and Xiao Wang. Scalable private set union
+         from symmetric-key techniques. In Steven D. Galbraith and Shiho Moriai, editors, ASI-
+         ACRYPT 2019, Part II, volume 11922 of LNCS, pages 636–666. Springer, Cham, December
+         2019.
+LG23.    Xiang Liu and Ying Gao. Scalable multi-party private set union from multi-query secret-shared
+         private membership test. In Jian Guo and Ron Steinfeld, editors, ASIACRYPT 2023, Part I,
+         volume 14438 of LNCS, pages 237–271. Springer, Singapore, December 2023.
+LR88.    Michael Luby and Charles Rackoff. How to construct pseudorandom permutations from pseu-
+         dorandom functions. SIAM Journal on Computing, 17(2), 1988.
+Mau05.   Ueli M. Maurer. Abstract models of computation in cryptography (invited paper). In Nigel P.
+         Smart, editor, 10th IMA International Conference on Cryptography and Coding, volume 3796
+         of LNCS, pages 1–12. Springer, Berlin, Heidelberg, December 2005.
+MPR10. Hemanta K. Maji, Manoj Prabhakaran, and Mike Rosulek. A zero-one law for cryptographic
+         complexity with respect to computational UC security. In Tal Rabin, editor, CRYPTO 2010,
+         volume 6223 of LNCS, pages 595–612. Springer, Berlin, Heidelberg, August 2010.
+MPR+ 20. Peihan Miao, Sarvar Patel, Mariana Raykova, Karn Seth, and Moti Yung. Two-sided mali-
+         cious security for private intersection-sum with cardinality. In Daniele Micciancio and Thomas
+         Ristenpart, editors, CRYPTO 2020, Part III, volume 12172 of LNCS, pages 3–33. Springer,
+         Cham, August 2020.
+MRR20. Ian McQuoid, Mike Rosulek, and Lawrence Roy. Minimal symmetric PAKE and 1-out-of-N
+         OT from programmable-once public functions. In Jay Ligatti, Xinming Ou, Jonathan Katz,
+         and Giovanni Vigna, editors, ACM CCS 2020, pages 425–442. ACM Press, November 2020.
+MSK02.   Shigeo Mitsunari, Ryuichi Sakai, and Masao Kasahara. A new traitor tracing. IEICE Trans-
+         actions, E85-A(2):481–484, February 2002.
+NPR99.   Moni Naor, Benny Pinkas, and Omer Reingold. Distributed pseudo-random functions and
+         KDCs. In Jacques Stern, editor, EUROCRYPT’99, volume 1592 of LNCS, pages 327–346.
+         Springer, Berlin, Heidelberg, May 1999.
+RR22.    Srinivasan Raghuraman and Peter Rindal. Blazing fast PSI from improved OKVS and subfield
+         VOLE. In Heng Yin, Angelos Stavrou, Cas Cremers, and Elaine Shi, editors, ACM CCS 2022,
+         pages 2505–2517. ACM Press, November 2022.
+RT21.    Mike Rosulek and Ni Trieu. Compact and malicious private set intersection for small sets.
+         In Giovanni Vigna and Elaine Shi, editors, ACM CCS 2021, pages 1166–1181. ACM Press,
+         November 2021.
+Sho97.   Victor Shoup. Lower bounds for discrete logarithms and related problems. In Walter Fumy,
+         editor, EUROCRYPT’97, volume 1233 of LNCS, pages 256–266. Springer, Berlin, Heidelberg,
+         May 1997.
+TBZ+ 25. Binbin Tu, Yujie Bai, Cong Zhang, Yang Cao, and Yu Chen. Fast enhanced private set union
+         in the balanced and unbalanced scenarios. Cryptology ePrint Archive, to appear at USENIX
+         2025, 2025.
+Vai.     Loup Vaillant. The elligator map and inverse map. https://elligator.org/map.
+YLS+ 24. Yaxi Yang, Xiaojian Liang, Xiangfu Song, Ye Dong, Linting Huang, Hongyu Ren, Changyu
+         Dong, and Jianying Zhou. Maliciously secure circuit private set intersection via SPDZ-
+         compatible oblivious PRF. PoPETS 2025, to appear, 2024.
+
+
+                                                  29
+ZCL+ 23.   Cong Zhang, Yu Chen, Weiran Liu, Min Zhang, and Dongdai Lin. Linear private set union from
+           multi-query reverse private membership test. In Joseph A. Calandrino and Carmela Troncoso,
+           editors, USENIX Security 2023, pages 337–354. USENIX Association, August 2023.
+
+
+
+
+                                                 30
+A    More Related Works
+Kolesnikov, Rosulek, Trieu, and Wang [KRTW19] proposed an efficient two-party PSU protocol
+primarily based on symmetric-key techniques. The core building block of their protocol is the
+reverse private membership test (RPMT), which is a two-party protocol where a receiver holding
+a set V learns whether a given element w from the sender belongs to V , while the sender learns
+nothing. In the context of PSU, by invoking RPMT, the receiver obtains a bit b ∈ {0, 1} indicating
+the membership of w ∈ V . Subsequently, they perform an OT, allowing the receiver to learn the
+value of w if b = 1 and nothing otherwise (b = 0).
+    To further optimize performance, [KRTW19] introduced a bucketing technique. However, Jia
+et al. [JSZ+ 22] later identified that this technique introduces information leakage. Specifically,
+they showed that the bucketing approach based on hashing leaks partial information about the
+intersection during execution. In particular, the receiver may infer whether certain bins contain
+elements that belong to the intersection. Furthermore, they demonstrated through experiments
+that the dummy element solution proposed by [KRTW19] is insufficient to completely eliminate
+such leakage.
+    Jia et al. [JSZ+ 22] proposed a new PSU protocol that relies on the permute-share functionality
+in combination with an OPRF. In their protocol, the sender inputs a permutation π and learns the
+receiver’s input set in a permuted order, masked by random values, i.e., {vπ(j) ⊕ rπ(j) }. Meanwhile,
+the receiver learns the corresponding mask values in the same permuted order, i.e., {rπ(j) }. The
+sender then sends to the receiver the set of masked values: {wi ⊕vπ(1) ⊕rπ(1) , . . . , wi ⊕vπ(n) ⊕rπ(n) }.
+If any mask value sπ(j) matches a value obtained from the sender, the receiver learns a bit indicating
+that the item at π(j) is part of the intersection. Consequently, this item can be discarded in the
+subsequent execution of OT. To further improve efficiency, the authors use a combination of cuckoo
+hashing and simple hashing.
+    The cuckoo/simple hashing scheme plays a crucial role in designing private set operations.
+Garimella, Mohassel, Rosulek, Sadeghian, and Singh [GMR+ 21] utilized the same OT-based ap-
+proach and introduced a new building block called the permuted characteristic. This is a two-party
+protocol where the sender learns a permutation π of their set W , while the receiver, holding a set
+V , obtains a vector e, where ei = 1 if the sender’s π(i)-th item is in Y . Their protocol is built upon
+commonly used techniques such as cuckoo/simple hashing, oblivious shuffling, and special-purpose
+equality tests.
+    More recently, [CSSW25] proposed an efficient PSU protocol that can be instantiated using
+any cuckoo/simple hashing-based circuit PSI protocol. In this approach, the circuit PSI protocol
+is executed over the PRF values of the original input sets, enabling the sender and receiver to
+obtain shares of the intersection indicator bits. They further introduced a functionality called
+combine and permute, which allows the receiver to learn the combined bits in a random order.
+This randomization enables the subsequent execution of OT to reveal the differences between the
+two sets. The idea of leveraging the shared output of circuit PSI has gained increasing attention
+and is often referred to as the secret-shared private membership test (SS-PMT) in various PSU
+works [LG23, GNT24, DCZB24, JSZG24].
+    Although efficient PSU protocols can be constructed using the cuckoo/simple hashing scheme,
+their complexity remains super-linear in terms of the input set size. This is due to the need for a
+permutation step to break the correspondence between hash bins and elements. To address this
+limitation, [ZCL+ 23] proposed the first OT-based PSU protocol with linear computation and com-
+munication complexity. Their approach leverages the oblivious key-value store (OKVS) [GPR+ 21]
+and introduces a multi-query reverse private membership test (mq-RPMT) that combines both
+public-key and symmetric-key techniques. Unlike hashing-based schemes, their protocol eliminates
+
+
+                                                    31
+the need for explicit hashing, as the order-hiding property of OKVS removes the necessity for
+computationally expensive permutations.
+     Building on this idea, Bienstock, Patel, Seo, and Yeo [BPSY23] further optimized PSU per-
+formance by designing a more efficient OKVS. More recently, Chen et al. [CZZ+ 24] developed an
+efficient PSU protocol based on a Diffie-Hellman (DH)-based shuffle-OPRF technique. Their ap-
+proach enables permutation to be performed directly over DH-PRF values, allowing the protocol
+to achieve linear complexity as well.
+
+
+B     Additional Preliminaries
+B.1    Universal Composability
+  The Universal Composability (UC) framework [Can01] provides a strong security guarantee by
+ensuring that a protocol remains secure even when composed with arbitrary other protocols. In this
+model, security is defined by comparing a real-world execution of the protocol with an ideal-world
+execution involving a trusted functionality. An adversary interacts with parties in both settings,
+and the goal is to construct a simulator that makes these interactions indistinguishable.
+    In our security proof, we focus on static corruption, where the adversary chooses which parties
+to corrupt before the execution begins and cannot change this choice dynamically. This simplifies
+the analysis while still capturing relevant real-world attack scenarios. We prove the security of our
+protocols within the UC framework, where an environment Z provides inputs to two parties, P0
+and P1 , respectively.
+
+B.2    Idealized Models
+
+
+  Parameters: A hash function H : D 7→ M.
+  Functionality:
+
+    – Initialize a set L := ∅.
+    – Upon receiving input queries (H, α ∈ D):
+                                                                                          $
+        • If there exists some β ′ such that (α, β ′ ) ∈ L, set β = β ′ ; Otherwise sample β ← M and
+          update L = L ∪ (α, β).
+        • Return β.
+
+                                   Fig. 9: Ideal Functionality FRO
+
+
+
+Random Oracle. We recall the random oracle functionality FRO from [HM04] in Figure 9, adapt
+for our usage, and omit the session id for simplicity.
+Ideal Permutation. We recall the ideal permutation functionality FIP in Figure 10, which is a
+weaker model than ideal ciphers.
+
+
+C     Trivial Instantiation of Standard PSU Functionality
+Consider the following Trivial Protocol:
+
+
+                                                  32
+  Parameters: A permutation Π : M 7→ M.
+  Functionality:
+
+    – Initialize a set L := ∅.
+    – Upon receiving input queries (Π, α ∈ M):
+                                                                                           $
+       • If there exists some β ′ such that (α, β ′ ) ∈ L, set β = β ′ ; Otherwise sample β ← M \ {β ′ |
+         (·, β ′ ) ∈ L} and update L = L ∪ (α, β).
+       • Return β.
+    – Upon receiving input queries (Π −1 , β ∈ M):
+                                                                                           $
+        • If there exists some α′ such that (α′ , β) ∈ L, set α = α′ ; Otherwise sample α ← M \ {α′ |
+          (α′ , ·) ∈ L} and update L = L ∪ (α, β).
+        • Return α.
+
+                                    Fig. 10: Ideal Functionality FIP
+
+
+ – Receiver holds a set X, and Sender a set Y .
+ – Sender sends Y to Receiver.
+ – Receiver outputs X ∪ Y .
+Obviously, this protocol is insecure against a semi-honest adversary. However, it can UC-realize
+the PSU functionality (Figure 2 including highlighted code) against malicious adversaries.
+   Considering the following cases:
+ – Corrupted Receiver: Simulating a corrupted receiver in an ideal world is simple. Imaging the
+   environment Z sets inputs Y for the honest sender, and instructs A to corrupt the receiver. In
+   the ideal world, the simulator S samples a random set R = {r1 , . . . , rn } where ri ←$ {0, 1}ℓ . S
+   inputs R to the functionality FPSU and receives R ∪ Y . Given that each ri is sampled uniformly
+   from {0, 1}ℓ , the probability that some ri ∈ Y exists is negligible from the union bound:
+                                                                  N
+                                            Pr[∃ ri ∈ Y ] ≤ n ·                                        (1)
+                                                                  2ℓ
+   when ℓ = Ω(log(n) + log(N ) + λ). After receiving the output from FPSU , the simulator knows
+   the honest party’s input Y . Then it can perfectly simulate the transcripts using Y .
+ – Corrupted Sender: The simulator observes Sender’s message (i.e., also its effective set Y ′ ), and
+   sends Y ′ to Fw hich will set the output for Receiver.
+
+
+D     The Enhanced PSU Functionality from JSZG24
+The functionality introduced in [JSZG24, Figure 11] is recalled in Figure 3, with modifications
+highlighted in blue to show the differences from the standard FPSU functionality (Figure 2). For
+clarity, we simplify the description by omitting unnecessary notions (e.g., session id, states of each
+party).
+    This functionality can be interpreted as having a “two-sided” output, except that P1 ’s output is
+trivial—it is constant and does not depend on the other party’s input. However, since the function
+being evaluated (the union of sets) is deterministic, the simulator only needs to simulate the
+transcripts, as the output is determined solely by both parties’ inputs in the semi-honest setting.
+As a result, FePSU does not offer any meaningful distinction (even for malicious adversaries) from
+FPSU given the following theorem.
+
+
+                                                    33
+Theorem D.1 (Recall from Theorem 1). The standard functionality FPSU defined in Figure 2
+is equivalent to the “enhanced” functionality FePSU (recalled in Figure 3) within the UC framework,
+against both semi-honest and malicious adversaries. That is, any protocol realizing FPSU can also
+realize FePSU , and vice versa.
+
+Proof. We begin by showing how to realize FePSU using FPSU . In the FPSU -hybrid model, this is
+simple by having P1 also output ⟨Finished⟩ after sending inputs to FPSU —Remember an interactive
+Turing machine (ITM) can always write the subroutine-output tape of the environment Z during
+its execution (i.e., sending output to Z). First, when the sender P1 is corrupted, it is trivial since
+in both hybrid and ideal games there are no transcripts, and honest party P0 ’s output is identical
+in hybrid and ideal games given the same P1 ’s input. To see why this FPSU -hybrid game perfectly
+emulates FePSU when P0 is corrupted, let us consider two cases:
+ – Semi-honest adversaries. In the hybrid world, P1 always outputs ⟨Finished⟩. The simulator S
+   proceeds as follows: when Z gives P0 ’s input, S directly forwards it to FePSU (since a semi-
+   honest adversary will never halt or delay the input), and then immediately issues the ⟨Response⟩
+   query to FePSU . Because P1 outputs ⟨Finished⟩ in both worlds, P0 receives exactly the same
+   result from FPSU and FePSU , and no transcript is exchanged between the parties. Therefore, Z
+   cannot distinguish the hybrid from the ideal world.
+ – Malicious adversaries. This is a more interestig case: here, P0 could halt and never send its
+   input, while P1 still outputs ⟨Finished⟩ in the hybrid world. To handle this, we exploit the fact
+   that the malicious receiver is powerful (as discussed in Section 4.2): S first inputs a random
+   set into FePSU and then immediately sends the ⟨Response⟩ query to FePSU , without waiting
+   for Z’s input to P0 . In this way, P0 actually extracts P1 ’s input. Since P1 outputs ⟨Finished⟩
+   in both worlds and no transcript is generated, we only need to ensure P0 ’s view is identical.
+   Whenever Z supplies P0 ’s input, S computes the union itself using the extracted set from P1 .
+   This matches P0 ’s view exactly in both worlds, so Z has no advantage in distinguishing.
+    Conversely, to realize FPSU in the FePSU -hybrid model, it suffices to have P1 not output any-
+thing. In other words, P1 never produces ⟨Finished⟩, which matches FPSU ’s behavior. Again, there
+is no transcript, so Z sees the same execution in both the hybrid and ideal worlds.
+    Thus, we conclude that FPSU and FePSU are equivalent.                                       ⊔
+                                                                                                ⊓
+
+
+E     Missing Proofs
+E.1   Proof of Theorem 3
+Theorem E.2 (Recall from Theorem 3). Asssuming Hcom and Π instantiate FRO (Figure 9)
+and FIP (Figure 10) respectively, the protocol presented in Figure 6 UC-realizes the two-sided PSU
+functionality FPSU2 (Figure 4) in the {FRO , FIP , FAoK }-hybrid model, against malicious adversaries
+with q ≥ 2γ · (1 − 2−λ ), γ ≥ κ + max(ℓ, log(nN · cmax )), and ℓ ≥ λ + log(nN ).
+
+Proof. We prove security within the UC framework, where an environment Z chooses input V, W
+for two parties P0 and P1 , respectively. Without loss of generality, we assume P1 is corrupted
+since the protocol is symmetric. Our proof follows the typical strategy: The simulator S first
+simulates the random oracle FRO and idealized permutation FIP to extract P1 ’s effective input;
+then a functionality FPSU2 is added to the layout but its output wire is not attached to the honest
+party P0 and it is only used to help simulate transcripts; in the final hybrid where S can completely
+simulate the transcripts, let P0 accept output from FPSU2 to finish the ideal world.
+
+
+                                                 34
+Hyb0 : The Real World. This is the real world where P0 behaves exactly the same as in Figure 6,
+and P1 is corrupted by a dummy adversary A who is completely instructed by the environment
+Z. If P0 aborts during the execution, it outputs ⊥. Queries of Π(x) or Π(y)−1 are made through
+(Π, x) or (Π −1 , y) to an idealized permutation FIP . Queries of Hcom (x) are made through (Hcom , x)
+to a random oracle FRO . Every AoK is computed by querying and receiving output from FAoK : P0
+sends
+                                  (Rπ , x := ({yi }, {ui }) , w := (π0 , k0 ))
+to FAoK in Step III, and sends
+                                  (RDDH , x := (g, h0 , {ei }, E ′ ), w := k0 )
+to FAoK in Step IV; If P0 receives (R, ·, 0) from FAoK , P0 aborts.
+
+Hyb1 : Dummy Honest Party P0 . This hybrid is identical to the previous one, except that:
+ 1. The honest party P0 is a dummy party now, and it just passes input (output) to (from) the
+    simulator S.
+ 2. S runs the entire code of P0 inside its own machine, accepts instructions from Z (i.e., messages
+    of P1 ), and responds accordingly. If any abort occurs, S sets the output to ⊥. In the end, S
+    sends the final output to P0 .
+This hybrid should be perfectly indistinguishable from Hyb0 to the environment.
+
+Hyb2 : Simulating the (Local) Random Oracles and Idealized Permutation. This hybrid
+is the same as the previous one, except that S simulates FRO and FIP itself. Particularly, to simulate
+FIP for Π and Π −1 , S does the following:
+ 1. S initializes a set LΠ := ∅.
+ 2. Upon receiving (Π, α ∈ {0, 1}γ ):
+     – If there is (α, β ′ , ·) ∈ LΠ , set β = β ′ ;
+                                          $
+     – Otherwise, keep sampling r ← Z∗p until β = M2P−1 (g r ) ̸=⊥ ∧ (α, β, ·) ∈
+                                                                               / LΠ , then updates
+        LΠ = LΠ ∪ (α, β, r).
+     – Return β.
+ 3. Upon receiving (Π −1 , β ∈ {0, 1}γ ):
+     – If there is (α′ , β, ·) ∈ LH , then sets α = α′ ;
+                                   $
+     – Otherwise samples α ← {0, 1}γ \ {α′ | (α′ , ·, ·) ∈ LΠ } and updates LΠ = LΠ ∪ (α, β, ⊥).
+     – Return α.
+Simulating FRO for Hcom is exactly identical to Figure 9. This hybrid is statistically indistin-
+guishable from Hyb1 . We focus on FIP since the behavior of FRO remains unchanged. According
+to Lemma 3, each β = M2P−1 (g r ) ̸=⊥ is uniformly random over Fq . Given q ≈ 2γ , precisely,
+|1 − 2qγ | ≤ 2−λ , then the distribution of β over {0, 1}γ is statistically close to uniformly random.
+Therefore, the behavior of FIP is statistically indistinguishable from the previous hybrid.
+
+Hyb3 : Extracting Witness from FAoK . This hybrid is identical to the previous one, except S
+extracts witness of each AoK by observing inputs from FAoK .
+ 1. Step III: S extracts k1 , π1 from χ1 ; S aborts if xkπ11 (i) ̸= ei for any i ∈ [n] or g k1 ̸= h1 .
+                                                                1/k1
+ 2. Step IV: S extracts k1 from ϕ1 ; S aborts if u′i ̸= ui             for any (i, u′i ) ∈ U ′ , or |U ′ | ̸= |A|, or
+    g k1 ̸= h1 .
+Obviously, this hybrids is perfectly indistinguishable from Hyb2 .
+
+
+                                                       35
+Hyb4 : Extracting Effective Input from P1 . This hybrid is identical to the previous one,
+except that S additionally tries to extract the effective input of P1 as follows:
+ 1. Upon observing the message σ1 from P1 (i.e., instructions from Z), S starts looking for a record
+    of the form ((h1 , y1 . . . yN ), σ1 ) in Lcom .
+ 2. If no such records are found, S sets AbortFlagσ = 1.
+ 3. Otherwise, S sets AbortFlagσ = 0, and proceeds for each yi with i ∈ [N ]:
+      – S starts looking for a record of the form (wi ∥ 0γ−ℓ , ·, ri ) ∈ LΠ such that hr1i = yi .
+      – If no such records are found, S sets wi =⊥.
+This hybrid is perfectly indistinguishable from Hyb3 since the extraction does not affect the
+behavior and is unobservable by Z.
+
+Hyb5 : Simulating σ0 for P0 . This hybrid is identical to the previous one, except that S behaves
+differently while running the code of P0 in Step II:
+                               $
+ 1. S samples and sends σ0 ← {0, 1}γ directly.
+                                                        $
+ 2. After observing σ1 , if AbortFlagσ = 1, S sets xi ← G for every i ∈ [n]; otherwise, S computes
+    {xi }i∈[n] normally as in the previous hybrid.
+ 3. S programs Hcom such that σ0 = Hcom (g k0 , x1 , . . . , xn ) and sends out g k0 , {xi }i∈[n] .
+ 4. If AbortFlagσ = 1, or the 2nd round message from P1 does not equal to the record found in
+    Lcom , S aborts.
+    This hybrid is computationally indistinguishable from Hyb4 under DDH assumption (Defini-
+tion 1). First, when S does not abort in either hybrid, two hybrids are identical and therefore
+perfectly indistinguishable.
+    Then, consider the case that S aborts in both Hyb4 and Hyb5 . This means σ1 ̸= Hcom (h1 , y1 , . . . , yN )
+and P1 didn’t query Hcom with such inputs. In this case, two hybrids are computationally indistin-
+guishable by Z since the only transcripts are σ0 , h0 , {xi }i∈[n] : σ0 , h0 are perfectly indistinguishable
+as they are uniformly random over {0, 1}γ × G in both hybrids, whereas {xi }i∈[n] is uniformly ran-
+dom in Hyb5 and pseudorandom in Hyb4 under DG -DDH assumption ( Definition 2). Moreover,
+according to Lemma 1 and Lemma 2, this assumption is equivalent to standard DDH.
+    Next, we consider the case that S aborts in only one of two hybrids. If S only aborts in Hyb5 ,
+then P1 (and A) produces consistent σ1 without querying Hcom , or there is a collision. Assuming
+A issues Qcom queries to Hcom in total, finding a preimage or collision happens with probability
+           Q +Q2
+at most com2γ com . After normalization (by dividing the adversary’s running time T > Qcom to
+calculate bit-security), the advantage of Z to distinguish between Hyb4 and Hyb5 is negl(κ).
+    On the other hand, if S only aborts in Hyb4 , this means AbortFlagσ = 0 and there is no
+collision for σ1 , but S still aborts in Hyb4 . This cannot happen according to the behavior of FRO .
+
+Hyb6 : Adding the Ideal Functionality FPSU2 . This hybrid is the same as the previous one,
+except that:
+ 1. An additional ideal functionality FPSU2 is added to the layout.
+ 2. Dummy party P0 forwards its input to both FPSU2 and S.
+ 3. S sets AbortFlagw = 1 if there is wi =⊥ for any i ∈ [N ] (which are extracted since Hyb4 ), and
+    sets AbortFlagw = 0 otherwise.
+                                                                                                       $
+ 4. If AbortFlagw = 0, S sends W ′ := W (as P1 ’s input) to FPSU2 ; otherwise, S sends W ′ := {wi′ ←
+    {0, 1}ℓ }i∈[N ] to FPSU2 .
+
+
+                                                   36
+5. After receiving the union Q from FPSU2 , S initializes a new set V ′ := ∅, and for each qi ∈ Q\W ′ ,
+   it updates V ′ = V ′ ∪ qi .
+6. If |V ′ | < n and AbortFlagw = 0, S pads V ′ to size n by selecting random items from W .
+This hybrid is perfectly indistinguishable from Hyb5 since adding FPSU2 or recovering V ′ does not
+affect the transcripts or final output, and is unobservable by Z.
+                                                                            $
+    Regarding the extracted v ′ , we argue that if AbortFlagw = 1 (thus wi′ ← {0, 1}ℓ ), then wi′ ∈ V
+                   n
+with probability 2ℓ which implies
+
+                                                              nN
+                               Pr[∃ wi′ ∈ W ′ | wi′ ∈ V ] ≤       ≤ 2−λ .
+                                                               2ℓ
+This means S successfully recovers the honest party P0 ’s input V ′ = V with overwhelming prob-
+ability when AbortFlagw = 1, and recovers the set difference V \ W when AbortFlagw = 0. In the
+latter case, S might need to simulate the intersection by randomly choosing items from W .
+
+Hyb7 : Dummy Party P0 Stops Forwarding Input to S.                     This hybrid is the same as the
+previous one, except that:
+1. P0 does not forward its input to S, but only to FPSU2 .
+2. S simulates transcripts by using the extracted V ′ as the input of P0 .
+This hybrid is computationally indistinguishable from Hyb6 for Z. If AbortFlagw = 1, then S uses
+V ′ = V in this hybrid as P0 ’s input which is identical to Hyb6 and two hybrids are perfectly
+indistinguishable.
+    We focus on that AbortFlagw = 0, where each yi binds to a valid wi , and S replaces the
+intersection in V to be some random items in W . We enumerate the following cases:
+ – in Step II: Note that Hyb7 is identical to Hyb6 when AbortFlagσ = 1 since S will not use P0 ’s
+   input (no matter it is V or V ′ ) as discussed in Hyb5 . If AbortFlagσ = 0, S would abort in both
+   Hyb7 and Hyb6 , or does not abort in either hybrid, since transcripts are computationally
+   indistinguishable: given AbortFlagw = 0 and V ′ differs from V with some items in W , {xi }i∈[n]
+   are pseudorandom in both hybrids according to DG -DDH assumption.
+ – in Step III: In this case, two hybrids are identical as S aborts or not in Step III is independent
+   of V ′ , and transcripts {ui }i∈[N ] are perfectly indistinguishable.
+ – in Step IV.2: We argue S must abort in both Hyb7 and Hyb6 , or does not abort in either
+   hybrid. First, ei = xkπ11 (i) implies |A| = |W \ V | which is identical in both hybrids as V \ W =
+                                                                                      k
+   V ′ \ W ; then, E ′ is identical in both hybrids as it is consisted of M2P (Π(vi )) 1 for vi ∈ V \ W .
+   Therefore, transcripts are perfectly indistinguishable for Z in two hybrids.
+ – in Step IV.3: Given AbortFlagw = 0, each u′i binds to a valid wi , therefore S won’t abort in
+   either hybrid, and the final output is identical in Hyb7 and Hyb6 , except with probability
+   (cmax −1)·QΠ,M2P                            (j∈[cmax ])
+         2γ−ℓ
+                    (when more than one ri                 maps to valid items) where QΠ,M2P is the
+   number of queries to M2P and Π. After normalization (with T > QΠ,M2P ), the adversary’s
+   computational advantage is negl(κ).
+
+Hyb8 : Dummy Party P0 Obtains Output from FPSU2 .                     This hybrid is the same as the
+previous one, except that:
+1. S no longer forwards output to P0 who gets output from FPSU2 directly.
+2. If any abort occurs, S sends abort to FPSU2 .
+
+
+                                                  37
+ 3. in Step IV.4, S sends abort to FPSU2 if AbortFlagw = 1, and sends deliver otherwise.
+This hybrid is exactly the ideal world and computationally indistinguishable from Hyb7 for Z.
+Transcripts are not affected at all, thus we only need to argue the honest party’s output is identical
+in both hybrids. Let us focus on the case that AbortFlagw = 1 as this hybrid is identical to
+Hyb7 when AbortFlagw = 0. Moreover, given transcripts are identical to Hyb7 , S would behave
+identically in both hybrids before Step IV.3.
+   We argue that S must abort in Step IV.3 if it does not abort earlier in Hyb7 . AbortFlagw = 1
+                                                                                       1/k
+means there exists at least one y∗ such that {β1 . . . βcmax | M2P(βi∗ ∈[cmax ] ) = y∗ 1 } are not
+obtained by querying Π with valid format. Since S does not abort earlier, there is
+                                    1/k0                      k 1
+                                   ei      = M2P Π(vj ∥ 0γ−ℓ )
+                                                                                               1/k
+for every i ∈ [n], j = π1 (i). Then the probability that existing i ∈ [n] such that y∗ = ei 0 is
+at most np ≤ 2−λ . This means y∗ ∈ A (in Step IV.1) with overwhelming probability and there’s
+                          1/k      k /k                                                 1/k
+a corresponding u′∗ = u∗ 1 = y∗ 0 1 . Considering the preimages of (u′∗ )1/k0 = y∗ 1 , that is,
+β1 . . . βcmax . They mapped to valid items only with probability 2cmax
+                                                                    γ−ℓ = negl(κ) (after normalization
+
+by T ). Therefore, S would abort in Hyb7 with overwhelming probability.
+                                                                                                     ⊔
+                                                                                                     ⊓
+
+
+
+
+                                                  38
+F     PSU with Malicious Sender Realizing the Standard One-Sided
+      Functionality
+This protocol is a simplified version of Figure 6 and it realizes the standard one-sided functionality
+FPSU (incorporating the highlighted code from Figure 2). Its security naturally follows from the
+analysis in Section 6.
+
+
+    Parameters:
+
+     – Party P0 holds {vi } and P1 holds {wi } as before.
+     – M2P : Fq 7→ G with cmax preimages, a hash function Hcom : {0, 1}⋆ 7→ {0, 1}γ , and an ideal
+       permutation Π : {0, 1}γ 7→ {0, 1}γ .
+     – AoK ideal functionalities for relations RDDH (Section 6.5)
+
+    Protocol:
+
+   I. Offline Setup:
+                                                                   $               $
+       1. P0 and P1 samples random private exponents k0 ← Z∗p and k1 ← Z∗p , respectively.
+  II. Exchanging Committed Inputs (1st Round):
+                                                                                                         k
+       1. For each i ∈ [n], P0 pads vi with γ − ℓ zeros and computes xi = M2P Π(vi ∥ 0γ−ℓ ) 0 . P1
+          does the same to have yj for each wj ∈ W .
+       2. P0 sends the set {xi }i∈[n] to P1 , while P1 sends h := g k1 and {yj }j∈[N ] to P0 .
+ III. Shuffling and Response (2nd Round):
+                                  k0
+       1. P0 computes {uj = yπ(j)     }j∈[N ] and sends {uj }j∈[N ] to P1 , where π : [N ] 7→ [N ] is a random
+          permutation.
+                                            1/k                                   1/k
+       2. P1 initializes a set U ′ := {(i, ui 1 )}j∈[N ] . For each j ∈ [N ], if uj 1 = xi for some i ∈ [n], P0
+                                     1/k1
+           updates U ′ = U ′ \ (j, uj     ). P1 generates an argument for RDDH : ϕ = AoK{k1       | ∀ (j, u′j ) ∈
+                                   1/k1
+             ′
+           U ,g   k1
+                       = h ∧ uj = uj }, and sends back U ′ , ϕ to P0 .
+                              ′
+                                                                                                
+        3. P0 initializes a set T := ∅. For each (j, u′j ) ∈ U ′ , compute rj := M2P−1 (u′j )1/k0 , and
+                        (1)      (c   )
+           denote {rj , . . . , rj max } the preimages mapped to the same point as rj . Then P0 updates
+                                                                    (d)
+           T = T ∪ ti if there is any d ∈ [cmax ] such that Π −1 (rj ) = tj ∥ 0γ−ℓ ; otherwise, P0 aborts.
+        4. P0 outputs V ∪ T .
+
+                           Fig. 11: Our PSU Protocol Realizing the Standard FPSU
+
+
+
+
+                                                       39
+

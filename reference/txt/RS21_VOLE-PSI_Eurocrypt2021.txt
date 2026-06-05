@@ -1,0 +1,1732 @@
+    VOLE-PSI: Fast OPRF and Circuit-PSI from
+                   Vector-OLE
+                 Peter Rindal            Phillipp Schoppman
+
+                                August 8, 2024
+
+
+                                    Abstract
+          In this work we present a new construction for a batched Obliv-
+     ious Pseudorandom Function (OPRF) based on Vector-OLE and the
+     PaXoS data structure. We then use it in the standard transforma-
+     tion for achieving Private Set Intersection (PSI) from an OPRF. Our
+     overall construction is highly efficient with O(n) communication and
+     computation. We demonstrate that our protocol can achieve malicious
+     security at only a very small overhead compared to the semi-honest
+     variant. For input sizes n = 220 , our malicious protocol needs 6.2 sec-
+     onds and less than 59 MB communication. This corresponds to under
+     450 bits per element, which is the lowest number for any published PSI
+     protocol (semi-honest or malicious) to date. Moreover, in theory our
+     semi-honest (resp. malicious) protocol can achieve as low as 219 (resp.
+     260) bits per element for n = 220 at the added cost of interpolating a
+     polynomial over n elements.
+          As a second contribution, we present an extension where the output
+     of the PSI is secret-shared between the two parties. This functionality
+     is generally referred to as Circuit-PSI. It allows the parties to perform
+     a subsequent MPC protocol on the secret-shared outputs, e.g., train
+     a machine learning model. Our circuit PSI protocol builds on our
+     OPRF construction along with another application of the PaXoS data
+     structure. It achieves semi-honest security and allows for a highly
+     efficient implementation, up to 3x faster than previous work.
+
+
+1    Introduction
+We consider the problem of private set intersection (PSI) in a two-party
+setting. Here, two mutually distrusting parties, a receiver and a sender,
+each hold a set of identifiers X, Y respectively. The goal of the two parties
+is for the receiver to learn the intersection X ∩ Y without revealing any
+
+                                        1
+additional information to the parties. In particular, the sender should not
+learn any information about X beyond the size of it. Similarly, the receiver
+should not learn anything about Y \ X beyond the size of Y .
+    A common approach to PSI is based on oblivious pseudo-random func-
+tions (OPRFs). An OPRF allows the receiver to input x and learn Fk (x),
+where F is a PRF, and k is known to the sender. A straight-forward PSI
+protocol can be obtained by running an OPRF protocol for each x ∈ X,
+and then having the sender send {Fk (y) | y ∈ Y } to the receiver. The
+receiver can then locally compare the sender’s OPRF values to her own to
+learn which elements of X are in the intersection. This is the basis of several
+PSI protocols (see Section 1.4), and our first contribution also follows this
+paradigm.
+    While PSI alone has interesting applications, such as private contact
+discovery [KLS+ 17, DRRT18, KRS+ 19], other variants of PSI are gaining
+traction from a practical perspective. For example, both Google [IKN+ 20]
+and Facebook [BKM+ 20] have implemented variants of PSI that allow them
+to compute functions of the intersection, where only the result of the function
+evaluation and the intersection size is revealed, but not the intersection itself.
+    A generalization of these PSI-with-computation protocols yields circuit
+PSI, where the output isn’t revealed to either party, but instead is secret-
+shared between the parties. More precisely, the receiver learns a random
+vector Q ⃗0 and the sender learns Q       ⃗1 such that (q 0 ⊕ q 1 ) = 1 if i corresponds
+                                                         i     i
+to an element x ∈ X in the intersection, and (qi0 ⊕ qi1 ) = 0 otherwise. Note
+that this means that not even the intersection size is revealed to either party.
+We additionally can allow the sender (resp. receiver) to input an “associated
+value” ỹj (resp. x̃i ) for each yj ∈ Y (resp. xi ∈ X). In this case, the output
+also includes a random vector Z⃗0 to the receiver and Z⃗1 to the sender such
+that (zi0 ⊕ zi1 ) = (ỹj ||x̃i ) if xi = yj .
+
+1.1    Contributions
+PSI: We present a protocol for private set intersection (Section 4) based on
+two building blocks. The first building block is a protocol known as Vector
+OLE and presented in Figure 2. Multiple implementations of VOLE have
+recently been presented [BCG+ 19, SGRR19, WYKW20, YWL+ 20]. We
+use an improved version of [SGRR19] in this paper. The second building
+block is a linear system solver, e.g. PaXoS [PRTY20], which we adapt for
+our purposes as shown in Figure 1. Combining these two primitives in
+a novel way, we obtain an OPRF protocol (Figure 4). This construction
+is highly efficient, requiring an amortized 2.4κ bits of communication per
+
+                                           2
+input in our computationally efficient version or just κ bits when optimized
+for communication. We also demonstrate that malicious security can be
+obtained with only a very small overhead.
+    From an OPRF it is easy to obtain an PSI protocol which is our final
+goal. This final step is shown in Figure 6. We show that the malicious
+variant of this well known transformation can be optimized which reduces
+its overhead by as much as 50% compared to prior art [PRTY20, CKT10].
+Our final PSI protocol is secure against both semi-honest and malicious
+adversaries, and we provide an implementation for both threat models. It is
+also highly efficient, requiring just 5.4 (resp. 6.2) seconds and less than 54
+(resp. 59) MB communication in the semi-honest (resp. malicious) setting.
+
+Circuit PSI: Our second contribution is a protocol for circuit PSI. In
+Section 5, we show that using our variant of the PaXoS solver along with
+any OPRF protocol yields an Oblivious Programmable PRF (OPPRF) pro-
+tocol. Given this, we then construct the final protocol in Section 6 with the
+additional help of data structure known as a cuckoo hash table. We also
+implement two variants of our circuit PSI protocol in the semi-honest model
+and show that they outperform the best previous approach [PSTY19].
+
+1.2    Notation
+We use κ as the computational security parameter and λ for statistical
+security. The receiver’s set is detonated as X while the sender’s is Y . Their
+respective sizes are nx , ny . Often we will just assume both set are of size n.
+[a, b] denotes the set {a, a + 1, ..., b} and [b] is shorthand for [1, b]. We denote
+row vectors A ⃗ = (a1 , ..., an ) using the arrow notation while the elements are
+indexed without it. A set S = {s1 , ..., sn } will use similar notation. For a
+matrix M , we use M  ⃗ i to denote its i-th row vector, and Mi,j for the element
+at row i and column j. ⟨A,    ⃗ B⟩⃗ denotes the inner product of A, ⃗ B.⃗ We use =
+to denote the statement that the values are equal. Assignment is denoted
+as := and for some set S, the notation s ← S means that s is assigned a
+uniformly random element from S. If a function F is deterministic then
+we write y := F (x) while if F is randomized we use y ← F (x) to denote
+y := F (x; r) for r ← {0, 1}∗ .
+
+1.3    Overview
+OPRF. We now present a simplified version of our main protocols. Our
+core building block is a functionality known as (random) vector OLE which
+
+
+                                         3
+allows the parties to sample random vectors A,         ⃗ B,
+                                                         ⃗ C⃗ ∈ Fm and element
+                     ⃗         ⃗    ⃗
+∆ ∈ F such that C = ∆A + B. The PSI receiver will hold A,            ⃗ C
+                                                                       ⃗ while
+the sender will hold ⃗ B, ∆. We note that in the vector OLE literature, the
+sender/receiver roles are typically reversed.
+     The parties (implicitly) sample an exponentially large random matrix
+M ∈ {0, 1}|F|×m . The receiver defines M ∈ {0, 1}n×m which is the sub-
+   ∗
+
+matrix indexed by the rows x ∈ X. The receiver then solves the linear
+system
+                                 M P⃗ ⊺ = (0, ..., 0)⊺
+for the unknown P⃗ ∈ Fm . For now let us assume P⃗ is some random solution
+and not the trivial (0, ..., 0) solution1 . The protocol proceeds by having the
+receiver send A⃗ + P⃗ to the sender who defines
+                                   ⃗ :=B
+                                   K   ⃗ + ∆(A
+                                             ⃗ + P⃗ )
+
+The crucial observation is that
+                           M K⃗ ⊺ =M B
+                                     ⃗ ⊺ + ∆(M A
+                                               ⃗ ⊺ + M P⃗ ⊺ )
+                                     ⃗ ⊺ + ∆M A
+                                  =M B        ⃗⊺
+                                      ⃗⊺
+                                   =M C
+                                                    ⃗ = ⟨M
+                                             ⃗ x∗ , K⟩
+In particular, for each x ∈ X it holds that ⟨M                  ⃗ where M
+                                                         ⃗ x∗ , C⟩      ⃗ x∗ is
+                    ∗
+the x’th row of M . An OPRF can then be obtained by having the receiver
+apply a random oracle as
+                                    ⃗ x∗ , C⟩),
+                                 H(⟨M      ⃗           x∈X
+while the sender computes the output at any y as
+                                  FK           ⃗∗ ⃗
+                                   ⃗ (y) := H(⟨My , K⟩)
+
+To ensure efficiency we will require M ∗ to be of a special form such that
+solving M P⃗ ⊺ = (0, ..., 0)⊺ is efficient while also computing ⟨M⃗ ∗, V
+                                                                      x
+                                                                          ⃗ ⟩ in O(1)
+time. Specifically, we will use the PaXoS solver [PRTY20] to enable these
+properties.
+    To achieve security it is crucial that the receiver can not compute the
+OPRF F at any other point x ̸∈ X. In the formulation above this effec-
+tively means that it is hard to find a x ̸∈ X, such that ⟨M     ⃗ x∗ , P⃗ ⟩ = 0. We
+demonstrate how such a property can be obtained at little to no overhead.
+   1
+     In our malicious OPRF construction (Section 3.2), we will instead use a random oracle
+H, and set M P ⃗ ⊺ = (H(x0 ), H(x1 ), . . . , H(xn ))⊺ . We stick to the semi-honest variant here
+for ease of presentation.
+
+
+                                               4
+PSI. We then employ our OPRF construction as a subroutine to obtain a
+PSI protocol. This traditional transformation instructs the receiver to input
+their set X into an OPRF protocol to obtain F (x) for x ∈ X. The sender
+can then send Y ′ = {F (y) | y ∈ Y } which allows the receiver to identify the
+common items. In the malicious setting, one must show how the simulator
+extracts the set Y from observing Y ′ . The traditional analysis [PRTY20,
+CKT10] effectively achieves this by requiring the OPRF F to be second-
+preimage resistant and as such each y ′ ∈ Y ′ must be of length 2κ ≈ 256
+bits. We demonstrate that in fact preimage resistance is sufficient which
+allows the OPRF to have κ bit output which reduces the communication
+overhead by approximately 33%, or as much as 50% when |Y | ≫ |X|.
+
+Programmable OPRF. We present extension of our OPRF protocol to
+achieve a functionality known as a Programmable OPRF (OPPRF) [PSTY19].
+This building block will allow the sender to sample an OPPRF key k such
+that Fk (yi ) = vi for their choice of yi , vi . At all other locations the output
+of Fk will be random.
+    The parties first perform a normal OPRF protocol for an OPRF F ′ ,
+where the receiver inputs their set X and receive F ′ (x) for x ∈ X. The
+sender solves the system
+                    M P⃗ ⊺ = (v1 − F ′ (y1 ), ..., vn − F ′ (yn ))⊺
+where M ∈ {0, 1}n×m the submatrix of M ∗ indexed by the rows yi . The
+sender will send P⃗ to the receiver who outputs
+                             x′ := F ′ (x) + ⟨M
+                                              ⃗ x∗ , P⃗ ⟩
+
+for x ∈ X. Observe that at x = yi ∈ Y
+                            x′ :=F ′ (x) + ⟨M
+                                            ⃗ ∗ , P⃗ ⟩
+                                              x
+                                =F ′ (yi ) + vi − F ′ (yi )
+                                =vi
+as desired. It can be shown that at all other points y ̸∈ Y , the output is
+completely random. One security concern is that P⃗ might leak information
+about Y . Indeed, the PaXoS solver requires m larger than n, therefore
+several solutions could exist, and which P⃗ is output by PaXoS may leak
+information. We show that this is the case for PaXoS and then present
+an extension which is uniformly distributed under some constraints. We
+call our extension XoPaXoS and present it in Section 2. Our full OPPRF
+protocol is presented in Section 5.
+
+                                          5
+Circuit-PSI. Finally, we present our Circuit PSI extension which allows
+the output of the PSI to be secret shared between the two parties. Our
+protocol builds on the previous approach of Pinkas et al. [PSTY19] by re-
+placing their OPPRF construction with ours. For completeness we present
+this construction in Section 6.
+
+1.4   Related Work
+Early PSI protocols based on OPRFs/Diffie–Hellman (DH) have been around
+since the 1980s [Mea86], and they still form the basis of many modern PSI
+protocols [CT10, IKN+ 20, BKM+ 20]. The advantage of DH-based proto-
+cols is their low communication cost and constant round complexity, which
+however comes at the cost of high computational overhead. A more compu-
+tationally efficient protocol based on oblivious transfer extension [IKNP03]
+(as opposed to OPRF based) was presented by Schneider et al. [PSSZ15]
+along with many derivatives [PSZ14, KKRT16, RR17b, OOS17].
+    More recently, these two paradigms have begun to merge, and vari-
+ous OPRF constructions have been proposed [DCW13, KKRT16, RR17a,
+PRTY19, PRTY20, CM20] which more closely resemble [IKNP03]. All of
+these come with higher communication cost than [Mea86], but they sig-
+nificantly reduce computation. However, as the evaluation of [CM20] has
+shown, the optimal choice of protocol often depends on the network setting.
+Our work also follows the OPRF-based approach, building on the recent PSI
+protocol of [PRTY20], but significantly reducing communication. As our ex-
+periments in Section 7 show, our protocol works particularly well in settings
+with limited bandwidth and large input sizes. For an extended overview
+of the different approaches to PSI, see [IKN+ 20, Section 4.1] and [PSZ18,
+Section 1.2].
+    The first circuit PSI protocols were based entirely on generic techniques
+such as garbled circuits [HEK12] or GMW [PSSZ15, PSZ18]. Subsequent
+works improved computation and communication [CO18, PSWW18, PSTY19],
+and the linear-complexity protocol of [PSTY19] forms the current state of
+the art. Their protocol combines an oblivious programmable PRF (OPPRF)
+based on polynomial interpolation with a relatively small GMW circuit. Our
+circuit PSI protocol follows a similar approach, but uses our new OPRF con-
+struction, as well as a novel way to program it based on PaXoS [PRTY20].
+
+
+
+
+                                    6
+Parameters:
+
+     Statistical security parameter λ and computational security parameter κ.
+
+     Input length n.
+
+     A finite group G.
+
+     For m′ = 2.4n, let d = O(λ) upper bound the size of 2-core of a (m′ , n)-Cuckoo graph [PRTY20].
+
+     Output length m = m′ + d + λ.
+
+     A random function row : G × {0, 1}κ → {0, 1}m s.t. ∀x, the weight of the first m′ bits of row(x) is 2.
+
+Encode ((z1 , v1 ), ..., (zn , vn ); r) :
+                                            ′
+   1. Define row′ : G → {0, 1}m and ˜
+                                   row(z) s.t. row′ (z)|| ˜
+                                                         row(z) = row(z, r) for all z. Let
+                                                         
+                                              row(z1 , r)
+                                      M :=       ...      ∈ {0, 1}n×m
+                                              row(zn , r)
+                                      ′
+       and let M ′ ∈ {0, 1}n×m , M̃ ∈ {0, 1}n×d+λ s.t. M ′ ||M̃ = M .
+
+   2. Let G = (V, E) be a graph with vertex set V = [m′ ] and edge set E = {(c0 , c1 ) | i ∈ [n], Mi,c
+                                                                                                   ′
+                                                                                                       0
+                                                                                                         =
+        ′
+      Mi,c1 = 1}. Let G̃ = (Ṽ, Ẽ) be the 2-core of G.
+                                                                    ′
+   3. Let R ⊂ [n] index the rows of M in the 2-core, i.e. R = {i | Mi,c      ′
+                                                                          = Mi,c   = 1 ∧ (c0 , c1 ) ∈ Ẽ}. Let
+                                                                        0        1
+      ˜                     ˜
+      d := |R| and abort if d > d.
+                            ˜
+   4. Let M̃ ′ ∈ {0, 1}d×(d+λ) be the submatrix of M̃ obtained by taking the row indexed by R. Abort if
+      M̃ ′ does not contain an invertible d˜× d˜ matrix. Otherwise let M̃ ∗ be one such matrix and C ⊂ [d + λ]
+      index the corresponding columns of M̃ ′ .
+
+   5. Let C ′ := {j | i ∈ R, Mi,j
+                              ′ = 1} ∪ ([d + λ] \ C + m′ ) and for i ∈ C ′ assign P ← G. For i ∈ R, define
+                                                                                   i
+       ′             ⃗ ⊺
+      vi := vi − (M P )i where Pi is assumed to be zero if unassigned.
+
+   6. Using Gaussian elimination solve the system M̃ ∗ (Pm′ +C1 , ..., Pm′ +Cd˜)⊺ = (vR
+                                                                                      ′ , ..., v ′ )⊺ .
+                                                                                        1       R˜ d
+
+
+   7. Let T ⊂ [m′ ] such that each tree in G has a single vertex in T . For i ∈ T , assign Pi ← G.
+                            ′ = 1} ∪ T and I := [m′ ] \ I.
+   8. Let I := {j | i ∈ R, Mi,j
+
+   9. While I ̸= ∅, select an i ∈ I and do the following: Update I := I \ {i} and I := I ∪ {i}. For all
+      j ∈ {j | (j, i) ∈ E ∧ j ̸∈ I}. Identify k s.t. {h0 (zk , r), h1 (zk , r)} = {i, j} and assign Pj := vk − Pi .
+
+  10. Return P⃗ .
+
+Decode (P⃗ , z, r) :
+
+   1. Return ⟨row(z, r), P⃗ ⟩.
+
+                                  Figure 1: XoPaXoS algorithm.
+
+
+                                                7
+2    Oblivious Key Value Stores & PaXoS
+Our constructions makes use of a type of linear system solvers called an
+oblivious key value store (OKVS)[GPR+ 21]. As discussed before, we will use
+these solvers to encode our input sets (z1 , ..., zn ) = Z and values (v1 , ..., vn ) =
+V as a vector P⃗ ∈ Gm . There will exist a function Decode such that
+Decode(P⃗ , zi ) = vi for i ∈ [n] and is linear with respect to P⃗ . There are
+three main performance metrics that we are concerted with. The first is the
+rate ρ = m/n which denotes how compact the encoding is, i.e. n items can
+be encoded as m element vector. The last two metrics are the running time
+of the encoder/solver and that of the decoder/matrix multiplier.
+    Each instance of a solver is parameterized by a finite group G, integer
+m ≥ n, security parameter λ and an implicit random matrix M ∗ ∈ G|G|×m .
+The instance is fixed by sampling M ∗ ← M from some set M which depends
+on the particular solver. For any set Z ⊂ G s.t. |Z| = n, the solver will
+output P⃗ ∈ Gm s.t.
+                              M P⃗ ⊺ = (v1 , ..., vn )⊺
+where M ∈ {0, 1}n×m is the submatrix of M ∗ obtained by taking the rows
+indexed by z ∈ Z. The target values v1 , ..., vn ∈ G can be arbitrary. Our
+application will require the solver to output a solution with probability 1 −
+O(2−λ ).
+    Since M ∗ is exponential in size, it is more efficient to represent it as
+a random seed r ∈ {0, 1}κ and define the i-th row as being the output
+of the random function row(i, r). Therefore we will have the property
+⟨row(xi , r), P⃗ ⟩ = vi . For easy of presentation we will further abstract this
+via the Decode function defined as Decode(P⃗ , xi , r) := ⟨row(xi , r), P⃗ ⟩. We
+note that this is a very general encoding framework and encompasses several
+schemes, e.g. PaXoS, interpolation, bloom filters, and many others.
+
+The Vandermonde OKVS. One example of this general approach is
+polynomial interpolation. In this case we require G to also be a field and M
+contains only the Vandermonde matrix, i.e. row(i, r) = (1, i, i2 , ..., in−1 ) for
+all r. As such it achieves an optimal rate of ρ = 1, i.e. m = n. In this case,
+solving the system requires O(n log2 n) time using polynomial interpolation
+and decoding n points also requires O(n log2 n) time [BM74]. For large n it
+is also possible to construct row in such a way that t smaller systems of size
+O(λ) are constructed and solved independently [PSTY19]. This so called
+binning technique effectively results in a O(n log2 λ) running time while also
+maintaining near optimal rate ρ ≈ 1.
+
+
+                                          8
+The PaXoS OKVS. The PaXoS solver [PRTY20] significantly improves
+on polynomial interpolation in that it achieves O(n) running time. However,
+it comes at the cost of rate ρ ≈ 2.4, i.e., m ≈ 2.4n. The scheme of [PRTY20]
+defines row as outputting a binary vector s.t. the first m′ := 2.4n elements
+have weight 2 while the last m − m′ = O(λ) bits are distributed uniformly.
+There is also a PaXoS variant which achieves a slightly better rate of ρ = 2
+but at an increased running time. In this paper, we only make use of the
+first scheme.
+
+Other Solvers.        Other solvers have also been considered in the context
+of PSI and OPRF. A garbled bloom filter [DCW13, RR17a] where row(i, r)
+is a random weight κ vector of length m = 2κn. Another options is to let
+row : G×{0, 1}κ → Gm be a random function with m = n+O(λ). The Bloom
+filter has a linear time solver but very poor rate while the latter requires
+O(n3 ) time (via Guassian elimination) and near optimal rate. Constructing
+more efficient solvers remains an open question. With the advent of PaXoS
+we believe significant progress can be made at achieving improved rates, i.e.,
+ρ < 2, while at the same time maintaining a linear running time. Evidence
+of this is that PaXoS is based on cuckoo hashing which is known to achieve
+a significantly better rate when the matrix has weight 3 instead of weight
+2 used by PaXoS [DRRT18, PSZ18]. Moreover, solvers for such systems
+have been presented [LM10, KS12], but it is unclear whether they can be
+made robust enough to succeed with probability 1 − O(2λ ). As we will
+see in Section 7, our communication overhead is dominated by ρκn, so the
+performance of the solver has a direct impact.
+
+PaXoS Details.            We now present the PaXoS solver [PRTY20] in detail.
+                        ′
+Let M ′ ∈ {0, 1}n×m be the submatrix formed by the first m′ = 2.4n columns
+of M which itself consists of rows row(z1 , r), ..., row(zn , r). As such, each row
+of M ′ has weight 2. The solver first analyses the sparse system formed by
+M ′ as follows. Let G be the graph consisting of m′ vertices V = [m′ ] and
+the edge set E = {(c0 , c1 ) | i ∈ [n] ∧ Mi,c ′        ′
+                                                  = Mi,c   = 1}. That is, for each
+                                                0        1
+                      ⃗
+constraint vi = ⟨P , row(zi , r)⟩ = Pc0 + Pc1 + ... there is an edge between
+vertices (c0 , c1 ) = ei . G is called the cuckoo-graph [PRTY20].
+    First, let us assume that G has no cycles and therefore consists of one or
+more trees. This case can be solved by doing a linear pass over the nodes
+along tree edges, and assigning values on the way. In particular: (1) Initialize
+Pi := 0 for i ∈ [m]. (2) Let I ⊆ V s.t. each tree in G has a single vertex in I
+and I := V \ I. (3) Pick an i ∈ I and for each edge (j, i) ∈ E such that j ∈ I,
+
+
+                                        9
+identify ek ∈ E, i.e. Mk,i′ = M ′ = 1, and update P := v − P . Note that
+                                 k,j                    j     k     i
+because G is acyclic, Pi will not change value later. Update I := I ∪ {j}.
+Finally, define I := I \ {i}, I := I ∪ {i} and if I ̸= ∅, go back to (3).
+    Observe that this algorithm does not work if G contains a cycle since at
+some point in step (3) Pj will have already been updated. To address this,
+the solver first identifies the so called 2-core graph G̃ which is the subgraph
+of G which only contains the cycles along with any paths between these
+cycles. Observe that the graph formed by G \ G̃ is acyclic.
+    The solver uses Gaussian elimination to solve the constraints contained
+in G̃ = (Ṽ, Ẽ) with the use of the m − m′ additional columns of M . In
+particular, [PRTY20] show that for m′ = 2.4n, the size of Ẽ is bounded by
+d = O(λ) with overwhelming probability. Let the actual number of edges
+in G̃ be d˜ < d. They then consider the submatix M̃ formed by the last
+m − m′ columns of M and the d˜ rows corresponding to edges in G̃. In their
+parameterization they set m = d+λ+m′ . As such M̃ is a (d+λ)× d˜ random
+binary matrix. With probability 1 − O(2−λ ) there exists an invertible d˜ × d˜
+submatrix M̃ ∗ within M̃ [PRTY20]. The d˜ constraints in G̃ can then be
+solved for using Gaussian elimination on M̃ ∗ which requires O(d˜3 ) = O(λ3 )
+time. The remaining Pi values corresponding to G̃ and M̃ are assigned the
+value zero, and the remaining constraints in G \ G̃ can then be solved using
+the linear time algorithm described above.
+
+X-oblivious PaXoS. We now present a modified scheme detailed in Fig-
+ure 1 which we denote as XoPaXoS. Looking forward our Circuit PSI protocol
+will require an additional simulation property of the encode algorithm. In-
+formally, given that the vi values are uniform, we require the the distribution
+of P⃗ is independent of the zi values. More formally, we will require that the
+distributions
+       D0 (z1 , ..., zn ) := (Encode((z1 , v1 ), ..., (zn , vn ), r), r)
+                                         where r ← {0, 1}κ ; vi ← G, ∀i ∈ [n]
+       D1 (z1 , ..., zn ) := (P⃗ , r),   where r ← {0, 1}κ ; P⃗ ← Gm
+
+be indistinguishable for any PPT adversary except with probability 2−λ .
+     However, this does not hold for the [PRTY20] construction outlined
+above. In particular, the PaXoS algorithm assigns zero to Pi values in
+two locations. When solving the 2-core using Gaussian elimination some
+of the column of M̃ are not used and therefore the corresponding Pi are
+assigned zero. The XoPaXoS scheme rectifies this in Step 5 of Figure 1 by
+first assigning random values to the redundant Pi positions and then solving
+
+                                             10
+the remaining (fully constrained) system using Gaussian elimination. It is
+easy to verify that the Pi values output by Gaussian elimination have the
+desired distribution.
+    Secondly, when performing the linear pass over the trees of G, a vertex i
+from each tree is picked and Pi is assigned zero. In Step 7 of XoPaXoS, we
+again replace this assignment with sampling Pi uniformly from G. Finally,
+the remaining assignments have the form Pi := vk + Pj + ... where each
+assignment contains a distinct uniform vk value and therefore Pi is uniform
+as desired. These modifications make the Encode algorithm randomized even
+for a fixed r. In particular, we assume Encode takes an addition random tape
+as input from which the uniform Pi values are sampled. We note that the
+original PaXoS algorithm can be obtained by omitting these addition steps
+and instead initializing all Pi to zero.
+
+OKVS Extraction. As with [PRTY20], our protocols will construct an
+OKVS P⃗ := Encode((x1 , H(x1 )), ..., (xn , H(xn ))) where H : {0, 1}∗ → {0, 1}out
+is a random oracle. An important task in proving the security of our pro-
+tocols will be for the simulator to extract the effective input for an OKVS
+generated using a random oracle. In particular, given a OKVS P⃗ , the sim-
+ulator will extract the effective input as X ′ = {x | Decode(x, P⃗ ) = H(x)}.
+This is accomplished by the simulator checking for all x that have been
+queried to H.
+    For [semi] honest parties, this will correspond to a set of size n with
+overwhelming probability. However, it is possible for malicious parties to
+construct an OKVS with additional elements in it. Indeed, with good prob-
+ability the M will be invertible and therefore it is easy to construct a P⃗
+such that the effective X ′ is of size n′ = m. It is also possible to construct
+an OKVS P⃗ of size m that results in a effective input size of more than
+m. [PRTY20] gives an information theoretic argument that if out = O(κ)
+then with overwhelming probability the effective input has size at most
+n′ = |X ′ | = O(n). Their argument crucially relies on H being a random
+oracle. They show that if X ′ was larger than this, then the effect is that H
+is compressable which contradicts that its a random function. In particular,
+[PRTY20] proves that
+                                                            q
+                                                               
+                                   ⃗                ′       n′
+             Pr[|{x | Decode(x, P ) = H(x)}| > n ] ≤ (n′ −m)out              (1)
+                                                        2
+where q is the number of H queries the adversary makes. For example, if
+out = 128 and q ≤ 2100 then there is less than a 2−128 probability that there
+exists a set X ′ with |X ′ | ≥ 3.2m.
+
+                                      11
+Strong OKVS Extraction Conjecture. Although it is standard to al-
+low some difference between n and n′ , we conjecture that is it infeasible
+to find a set X ′ with n′ > m when the OKVS row hash function row is a
+one-way-function.
+Conjecture 2.1 (Strong OKVS Extraction). When the row hash function
+row for an OKVS scheme (Encode, Decode) is a one-way random oracle
+and H : {0, 1}∗ → {0, 1}out } is a random oracle with out = O(κ), it is
+computationally infeasible to construct a encoding P⃗ of size m such that
+|{x | Decode(x, P⃗ ) = H(x)}| > m.
+   We give some evidence for this conjecture. First, recall that for each
+x ∈ X ′ , by definition it holds that
+
+                            ⟨row(x), P⃗ ⟩ = H(x).
+
+For the sake of illustration, consider the case that x ∈ Gm and define
+row(x) = x. That is, row is not one-way and the equation above simpli-
+fies to
+                              ⟨x, P⃗ ⟩ = H(x).
+    The astute reader might recognize this formulation as the infamous ROS
+(Random inhomogeneities in a Overdetermined Solvable system of linear
+equations) problem which stated that it is computational intractable find
+a P⃗ s.t. |X ′ | > m. This assumption was used to construct various blind
+signatures and was shown to be false[BLL+ 21]. In particular, [BLL+ 21] gives
+an algorithm for constructing a P⃗ with an effective input size of n′ = m + 1.
+This attack on the ROS problem crucially relies on the fact that the attacker
+has full control over x and that it appears inside the inner product. This
+allows them to start with an arbitrary set X of size 2m which defines a
+system of equations. This system can be solved to determine a subset of X
+of size m along with an additional x∗ value that will be correctly decoded.
+[BLL+ 21] only describes the attack for constructing set of size m + 1 but
+the attack can be extend to find a limited number of additional collisions.
+    We contrast this with our construction where row is a one-way function.
+This implies that although the attacker can find xi and an additional hash
+value h such that ⟨row(xi ), P⃗ ⟩ = H(xi ) for i ∈ [m] and ⟨h, P⃗ ⟩ = h, they
+are unable to determine the preimage of h since row is a one-way random
+oracle. We note that for row for the PaXoS scheme to be one-way, we require
+ m′         ′
+     m−m
+  2  (2       ) = O(2κ ).
+    We were not able to formally prove this conjecture and leave analyzing
+it as an interesting open problem. We stress however that the information
+
+                                     12
+theoretical bound of [PRTY20] holds unconditionally and this conjecture
+only tightens the bound.
+   We thank Seongkwang Kim and Yongha Son for bringing to our attention
+that the prior version of this paper did not correctly address the problem of
+extracting the effective input.
+
+
+3     Vole Based OPRF
+3.1   Vector OLE
+The VOLE functionality Fvole is presented in Figure 2. Let F be some finite
+field, e.g., F = GF (2κ ). The parties have no input. The Sender obtains a
+random value ∆ ∈ F and a random vector B    ⃗ ∈ Fm . The Receiver obtains a
+random vector A  ⃗ ′ ∈ F and the vector
+                        m
+
+
+                                  ⃗ ′∆ + ⃗
+                               ⃗ =A
+                               C         B.
+                              ⃗ is equal to A′ ∆ + Bi . We note that several
+That is, the i-th position of C              i
+definitions of VOLE have been introduced in the literature, for both chosen-
+input and random variants [ADI+ 17, BCGI18, BCG+ 19, WYKW20]. In the
+context of these previous works, the functionality described here can be seen
+as random reversed vector OLE. We refer to it as VOLE for simplicity.
+    A naive implementation of a VOLE generator would be to run a two-
+party multiplication protocol (e.g., Gilboa multiplication [Gil99]) for each
+i ∈ [m]. The drawback here is that communication is linear in m. Recently,
+significant advances have been made in developing VOLE generators with
+sub-linear communication. [BCGI18] presented the first protocols in that
+direction based on the LPN assumption. Their two protocols, a primal
+and a dual variant, rely on two different flavors of LPN. While the primal
+variant can be instantiated from LPN with cheap local linear codes, its
+communication grows asymptotically with the square-root of the output size.
+The dual variant, on the other hand, allows for logarithmic communication,
+but requires more computation.
+    A first implementation of a primal VOLE generator was provided in
+[SGRR19], while concurrently, [BCG+ 19] provide an implementation of dual
+VOLE over binary fields. Recently, [YWL+ 20] improved on the protocols
+of [SGRR19], significantly reducing the communication overhead. Their
+main observation is that the primal VOLE generator works by expanding
+          √
+a size-O( m) random seed correlation to a size-m pseudorandom correla-
+tion. Now by applying this expansion iteratively, they manage to get VOLE
+
+
+                                     13
+  Parameters: There are two parties, a Sender and a Receiver. Let F be
+  a field. Let m denote the size of the output vectors.
+  Functionality: Upon receiving (sender, sid) from the Sender and
+  (receiver, sid) from the Receiver.
+                                                            ⃗ A
+       If the Receiver is malicious, wait for them to send C, ⃗ ∈ Fm .
+        Sample ∆ ← F and compute B    ⃗ := C
+                                           ⃗ − A∆.
+                                                ⃗   Otherwise,
+                                                          ⃗ ∈ Fm , ∆ ∈ F.
+       If the Sender is malicious, wait for them to send B
+        Sample A ⃗ ← Fm and compute C   ⃗ := B⃗ + A∆.
+                                                  ⃗    Otherwise,
+               ⃗ B
+       Sample A, ⃗ ← Fm , ∆ ← F and compute C
+                                             ⃗ := B
+                                                  ⃗ + A∆.
+                                                      ⃗
+
+                             ⃗ to the Sender and C
+  The functionality sends ∆, B                   ⃗ := A∆
+                                                      ⃗ + B,
+                                                          ⃗ A⃗ to the
+  Receiver.
+
+Figure 2: Ideal functionality Fvole of random reversed Vector-OLE (vole).
+
+correlations of size m from a much shorter seed. Each expansion still takes
+   √
+O( m) communication, but as [YWL+ 20] show, the LPN security parame-
+ters can be optimized so that the concrete communication complexity is still
+far below the non-iterative approach. Since they focus on the application
+of VOLE to correlated OT, the implementation of [YWL+ 20] is limited to
+binary fields. However, [WYKW20] extend this paradigm to VOLE over
+general fields, for which they also provide a consistency check for malicious
+security. In our implementation (Section 7), we use an improved version of
+the library of [SGRR19], incorporating the iterative approach of [YWL+ 20]
+and the consistency check of [WYKW20].
+
+3.2   Malicious Secure Oblivious PRF.
+We now present our main (multi-input) OPRF construction in the Fvole -
+hybrid model. Our construction Πoprf is detailed in Figure 4 and realizes the
+functionality Foprf from Figure 3 in the malicious setting. Our protocol will
+make use of two random oracles, H : F × F → {0, 1}out , HF : F → F.
+   First, the receiver will solve the system
+                              
+                      row(x1 )
+                     ...  P⃗ ⊺ = (HF (x1 ), ..., HF (xn ))⊺
+                      row(xn )
+
+as a function of the set X. Depending on the choice of row this can cor-
+respond to polynomial interpolation, a bloom filter solver, PaXoS or some
+
+                                     14
+other fast solver, see Section 2. Recall that for all x ∈ X it holds that
+Decode(P⃗ , x) = ⟨row(x), P⃗ ⟩ = HF (x) and that Decode is a linear function in
+P⃗ . Another important property is that Decode(P⃗ , x) = HF (x) only for the
+elements in the set X, except the negligible probability2 .
+     The parties first invoke Fvole where the Receiver obtains A     ⃗ ′, C
+                                                                          ⃗ ∈ Fm
+while the Sender obtains ∆ ∈ F, B    ⃗ ∈ Fm . Recall that C
+                                                          ⃗ =A  ⃗ ′ ∆ + B. ⃗ The
+                     ⃗     ⃗    ⃗ ′
+Receiver computes A := P + A and sends this to the Sender who computes
+K⃗ := B⃗+ ⃗A∆. The parties will run a coin flipping protocol to then choose
+a random w ← F.
+     The Sender defines their the PRF function as
+                                    ⃗ x) − ∆HF (x) + w, x).
+                   F (x) = H(Decode(K,
+
+       The Receiver outputs the values
+
+                    X ′ := {H(Decode(C,
+                                     ⃗ x) + w, x) | x ∈ X}.
+
+                                   ⃗ x) + w, x) for x ∈ X, observe that
+To understand why F (x) = H(Decode(C,
+
+  Decode( ⃗
+         K, x) − ∆HF (x) =Decode(B ⃗ + P⃗ ∆ + A ⃗ ′ ∆, x) − ∆HF (x)
+                           ⃗ + P⃗ ∆ + A
+                         =⟨B           ⃗ ′ ∆, row(x)⟩ − ∆HF (x)
+                              =⟨B⃗ +A⃗ ′ ∆, row(x)⟩ + ⟨P⃗ ∆, row(x)⟩ − ∆HF (x)
+                              =⟨ ⃗
+                                C, row(x)⟩ + ∆⟨P⃗ , row(x)⟩ − ∆HF (x)
+                                ⃗ row(x)⟩ + ∆HF (x) − ∆HF (x),
+                              =⟨C,                                          ∀x ∈ X
+                                      ⃗ x),
+                              =Decode(C,                                     ∀x ∈ X
+
+When this is decoded at any x ∈ X recall that Decode(P⃗ , x) = HF (x) and
+therefore the receiver will compute the correct value Decode(C,     ⃗ x). Also
+recall that this encoding has the property that at all other locations x′ ̸∈ X it
+holds that Decode(P⃗ ∆, x′ ) ̸= HF (x′ ) and therefore the outputs will disagree.
+Finally, we obtain an OPRF by hashing away the linear correlation using
+the hash function H.
+    The final random oracle H call also contains to x to facilitate extraction
+in the case of a malicious Sender. In particular, our functionality requires
+the OPRF to effectively behave like a random oracle for the Sender. This
+differs from a normal PRF where there is no security with respect to the
+party holding the secret key.
+   2
+    In the case of a malicious Receiver and depending on the choice of row, it may be
+possible for |X| > n with noticeable probability. However, for PaXoS this can be bounded
+as |X| ≤ m ≈ 2.4n while interpolation ensures that |X| ≤ m = n.
+
+
+                                          15
+  Parameters: There are two parties, a Sender and a Receiver. Let
+  n, n′ ∈ Z be parameters such that if Receiver is malicious then |X| < n′
+  and otherwise |X| = n. Let out ∈ Z be the output bit length.
+  Functionality: Upon input (sender, sid) from the Sender and
+  (receiver, sid, X) from the Receiver, the functionality samples F : F →
+  {0, 1}out and sends X ′ := {F (x) | x ∈ X} to the Receiver.
+  Subsequently, upon input (sender, sid, y) from the Sender, the function-
+  ality returns F (y) to the Sender.
+
+        Figure 3: Ideal functionality Foprf batched Oblivious PRF.
+Theorem 3.1. The Protocol Πoprf realizes the Foprf functionality against a
+Malicious adversary in the random oracle, Fvole -hybrid model.
+Proof. First observe that the protocol is correct. We prove the following
+two Lemmas:
+Lemma 3.2. The Protocol Πoprf realizes the Foprf functionality against a
+Malicious Sender A in the random oracle, Fvole -hybrid model.
+
+Proof. The simulator S interacts with the Sender as follows:
+    S plays the role of Fvole . When A sends (sender, sid) to Fvole , S waits
+     for A to send ∆, ⃗
+                      B.
+                                                   ⃗ to A.
+    On behalf of the Receiver, S sends uniform r, A
+    Whenever A queries H(q, y), if q = ⟨K,⃗ row(y, r)⟩ − ∆HF (y) + w and
+     H(q, y) has not previously been queried, S sends (sender, sid, y) to Foprf
+     and programs H(q, y) to the response. Otherwise H responds normally.
+To prove that this simulation is indistinguishable consider the following hy-
+brids:
+    Hybrid 0: The same as the real protocol except S in this hybrid plays
+     the role of Fvole .
+    Hybrid 1: S in this hybrid samples A  ⃗ uniformly as opposed to A
+                                                                     ⃗ :=
+     ⃗    ⃗ ′       ⃗ ′
+     P + A . Since A is distributed uniformly in the view of the A, this
+     hybrid has an identical distribution.
+    Hybrid 2: When S in this hybrid samples r, it aborts if any of the
+     row(·, r) queries have previously been made. Since r is sampled uni-
+     formly the probability of this is O(2−κ ) and therefore this hybrid is
+     indistinguishable from the previous.
+
+                                     16
+    Hybrid 3: S in this hybrid does not call Encode, and so does not abort
+     if Encode fails. Since none of row(·, r) queries have previously been
+     made, the PaXoS cuckoo-graph is uniformly sampled from all (n, m)-
+     cuckoo graphs and therefore the probability of abort is bounded by 2−λ
+     [PRTY20]. Therefore this hybrid is statistically indistinguishable from
+     the previous. Observe that this hybrid no longer uses the Receiver’s
+     input.
+                                                          ⃗ if q = ⟨K,
+    Hybrid 4: Whenever A queries H(q, y) after receiving A,        ⃗ row(y, r)⟩+
+     w and H(q, y) has previously been queried, this hybrid aborts. Oth-
+     erwise it sends (sender, sid, y) to Foprf and programs H(q, y) to the
+     response.
+     Observe that r is uniformly distributed prior to it being sent. There-
+                          ⃗ row(y, r)⟩ − HF (y)∆ + w is similarly distributed
+     fore, any given q = ⟨K,
+     and A has a negligible probability of previously querying H(q, y). We
+     conclude that this hybrid is indistinguishable from the simulation.
+
+Lemma 3.3. The Protocol Πoprf realizes the Foprf functionality against a
+Malicious Receiver A in the random oracle, Fvole -hybrid model.
+
+Proof. The simulator S interacts with the Receiver as follows:
+                                            ⃗ ′, C
+    S plays the role of Fvole and receives A    ⃗ from A.
+
+    When A sends r, ⃗ A, S computes P⃗ := A
+                                           ⃗ −A ⃗ ′ . For each of the previous
+     HF (x) queries made by A, S checks if Decode(P⃗ , x, r) = HF (x) and
+     if so adds x to set X. S sends (Receiver, sid, X) to Foprf and receives
+     {F (x) | x ∈ X} in response.
+                                                                 ⃗ x, r)+
+    S samples w ← {0, 1}κ . For each x ∈ X, S programs H(Decode(C,
+     w, x) := F (x). S sends w to A.
+
+To prove that this simulation is indistinguishable consider the following hy-
+brids:
+
+    Hybrid 0: The same as the real protocol except the S plays the role of
+                                                                        ⃗ ′ , C.
+     Fvole . When A sends (receiver, sid) to Fvole , S waits to receive A     ⃗
+
+    Hybrid 1: When A sends r, ⃗    A, S in this hybrid computes P⃗ := A⃗ −A ⃗ ′.
+     For each of the previous HF (x) queries made by A, this hybrid checks
+     if Decode(P⃗ , x, r) = HF (x) and if so adds x to set X. This hybrid sends
+     (Receiver, sid, X) to Foprf and receives {F (x) | x ∈ X} in response.
+
+
+                                      17
+     Hybrid 2: S in this hybrid does not sample ws at the beginning of
+      the protocol and sends a random value for cs instead H(ws ). Right
+      before ws is should be sent, S samples ws and programs H(ws ) := cs .
+      Conditioned on H(ws ) not previously being queried, this hybrid is
+      identically distributed and therefore indistinguishable in general since
+      ws is uniform.
+
+     Hybrid 3: When ws ← {0, 1}κ is sampled, S in this hybrid aborts
+      if any H(Decode(C,⃗ x, r) + w, x) has been made by A. Since ws was
+      just sampled, each Decode(...) + ... + ws is uniform and therefore the
+      probability of abort is at most O(2−κ ).
+      S in this hybrid programs H(Decode(C,  ⃗ x, r) + w, x) := F (x) for all
+      x ∈ X and sends ws to A. Since the F (x) are uniform, programming
+      H does not change the distribution.
+
+     Hybrid 4: S in this hybrid aborts if A ever makes an H(v, x) query
+                                  ⃗ x, r) − ∆HF (x) + w, x) | x ∈ F \ X}.
+      such that (v, x) ∈ {(Decode(K,
+      Observe that
+
+      Decode( ⃗
+             K, x, r) − ∆HF (x) = ⟨ ⃗
+                                   K, row(x, r)⟩ − ∆HF (x)
+                                = ⟨B           ⃗ ′ ∆, row(x, r)⟩ − ∆HF (x)
+                                    ⃗ + P⃗ ∆ + A
+                                     ⃗ + P⃗ ∆, row(x, r)⟩ − ∆HF (x)
+                                  = ⟨C
+                                  = ∆(⟨P⃗ , row(x, r)⟩ − HF (x)) + ⟨C,
+                                                                    ⃗ row(x, r)⟩
+
+      and recall that ∆ is uniformly distributed in the view of A. So for all
+      x s.t. ⟨P⃗ , row(x, r)⟩ ̸= HF (x), the distribution of ∆(⟨P⃗ , row(x, r)⟩ −
+      HF (x)) is uniform in the view of A. Now consider the case that
+      ⟨P⃗ , row(x, r)⟩ = HF (x). W.l.o.g., let us assume that all HF (x) queries
+      are made prior to sending A.    ⃗ Recall from Section 2 that P⃗ ∈ Fm
+      where m ≈ 2.4n for PaXoS and that by Equation 1 the effective input
+      X ′ = {x | Decode(x, P⃗ ) = H(x)} is of size at most n′ := |X ′ | = O(n)
+      with overwhelming probability. Moreover, by Conjecture 2.1, it holds
+      that n′ = m.
+
+
+4    Private Set Intersection
+Using our OPRF protocol from the previous section, we now obtain a PSI
+protocol via the well known transformation shown in Figure 6. The ideal
+functionality for PSI is given in Figure 5. Given a malicious or semi-honest
+
+
+                                       18
+OPRF, this transformation achieves malicious or semi-honest security, re-
+spectively. While the general transformation is known and implicitly or
+explicitly used by used by [CKT10, DCW13, RR17a, PRTY19, PRTY20,
+CM20], we provide a tight analysis in the malicious setting which reduces
+our communication by 20% to 50% compared to [CKT10, PRTY20].
+    The OPRF to PSI transformation works as follows. The PSI receiver
+sends their set X to the OPRF functionality Foprf and receives back F (x)
+for all x ∈ X. The sender queries Foprf to learn F (y) for their y. The sender
+sends Y ′ := {F (y) | y ∈ Y } to the receiver who can compute X ∩ Y := {x |
+x ∈ X ∧ F (x) ∈ Y ′ }.
+    To ensure the correctness of this protocol it is crucial that there are not
+any spurious collisions between the F (x) and F (y) values. In particular,
+since F is a random function it is possible that x ̸= y ∧ F (x) = F (y). In the
+semi-honest setting, the standard approach is to define the output domain
+of F to be {0, 1}out where out := λ + log2 (nx ny ). Since the X, Y are fixed
+prior to randomly sampling F , the probability for any x ̸∈ Y to result in
+F (x) ∈ Y ′ is purely a statistical problem3 . In particular,
+
+         Pr [F (x) ∈ {F (y) | y ∈ Y } ∧ x ̸∈ Y ] = 2−out ny = 2−out+log2 (ny ) .
+        x,Y,F
+
+If we take the union bound over x ∈ X, the overall probability of a collision
+is nx 2−out+log2 (ny ) = 2−out+log2 (ny nx ) = 2−λ .
+    In the malicious setting the situation is complicated by the fact that the
+simulator must extract the sender’s set Y by observing the sender’s Foprf
+queries and the value of Y ′ . The folklore approach is to extract Y := {y |
+y ∈ Y ∗ ∧ F (y) ∈ Y ′ } where Y ∗ is the set of inputs the sender queried the
+Foprf at. However, in the event that there exists distinct y, y ′ ∈ Y ∗ s.t.
+F (y) = F (y ′ ), then more than one y is extracted for each y ∗ ∈ Y ∗ .
+    The probability that there exists distinct y, y ′ ∈ Y ∗ s.t. F (y) = F (y ′ )
+                             ∗
+is at most 2−out+2 log2 (ny ) where ny ∗ := |Y ∗ |. Therefore, it is expected to
+occur when ny ∗ ≥ 2out/2 . As such, in the folklore analysis and that of
+[CKT10, PRTY20], it is required that out := 2κ in order for the security
+argument to hold.
+    We now present a new extraction procedure which allows out = κ. In
+our protocol this effectively reduces the sender’s communication by half,
+therefore reducing the overall communication by half when |X| ≪ |Y |.
+    Our extraction procedure is to only extract y ∈ Y ∗ if it is distinct.
+Intuitively, the reason security still holds is that collisions within Y ∗ are
+  3
+      In the Foprf hybrid where F is truly random.
+
+
+
+                                            19
+unlikely to collide with the receiver’s set X. In particular, the receiver’s set
+X is first fixed and then the function F is sampled. Thus, the probability
+that there exists a y ∈ Y ∗ and y ̸∈ X, yet F (x) = F (y) is at most
+                                 ∗                              ∗
+                 2−out+log2 (nx ny ) = O(2−out+log2 (κ)+log2 (ny ) )
+                                                                       ∗
+and therefore if out := κ the probability is O(2−κ+log(κ)+log(ny ) ). Concretely,
+if κ = 128, nx = 230 then the sender would have to make an expected
+ny ∗ = 298 Foprf queries in order to expect to distinguish as opposed to 249
+queries via the folklore analysis.
+Theorem 4.1. The Protocol Πpsi realizes the Fpsi functionality against a
+Malicious adversary in the Foprf -hybrid model.
+Proof. Consider a malicious sender. The simulator interacts with the sender
+as:
+    The simulator plays the role of Foprf . The simulator observes all the
+     (sender, sid, y) messages. Let Y ∗ be the set of all such y.
+    When the sender sends Y ′ , the simulator computes Ŷ := {y | y ∈
+     Y ∗ ∧ ∄y ′ ∈ Y ∗ s.t. y ̸= y ′ ∧ F (y) = F (y ′ )} and extracts Y := {y | y ∈
+     Ŷ ∧ F (y) ∈ Y ′ } and sends Y to Fpsi .
+First, conditioned on there not being any F (y) = F (y ′ ) collisions, it is easy
+to verify that the simulation above is correct and indistinguishable.
+    Now consider some collision F (y) = F (y ′ ). Observe that the simulator
+only needs to extract y, y ′ if there is a noticeable probability of one of them
+being in X. W.l.o.g., let us assume y ∈ X. Therefore, consider the probabil-
+ity of F (y ′ ) = F (x) for some x ∈ X. Since |X| = nx = O(κ), the probability
+of the sender finding such a (target preimage) collision is O(2−κ ).
+    Consider a malicious receiver. The simulator is as follows:
+    The simulator plays the role of Foprf .
+    When the receiver sends (receiver, sid, X) to Foprf , the simulator ob-
+     serves X and sends X ′ back as the Foprf would.
+    The simulator forwards X to Fpsi and receives Z = X ∩ Y in response.
+    The simulator computes Y ′ as containing all {F (z) | z ∈ Z} along
+     with ny − |Z| uniform values from {0, 1}out \ X ′ . The simulator sends
+     Y ′.
+    This simulation is identical to the real protocol except for the dummy
+items being sampled from {0, 1}out \ X ′ instead of {0, 1}out . However, since
+2out − |X| = O(2κ ) this change is indistinguishable.
+
+                                         20
+5    Oblivious Programmable PRF
+We now turn our attention to constructing our circuit PSI protocol. To
+achieve this, we first construct a type of protocol known as an oblivious
+programmable PRF (OPPRF). The functionality is shown in Figure 7. The
+sender has a set of input pairs (y1 , z1 ), ..., (yn , zn ). The functionality samples
+a key k such that Fk (yi ) = zi and at all other input points it outputs a
+random value. The receiver on input points x1 , ..., xn then obtains Fk (xi )
+for all i.
+     We instantiate this functionality using an OPRF protocol, and the XoPaXoS
+solver. The parties call the OPRF functionality Foprf with X being the
+receiver’s input. The sender obtains k while the receiver obtains X ′ =
+{Fk (x1 ), ..., Fk (xn )}. The sender constructs a solver for P⃗ such that Decode(P⃗ , yi ) =
+zi − Fk (yi ) using XoPaXoS and sends P⃗ to the receiver who then outputs
+x∗i := x′i + Decode(P⃗ , xi ) for all i. When xi = yj , then
+
+         x∗ := Fk (xi ) + Decode(P⃗ , xi ) = Fk (xi ) + zj − Fk (xi ) = zj .
+
+The sender outputs the key k ∗ := (k, P⃗ ) where the OPPRF function is
+defined as Fk∗∗ (x) := Fk (x) + Decode(P, x).
+    With respect to security, first observe that the vi values outside the
+intersection are information theoretically hidden in the Foprf hybrid. What
+remains to be shown is that the distribution of P⃗ does not depend on Y \
+X. Recall from Section 2 that this is the exact issue XoPaXoS addresses
+compared to PaXoS. Intuitively, XoPaXoS ensures that each position of P⃗ is
+either assigned a uniformly random value or is the sum of previous positions
+and some zi − Fk (yi ). We prove security of this protocol in Theorem 5.1.
+
+Theorem 5.1. The Protocol Πopprf realizes the Fopprf functionality against
+a semi-honest adversary in the Foprf -hybrid model.
+
+Proof. Consider a semi-honest sender. Observe that the protocol is correct.
+Since the receiver does not send any messages the simulation is trivial.
+   Consider a malicious receiver. The simulator generates the receiver’s
+transcript as follows:
+
+     The simulator samples uniform values Fk (x) for x ∈ X.
+
+     The simulator sends X to Fopprf functionality and receives back x′1 , ..., x′n .
+
+     Samples P⃗ uniformly from all vectors such that Decode(P⃗ , xi ) = x′i −
+      Fk (xi ).
+
+                                         21
+     The simulator outputs ({Fk (x) | x ∈ X}, P⃗ ) as the transcript.
+
+   Clearly the Fk (x) values are identically distributed. What remains to be
+shown is that P⃗ has the same distribution as it would in the real protocol.
+Recall from Section 2 that XoPaXoS assign values to P⃗ in four ways
+
+     During Step 5, Pi ← G for i ∈ C ′ . Recall that Step 4 identifies d˜ of
+      the last d + λ columns which form an invertible matrix for the 2-core.
+      These columns are indexed by C. Then C ′ is defined as C ′ = {j |
+                                                                      ⃗ which
+                ′ = 1} ∪ ([d + λ] \ C + m′ ) indexes all positions of P
+      i ∈ R, Mi,j
+      interact with the 2-core along with all of the last d + λ columns which
+      are not used to invert.
+
+     Next, in Step 6, the remaining d˜ positions of P⃗ corresponding are
+      assigned a value such that Decode(P⃗ , yi ) = vi′ − Fk (yi ) for the i in the
+      2-core which is equivalent to solving
+                                                         ′
+                     M̃ ∗ (PC1 +m′ , ..., PCd˜+m′ )⊺ = (yR 1
+                                                                     ′
+                                                             , ..., yR ˜
+                                                                        )⊺ .
+                                                                       d
+
+
+      Since this is a fully determined system, there is exactly one solution.
+
+     In Step 7 a single node i from each tree in G is assigned a uniform
+      value.
+
+     Lastly, observe that the rest of the system is fully determined. That
+      is, each the the remaining Pi position are assigned a value with the
+      form                                       X
+                          Pi := vk′ − Fk (yk ) −     Pj .
+                                                        j∈{...}
+
+     The analysis above can be reordered such that Step 5, 7 are performed
+first. Then there is exactly one solution to the correctness constraint.
+
+
+6    Circuit PSI
+We now construct a circuit PSI protocol from our OPPRF. Our construction
+(Figure 10) builds on the approach of [PSTY19], using our novel XoPaXoS
+and VOLE-based OPPRF from the previous section. As we will see in the
+experiments (Section 7), this translates into a significant speedup compared
+to [PSTY19]. The ideal functionality for circuit PSI is given in Figure 9. It
+allows both sender and receiver to input a set of associated values, which
+
+
+
+                                           22
+will be secret-shared alongside the elements in the intersection. The associ-
+ated values corresponding to elements in the intersection can then be used
+in any subsequent MPC phase, and could for example be used to compute
+sums [IKN+ 20] or inner products [SGRP19] of the intersection. Since our
+protocol is effectively the same as [PSTY19] with the substitution of our OP-
+PRF and F2pc implementation, we defer the proof of security to [PSTY19].
+
+Cuckoo Hashing.           We make use of a data structure known as a cuckoo
+hash table. Given a set X, one can create a hash table T of size m =
+ϵ|X|. This table is parameterized by k hash functions h1 , . . . , hk : {0, 1}∗ →
+{1, 2, ..., m}. There is a procedure [PSZ18, DRRT18] s.t. with overwhelming
+probability for all x ∈ X, x can be storied in T at T [hj (x)] for a j ∈ [k],
+and only one item will be stored at any position of T . We discuss concrete
+parameter choices for ϵ and k in Section 7.2.
+    We will also refer to a procedure known as simple hashing of a set Y
+where we store y ∈ Y at all locations T [hj (y)]. For simple hashing, each
+position of T may hold more than one value. It can be shown that if the
+table has m = O(|Y |) positions, then any given location of the table will
+hold at most O(log |Y |) items.
+
+Protocol. The full circuit PSI protocol is constructed using the OPPRF
+and cuckoo hashing. The receiver will construct a cuckoo hash table Tx of
+their set X. The sender will construct a simple has table Ty of their set Y .
+     For each i ∈ [m] the sender will sample a random value ri ← {0, 1}ℓ
+where ℓ := λ + log2 m. For all i and y ∈ Ty [i], the sender will construct a
+list L = {(y ′ , ri )} where y ′ = H(y, j) and j is defined such that i = hj (y).
+That is, j is the hash function index that mapped y to this bin. The receiver
+constructs set X ′ which is defined as the collection of all H(x, j) such that
+x is stored at Tx [hj (x)]. The sender then provides L as their input to Fopprf
+while the receiver inputs X ′ . In response the receiver obtains the set X ∗ .
+     As an explanation of this, let us focus on some bin index i such that
+x was mapped to bin Tx [i] due to hash function hj , i.e., Tx [i] = x and
+hj (x) = i. Furthermore, let us assume that there is some y ∈ Y s.t. x =
+y. Since the sender did simple hashing, they too mapped y to bin Ty [i]
+since hj (y) = i. For this y, they programmed the OPPRF with the pair
+(H(y, j), ri ). When the receiver inputs H(x, j) to the OPPRF they receive
+the value ri in response. If x ̸∈ Y , then the receiver will receive a random
+value. Therefore, for each i, the receiver now has a value ri′ which is equal
+to ri (held by the sender) if Tx [i] ∈ Y and otherwise ri′ is random per the
+
+
+                                       23
+OPPRF security definition.
+    The final step of the protocol is to use a generic MPC protocol to compare
+each ri′ with ri to check if they are equal. The output of this generic MPC
+will be secret shared which will be the output of the protocol.
+    In the event that the sender has “associated values”, they will program
+the OPPRF with L = {(y ′ , ri ||ỹ ⊕ wi )} where ỹ is the associated value
+for y ′ , and wi is an random value that the sender samples for each bin
+i ∈ {1, 2, ..., m} in the same way as ri . The receiver will then obtain ri′ ||wi′
+from the OPPRF protocol for each i. The generic MPC will then take as
+input {(ri′ , wi′ )} from the receiver and {(ri , wi , x̃)} from the sender. For each i
+the MPC computation will compute qi := (ri′ = ri ) and zi := qi · (wi′ ⊕wi )||x̃
+and then output secret shares of qi and zi .
+
+
+7     Performance Evaluation
+7.1    Theoretical Comparison.
+All protocols compared here are largely based on efficient symmetric key
+primitives – with the exception of the DH-PSI protocol – and can be in-
+stantiated with O(nx + ny ) running time. Since these protocols are asymp-
+totically similar, it becomes difficult to compare them. As we do below,
+one metric is to implement the protocol and compare their running times.
+However, the quality of the implementation has a large impact on running
+time. Arguably a more objective metric is the total communication which
+is independent of the implementation.
+    Table 1 shows a theoretical comparison of the communication required
+by various PSI protocols. We present the communication overhead in three
+ways. The general case in terms of nx , ny , κ, λ; when we fix κ = 128, λ = 40;
+and when we fix all the parameters. Many protocols contain addition param-
+eters that allow a for some type of tradeoff. For these we chose representative
+values.
+    Our semi-honest protocol requires sending ρκnx + (λ + log(ny ny ))ny bits
+plus the overhead of performing a VOLE of size ρnx . Here, ρ is the rate
+of the linear system solver which is being employed by the protocol. We
+consider two values of ρ. The first is ρ = 2.4 which corresponds to the
+PaXoS solver while the second is ρ = 1 when Vandermonde/interpolation
+solver is used.
+    To estimate the overhead of the VOLE protocol we experimentally deter-
+                                                            √
+mined that our implementation requires a total of 217 κ 20 nx bits. We note
+that this is the approximate overhead of our implementation and may not
+
+                                          24
+      Table 1: Comparison of theoretical communication cost of various PSI proto-
+      cols. Several protocols have additional parameters which have been approxi-
+      mated in terms of κ, λ. In particular, the coefficients shown below often vary
+      (non-linearly) as a function of n, κ, λ. In these cases we chose representative
+      values. The third column contains the overhead for fixed λ = 40, κ = 128
+      while the last three columns also fix the set sizes.
+                                                                                                                               n = ny = nx
+Protocol                                                        Communication
+                                                                                                                            216     220      224
+Semi-Honest
+DH-PSI                        4κnx + (λ + log(nx ny ))ny                                  512nx + 40ny + log(nx ny )ny     584n    592n    600n
+[KKRT16]                      6κnx + 3(λ + log(nx ny ))ny                              768nx + 120ny + 3 log(nx ny )ny     984n   1008n   1032n
+[PRTY19] Low-Comm             3.5κnx + 1.02(2 + λ + log(nx ))ny                         450nx + 43ny + 1.02 log(nx )ny    509n     513n    517n
+[PRTY19] Fast                 3.5(1 + 1/λ)κnx + 2(λ + log(nx ny ))ny                     461nx + 80ny + 2 log(nx ny )ny    603n    619n    635n
+[PRTY20]                      9.3κnx + (λ + log(nx ny ))ny                                461nx + 40ny + log(nx ny )ny    1208n   1268n   1302n
+[CM20]                        4.8κnx + (λ + log(nx ny ))ny                                620nx + 40ny + log(nx ny )ny     678n    694n    702n
+Ours total (PaXoS)            2.4κnx + (λ + log(nx ny ))ny + 217 κnx 0.05   224 nx 0.05 + 307nx + 40ny + log(nx ny )ny     914n    426n    398n
+Ours total (interpolation)    κnx + (λ + log(nx ny ))ny    + 217 κnx 0.05   224 nx 0.05 + 128nx + 40ny + log(nx ny )ny     702n   245n    219n
+Ours online (PaXoS)           2.4κnx + (λ + log(nx ny ))ny + 213 κnx 0.13   220 nx 0.13 + 307nx + 40ny + log(nx ny )ny     502n    398n    396n
+Ours online (interpolation)   κnx + (λ + log(nx ny ))ny    + 213 κnx 0.13   220 nx 0.13 + 128nx + 40ny + log(nx ny )ny     310n    218n    217n
+Malicious
+[PRTY20]                      11.8κnx + 2κny                                                           1512nx + 256ny     1766n   1766n   1766n
+Ours total (PaXoS)            2.4κnx + (λ + log(nx ny ))ny + 217 κnx 0.05                 224 nx 0.05 + 307nx + 128ny      960n    474n    438n
+Ours total (interpolation)    κnx + (λ + log(nx ny ))ny + 217 κnx 0.05                    224 nx 0.05 + 128nx + 128ny     754n    293n    259n
+Ours online (PaXoS)           2.4κnx + κny + 213 κnx 0.13                                 220 nx 0.13 + 307nx + 128ny      558n    446n    436n
+Ours online (interpolation)   κnx + κny + 213 κnx 0.13                                    220 nx 0.13 + 128nx + 128ny      366n    266n    257n
+
+
+      be asymptotically correct for nx ≫ 224 . Since the cost of the VOLE is highly
+      sublinear, the overhead it contributes quickly diminishes as nx increase. For
+      example, the VOLE requires 27,800 bits per element for nx = 210 while only
+      requiring 38 bits per element for nx = 220 . From this we can conclude that
+      our protocol works best for large sets, e.g. nx ≥ 216 .
+          We also consider a setting where we perform a one time VOLE pre-
+      processing phase. In this case the bulk of the VOLE computation can be
+      performed before the X, Y sets or their sizes nx , ny are known. This is akin
+      to performing base OTs ahead of time as is done by all the protocols com-
+      pared below (except DH-PSI). With preprocessing the online overhead of the
+                                                √
+      VOLE decreases to approximately 213 κ 8 nx bits, an improvement of 16×.
+      In addition, sublinear VOLE constructions are relatively new and there are
+      likely more optimizations opportunities, like the recent work of [YWL+ 20]
+      which we utilize.
+          As the table shows, our protocol outperforms prior work, especially for
+      large inputs. The three protocols of [PRTY19, PRTY20] mostly differ in
+      their linear system encoding rates. [PRTY19] considers two different types
+      of Vandermonde / interpolation solvers which achieve rate ρ ≈ 1 while
+      [PRTY20] achieves rate ρ = 2.4 via their PaXoS solver and a significantly
+      improved running time. Both of these works use an OT-extension type pro-
+
+
+                                                                  25
+tocol which results in sending approximately 3.5κ bits per element in their
+encoding. We on the other hand depart from this OT-extension based tech-
+nique and utilize sublinear VOLE. This has the advantage that we send only
+κ bits per item in the encoding. For the final PSI-from-OPRF construction,
+the sender will additionally send their set encoded under the OPRF which
+requires λ + log(nx ny ) bits per item in Y .
+     [KKRT16] does not encode their input into a linear system and instead
+uses cuckoo hashing which has a rate of ρ ≈ 1.7. This work is also a
+OT-extension type protocol which requires sending 3.5κ bits per hash table
+element which results in an overhead of 6κnx . However, the cuckoo hashing
+approach results in the sender needing to send 3 OPRF values per item in
+Y . The core advantage of [KKRT16] is that cuckoo hashing is extremely
+efficient compared to solving a linear system and as such obtains very small
+running times.
+     In the case of malicious security, the overhead of our protocol is effec-
+tively identical except that the sender now must send larger OPRF values,
+i.e. κ bits per element in Y as opposed to λ + log(nx ny ) bits. On the other
+hand, the protocol of [PRTY20] requires increasing the number of bits per
+item in the linear encoding from 3.5κ to 5κ. This has the effect that they
+must send an overall encoding size of 11.8κnx . Our protocol more naturally
+achieves malicious security and only requires sending κ per encoding posi-
+tion. In addition, the [PRTY20] analysis states the sender must send OPRF
+values of size 2κ. However, we demonstrate that our protocol remains secure
+when only κ bits are sent.
+
+7.2   Experimental Evaluation
+Implementation. We implement all our protocols in C++. We use an ex-
+tended version of the VOLE implementation of [SGRR19], supporting itera-
+tive bootstrapping [YWL+ 20] and a consistency check for malicious security
+[WYKW20], and assuming LPN with regular noise [BCGI18, WYKW20].
+For computing the 2-core of the cuckoo graph in our PaXoS implementation,
+we use igraph [igr], and we rely on libOTe [Rin] for oblivious transfers and
+the GMW implementation used in our circuit PSI protocol.
+    To compare our protocols to previous work [KKRT16, CM20, PRTY20,
+PSTY19], we perform experiments in different network settings. To that
+end, we use two Amazon EC2 M5.2xlarge VMs, each featuring 8 cores at
+2.5 GHz and 32 GiB of RAM. For comparability, we limit each protocol to
+a single core. In the LAN, without any artificial constraints, we measured
+a bandwidth of 5 Gbps between our machines. For settings with lower
+
+
+                                     26
+bandwidth, we use Wondershaper [HGS] to limit incoming and outgoing
+traffic.
+
+PSI. Here, we compare our semi-honest and malicious PSI implementa-
+tions against the works of [KKRT16], [CM20], and [PRTY20]. The protocol
+of [KKRT16] is particularly fast, but comes with a comparatively large com-
+munication overhead. The semi-honest protocol of [CM20] on the other hand
+comes with a lower communication overhead, but more expensive computa-
+tion. Finally, the PaXoS protocol of [PRTY20] features fast computation,
+but increased communication compared to [CM20]. We do not compare
+against the SpOT-light protocol [PRTY19], since [CM20] outperforms it in
+high-bandwidth settings4 , and our protocol has even lower communication
+than SpOT-low.
+    The results of our evaluation in the semi-honest setting are shown in
+Table 2. As expected, [KKRT16] outperforms all other protocols in the
+LAN setting, but is less effective with reduced bandwidth. For medium
+input sizes and bandwidths, [CM20] and [PRTY20] sometimes outperform
+our protocols and [KKRT16]. Our protocols particularly shine in medium to
+low bandwidth settings, and with large input sizes, which is to be expected
+given its low communication cost.
+    In the malicious setting, the state of the art is presented by [PRTY20].
+Again, we compare communication and running time in different bandwidth
+settings, and present our results in Table 3. While in the LAN, [PRTY20]
+sometimes outperforms our implementation, we are consistently faster as
+bandwidth decreases.
+    Since the vector OLE implementation underlying our protocols uses the
+iterative bootstrapping approach of [YWL+ 20], our protocols have the dis-
+tinctive feature that a part of the computation can be performed in a one-
+time, data-independent setup phase. Our implementation of this setup phase
+could be improved by tuning the LPN parameters (and thus the bootstrap-
+ping iteration sizes) to the input set sizes. Currently we use the parameters
+from [BCGI18, YWL+ 20] without any additional tuning. In our tables, we
+highlight the best protocols when setup is amortized in gray. It can be seen
+that in that case, our protocol more consistently outperforms previous work.
+
+Circuit PSI. We also compare our circuit-PSI implementation to the state
+of the art protocol [PSTY19]. We use the same cuckoo hashing parameters
+   4
+     In low communication settings (10 Mbps and 1 Mbps), [CM20] takes 15% longer than
+[PRTY19], but at the same time up to 75% longer than our protocol.
+
+
+                                         27
+Table 2: Comparison of our PSI protocols to previous works in the semi-
+honest setting. We compare the amount of data sent by both parties, as well
+as the total running time with different bandwidths. A dash (–) indicates
+experiments that either crashed or did not finish, or where only the total
+communication is reported. The best protocol within a setting is marked in
+blue if setup is included, and in gray if setup is excluded.
+
+                     Communication (MB)               Total running time (s)
+ n     Protocol
+                      P1      P2     Total   LAN 100 Mbps 10 Mbps 1 Mbps
+      [KKRT16]        –      –       7.730   0.1160     0.7250     6.884       68.82
+       [CM20]      0.5790 4.764      5.343   0.5853     0.6437     4.870       47.49
+216   [PRTY20]      12.62 0.5898     13.21   0.6460      1.682     11.86       112.8
+         Ours      0.9965 2.702      3.699   0.1720     0.4510     3.277       31.18
+    Ours (w/setup) 1.171 3.062       4.232   0.5030      1.067     6.742       63.33
+      [KKRT16]         –       –     31.88 0.5850        2.968     28.46       283.6
+       [CM20]        2.520   19.23   21.75 2.017         2.194     19.50       193.8
+218   [PRTY20]       51.94   2.621   54.56 1.517         5.976     47.66       464.2
+         Ours        3.066   10.30   13.37 1.227         2.192     12.26       114.1
+    Ours (w/setup)   3.622   10.68   14.31 1.985         3.279     16.65       151.5
+      [KKRT16]         –       –     128.5   2.441       11.93     114.8       1143
+       [CM20]        10.03   77.63   87.66   8.148       9.071     78.38       780.0
+220   [PRTY20]       214.0   10.49   224.5   5.885       24.09     195.6       1910
+         Ours        12.06   40.55   52.61   4.398       8.496     48.69       449.7
+    Ours (w/setup)   12.62   40.93   53.55   5.396       9.850     53.35       487.7
+      [KKRT16]         –       –     530.1   10.19       49.30     473.6       4718
+       [CM20]        44.08   313.5   357.6   34.70       41.54     319.4       3182
+222   [PRTY20]       815.7   46.14   861.9   22.94       93.67     751.3        –
+         Ours        47.28   161.7   208.9   23.93       40.67     199.0       1794
+    Ours (w/setup)   47.84   162.0   209.9   25.88       42.97     204.7       1834
+      [KKRT16]       –         –     2137    43.90       199.1     1910      –
+       [CM20]      176.3     1266    1442    189.6       198.1     1289    12 860
+224   [PRTY20]     3364      184.5   3548    101.7       392.0       –        –
+         Ours      204.2     645.7   849.9   90.74       156.4     814.2    7296
+    Ours (w/setup) 204.7     646.1   850.9   92.81       158.7     819.9    7335
+
+
+
+
+                                      28
+Table 3: Comparison of our PSI protocols to [PRTY20] in the malicious
+setting.
+
+                      Communication (MB)              Total running time (s)
+ n        Protocol
+                         P1   P2    Total    LAN 100 Mbps 10 Mbps 1 Mbps
+         [PRTY20]     12.62 2.097   14.71    0.6510      1.808     13.13       125.5
+216         Ours      1.390 2.702   4.092    0.2250     0.5260     3.627       34.77
+       Ours (w/setup) 1.564 3.062   4.626    0.5560      1.147     7.109       66.72
+         [PRTY20]     51.94 8.389   60.33    1.556       6.469     52.57       513.1
+218         Ours      4.639 10.30   14.94    1.279       2.464     13.96       127.6
+       Ours (w/setup) 5.195 10.68   15.88    2.046       3.558     18.37       165.0
+         [PRTY20]     214.0 33.55   247.6    6.119       26.12     215.2       2410
+220         Ours      17.31 40.55   57.86    5.150       9.599     54.09       495.0
+       Ours (w/setup) 17.86 40.93   58.79    6.157       10.94     58.76       532.6
+         [PRTY20]     815.7 134.2   950.0    23.37       101.2     826.1        –
+222         Ours      68.25 161.7   229.9    26.50       45.19     222.5       1975
+       Ours (w/setup) 68.81 162.0   230.9    28.46       47.50     228.3       2015
+         [PRTY20]     3364 536.9    3901     102.8       422.1       –          –
+224         Ours      271.3 645.7   917.0    104.0       174.5     881.0       7876
+       Ours (w/setup) 271.9 646.1   918.0    106.0       176.8     886.7       7914
+
+
+Table 4: Comparison of our Circuit-PSI protocol to [PSTY19]. Values
+marked with an asterisk (*) were not measured, but computed from the
+theoretical communication costs [PSTY19, Section 7.3].
+
+                                                         Total running time (s)
+  n           Protocol        Total comm. (MB)
+                                                         5 Gbps      100 Mbps
+            [PSTY19]                 9.00*                0.965            1.34
+ 212
+           Ours (IKNP)               13.4                 0.495            1.19
+          Ours (SilentOT)            4.79                 0.737            1.07
+            [PSTY19]                 149*                 5.01             11.3
+ 216
+           Ours (IKNP)               171                  1.52             9.03
+          Ours (SilentOT)            21.1                 4.05             5.34
+            [PSTY19]                2540*                 72.0             172
+ 220
+           Ours (IKNP)              2830                  23.3             149
+          Ours (SilentOT)            277                  103              120
+
+
+                                      29
+as [PSTY19], ϵ = 1.27 and k = 3 hash functions, following the analysis
+of [PSZ18]. We note, however, that there is some disagreement in the litera-
+ture regarding the correct cuckoo hashing parameters for a given statistical
+security level λ. For example, for k = 3, n = 220 , and λ = 40, [PSZ18]
+and [DRRT18] report quite different expansion factors (1.27 vs. 1.54). In
+our own experiments, we found the security level to be approximated by
+λ = 240ϵ − 256 − log2 n, which requires ϵ = 1.32 for n = 220 and λ = 40.
+Still, we stick to the parameters used by [PSTY19] for comparability.
+    Like [PSTY19], our construction uses a generic two-party computation
+phase in the end (Step 5 in Figure 10). We implement two variants of this
+step: one using the standard IKNP OT extension [IKNP03] to implement
+the GMW offline phase, and one using the more recent SilentOT [BCG+ 19].
+    Our results in Table 4 show that our protocols outperform [PSTY19]
+in both high and low-bandwidth settings. Since the main communication
+bottleneck is the GMW phase, the SilentOT variant works particularly well
+in the low-communication setting. In the LAN, our IKNP variant still out-
+performs [PSTY19] (who also used IKNP) in terms of running time, which
+showcases the efficiency of our novel OPPRF construction.
+
+
+8    Conclusion
+In this paper, we have shown how to combine two cryptographic primitives,
+namely Vector-OLE and linear system solvers like (Xo)PaXoS, into highly
+efficient O(P)PRF and PSI protocols. Our final protocols outperform pre-
+vious work in terms of communication, and as a consequence, in terms of
+running time in bandwidth-constrained environments. From a theoretical
+perspective, we provide a more efficient reduction from OPRF to PSI.
+     As discussed in Section 2, there are many ways to implement the linear
+system solvers we require for VOLE-PSI. One approach, based on polyno-
+mial interpolation, promises to result in the lowest communication complex-
+ity, but as previous work has shown, this comes at the cost of expensive
+computation. The approach presented in this paper, using PaXoS, allows
+for fast computation, but incurs a higher communication blowup of asymp-
+totically 2.4κn. It remains an open question whether there are more effi-
+cient (i.e., smaller) data structures that also allow for linear encoding and
+decoding. Should these become available, they will directly improve the
+communication complexity of our protocols.
+
+
+
+
+                                     30
+References
+[ADI+ 17]   Benny Applebaum, Ivan Damgård, Yuval Ishai, Michael
+            Nielsen, and Lior Zichron. Secure arithmetic computation with
+            constant computational overhead. In CRYPTO (1), volume
+            10401 of Lecture Notes in Computer Science, pages 223–254.
+            Springer, 2017.
+
+[BCG+ 19]   Elette Boyle, Geoffroy Couteau, Niv Gilboa, Yuval Ishai, Lisa
+            Kohl, Peter Rindal, and Peter Scholl. Efficient two-round OT
+            extension and silent non-interactive secure computation. In
+            ACM Conference on Computer and Communications Security,
+            pages 291–308. ACM, 2019.
+
+[BCGI18]    Elette Boyle, Geoffroy Couteau, Niv Gilboa, and Yuval Ishai.
+            Compressing vector OLE. In ACM Conference on Computer
+            and Communications Security, pages 896–912. ACM, 2018.
+
+[BKM+ 20]   Prasad Buddhavarapu, Andrew Knox, Payman Mohassel,
+            Shubho Sengupta, Erik Taubeneck, and Vlad Vlaskin. Private
+            matching for compute. IACR Cryptol. ePrint Arch., 2020:599,
+            2020.
+
+[BLL+ 21]   Fabrice Benhamouda, Tancrède Lepoint, Julian Loss, Michele
+            Orrù, and Mariana Raykova. On the (in)security of ROS. In
+            Anne Canteaut and François-Xavier Standaert, editors, Ad-
+            vances in Cryptology - EUROCRYPT 2021 - 40th Annual
+            International Conference on the Theory and Applications of
+            Cryptographic Techniques, Zagreb, Croatia, October 17-21,
+            2021, Proceedings, Part I, volume 12696 of Lecture Notes in
+            Computer Science, pages 33–53. Springer, 2021.
+
+[BM74]      Allan Borodin and R. Moenck. Fast modular transforms. J.
+            Comput. Syst. Sci., 8(3):366–386, 1974.
+
+[CKT10]     Emiliano De Cristofaro, Jihye Kim, and Gene Tsudik. Linear-
+            complexity private set intersection protocols secure in malicious
+            model. In ASIACRYPT, volume 6477 of Lecture Notes in Com-
+            puter Science, pages 213–231. Springer, 2010.
+
+[CM20]      Melissa Chase and Peihan Miao. Private set intersection in the
+            internet setting from lightweight oblivious PRF. In CRYPTO
+
+
+                                    31
+            (3), volume 12172 of Lecture Notes in Computer Science, pages
+            34–63. Springer, 2020.
+[CO18]      Michele Ciampi and Claudio Orlandi. Combining private set-
+            intersection with secure two-party computation. In SCN, vol-
+            ume 11035 of Lecture Notes in Computer Science, pages 464–
+            482. Springer, 2018.
+[CT10]      Emiliano De Cristofaro and Gene Tsudik. Practical private
+            set intersection protocols with linear complexity. In Financial
+            Cryptography, volume 6052 of Lecture Notes in Computer Sci-
+            ence, pages 143–159. Springer, 2010.
+[DCW13]     Changyu Dong, Liqun Chen, and Zikai Wen. When private
+            set intersection meets big data: an efficient and scalable pro-
+            tocol. In ACM Conference on Computer and Communications
+            Security, pages 789–800. ACM, 2013.
+[DRRT18]    Daniel Demmler, Peter Rindal, Mike Rosulek, and Ni Trieu.
+            PIR-PSI: scaling private contact discovery. Proc. Priv. En-
+            hancing Technol., 2018(4):159–178, 2018.
+[Gil99]     Niv Gilboa. Two party RSA key generation. In CRYPTO,
+            volume 1666 of Lecture Notes in Computer Science, pages 116–
+            129. Springer, 1999.
+[GPR+ 21]   Gayathri Garimella, Benny Pinkas, Mike Rosulek, Ni Trieu,
+            and Avishay Yanai. Oblivious key-value stores and amplifica-
+            tion for private set intersection. In Tal Malkin and Chris Peik-
+            ert, editors, Advances in Cryptology – CRYPTO 2021, pages
+            395–425, Cham, 2021. Springer International Publishing.
+[HEK12]     Yan Huang, David Evans, and Jonathan Katz. Private set
+            intersection: Are garbled circuits better than custom protocols?
+            In NDSS. The Internet Society, 2012.
+[HGS]       Bert Hubert, Jacco Geul, and Simon Séhier. wondershaper:
+            Command-line utility for limiting an adapter’s bandwidth.
+[igr]       igraph: Library for the analysis of networks.
+[IKN+ 20]   Mihaela Ion, Ben Kreuter, Ahmet Erhan Nergiz, Sarvar Patel,
+            Shobhit Saxena, Karn Seth, Mariana Raykova, David Shana-
+            han, and Moti Yung. On deploying secure computing: Private
+
+                                    32
+            intersection-sum-with-cardinality. In EuroS&P, pages 370–389.
+            IEEE, 2020.
+[IKNP03]    Yuval Ishai, Joe Kilian, Kobbi Nissim, and Erez Petrank. Ex-
+            tending oblivious transfers efficiently. In CRYPTO, volume
+            2729 of Lecture Notes in Computer Science, pages 145–161.
+            Springer, 2003.
+[KKRT16]    Vladimir Kolesnikov, Ranjit Kumaresan, Mike Rosulek, and
+            Ni Trieu. Efficient batched oblivious PRF with applications to
+            private set intersection. In ACM Conference on Computer and
+            Communications Security, pages 818–829. ACM, 2016.
+[KLS+ 17]   Ágnes Kiss, Jian Liu, Thomas Schneider, N. Asokan, and
+            Benny Pinkas. Private set intersection for unequal set sizes
+            with mobile applications. Proc. Priv. Enhancing Technol.,
+            2017(4):177–197, 2017.
+[KRS+ 19]   Daniel Kales, Christian Rechberger, Thomas Schneider,
+            Matthias Senker, and Christian Weinert. Mobile private con-
+            tact discovery at scale. In USENIX Security Symposium, pages
+            1447–1464. USENIX Association, 2019.
+[KS12]      Kazuki Kobayashi and Tomoharu Shibuya. Generalization of
+            lu’s linear time encoding algorithm for LDPC codes. In ISITA,
+            pages 16–20. IEEE, 2012.
+[LM10]      Jin Lu and José M. F. Moura. Linear time encoding of LDPC
+            codes. IEEE Trans. Inf. Theory, 56(1):233–249, 2010.
+[Mea86]     Catherine A. Meadows. A more efficient cryptographic match-
+            making protocol for use in the absence of a continuously avail-
+            able third party. In IEEE Symposium on Security and Privacy,
+            pages 134–137. IEEE Computer Society, 1986.
+[OOS17]     Michele Orrù, Emmanuela Orsini, and Peter Scholl. Actively
+            secure 1-out-of-n OT extension with application to private set
+            intersection. In CT-RSA, volume 10159 of Lecture Notes in
+            Computer Science, pages 381–396. Springer, 2017.
+[PRTY19]    Benny Pinkas, Mike Rosulek, Ni Trieu, and Avishay Yanai.
+            Spot-light: Lightweight private set intersection from sparse OT
+            extension. In CRYPTO (3), volume 11694 of Lecture Notes in
+            Computer Science, pages 401–431. Springer, 2019.
+
+                                   33
+[PRTY20]   Benny Pinkas, Mike Rosulek, Ni Trieu, and Avishay Yanai.
+           PSI from PaXoS: Fast, malicious private set intersection. In
+           EUROCRYPT (2), volume 12106 of Lecture Notes in Computer
+           Science, pages 739–767. Springer, 2020.
+
+[PSSZ15]   Benny Pinkas, Thomas Schneider, Gil Segev, and Michael
+           Zohner. Phasing: Private set intersection using permutation-
+           based hashing. In USENIX Security Symposium, pages 515–
+           530. USENIX Association, 2015.
+
+[PSTY19]   Benny Pinkas, Thomas Schneider, Oleksandr Tkachenko, and
+           Avishay Yanai. Efficient circuit-based PSI with linear commu-
+           nication. In EUROCRYPT (3), volume 11478 of Lecture Notes
+           in Computer Science, pages 122–153. Springer, 2019.
+
+[PSWW18] Benny Pinkas, Thomas Schneider, Christian Weinert, and Udi
+         Wieder. Efficient circuit-based PSI via cuckoo hashing. In
+         EUROCRYPT (3), volume 10822 of Lecture Notes in Computer
+         Science, pages 125–157. Springer, 2018.
+
+[PSZ14]    Benny Pinkas, Thomas Schneider, and Michael Zohner. Faster
+           private set intersection based on OT extension. In USENIX Se-
+           curity Symposium, pages 797–812. USENIX Association, 2014.
+
+[PSZ18]    Benny Pinkas, Thomas Schneider, and Michael Zohner. Scal-
+           able private set intersection based on OT extension. ACM
+           Trans. Priv. Secur., 21(2):7:1–7:35, 2018.
+
+[Rin]      Peter Rindal. libote: A fast, portable, and easy to use oblivious
+           transfer library.
+
+[RR17a]    Peter Rindal and Mike Rosulek. Improved private set inter-
+           section against malicious adversaries. In EUROCRYPT (1),
+           volume 10210 of Lecture Notes in Computer Science, pages
+           235–259, 2017.
+
+[RR17b]    Peter Rindal and Mike Rosulek. Malicious-secure private set
+           intersection via dual execution. In ACM Conference on Com-
+           puter and Communications Security, pages 1229–1242. ACM,
+           2017.
+
+[SGRP19]   Phillipp Schoppmann, Adrià Gascón, Mariana Raykova, and
+           Benny Pinkas. Make some ROOM for the zeros: Data sparsity
+
+                                   34
+            in secure distributed machine learning. In ACM Conference
+            on Computer and Communications Security, pages 1335–1350.
+            ACM, 2019.
+
+[SGRR19]    Phillipp Schoppmann, Adrià Gascón, Leonie Reichert, and
+            Mariana Raykova. Distributed vector-OLE: Improved construc-
+            tions and implementation. In ACM Conference on Computer
+            and Communications Security, pages 1055–1072. ACM, 2019.
+
+[WYKW20] Chenkai Weng, Kang Yang, Jonathan Katz, and Xiao Wang.
+         Wolverine: Fast, scalable, and communication-efficient zero-
+         knowledge proofs for boolean and arithmetic circuits. IACR
+         Cryptol. ePrint Arch., 2020:925, 2020.
+
+[YWL+ 20]   Kang Yang, Chenkai Weng, Xiao Lan, Jiang Zhang, and Xiao
+            Wang. Ferret: Fast extension for correlated OT with small
+            communication. In CCS, pages 1607–1626. ACM, 2020.
+
+
+
+
+                                  35
+  Parameters: There are two parties, a Sender and a Receiver with a set
+  X ⊆ F where |X| = n.
+  Protocol: Upon input (sender, sid) from the Sender and (receiver, sid, X)
+  from the Receiver, the protocol specifies the following:
+
+    1. The Sender samples ws ← F and sends cs := HF (ws ) to the Re-
+       ceiver.
+
+    2. The Receiver samples r ← {0, 1}κ , wr ← F and solves the systems
+                                 
+                      row(x1 , r)
+                         ...      P⃗ = (HF (x1 ), ..., HF (xn ))
+                      row(xn , r)
+
+       for P⃗ as a function of their set {x1 , ..., xn } = X ⊂ F.
+
+    3. The Sender sends (sender, sid) and the Receiver sends (receiver, sid)
+       to Fvole with dimension m and |F| ≈ 2κ . The parties respectively
+                  ⃗ and C
+       receive ∆, B     ⃗ := A⃗ ′ ∆ + B,
+                                      ⃗ A⃗ ′.
+
+                                  ⃗ := P⃗ + A
+    4. The Receiver sends r, wr , A         ⃗ ′ to the Sender who defines
+       ⃗ := B
+       K    ⃗ + A∆.
+                 ⃗
+
+    5. The Sender sends ws to the Receiver who aborts if cs ̸= HF (ws ).
+       Both parties define w := wr + ws .
+
+    6. The Receiver outputs X ′ := {H(Decode( ⃗
+                                             C, x) + w, x) | x ∈ X}.
+
+  Subsequently, upon each input (sender, sid, y) from the Sender, the pro-
+  tocol specifies that the Sender outputs F (y) = H(Decode( ⃗  K, y, r) −
+     F
+  ∆H (y) + w, y).
+
+Figure 4: Protocol Πoprf which realizes the Oblivious PRF functionality
+Foprf .
+
+
+
+
+                                      36
+Parameters: There are two parties, a sender with set Y ⊂ F and a
+receiver with a set of key X ⊆ F. Let ny , nx , nx ′ ∈ Z be public parameters
+where nx ≤ nx ′ .
+Functionality: Upon receiving (sender, sid, Y ) from the sender and
+(receiver, sid, X) from the receiver. If |Y | > ny , abort. If the receiver
+is malicious and |X| > nx ′ , then abort. If the receiver is honest and
+|X| > nx , then abort.
+The functionality outputs X ∩ Y to the receiver.
+
+     Figure 5: Ideal functionality Fpsi of Private Set Intersection.
+Parameters: There are two parties, a sender with set Y ⊂ F and a
+receiver with a set of key X ⊆ F.
+In the Semi-honest setting, let out := λ + log2 (nx ) + log2 (ny ). In the
+malicious setting let out := κ. Let Foprf be the OPRF functionality with
+n = nx and nx ′ := n′ and the output length out.
+Protocol:
+
+   1. The sender sends (sender, sid) and receiver sends (receiver, sid, X)
+      to Foprf . The receiver receives X ′ = {F (x) | x ∈ X}.
+
+   2. For y ∈ Y , the sender sends (sender, sid, y) to Foprf and receives
+      back F (y).
+
+   3. The sender sends Y ′ := {F (y) | y ∈ Y } to the receiver in a random
+      order.
+
+   4. The receiver outputs {x | F (x) ∈ Y ′ , x ∈ X}.
+
+   Figure 6: Protocol Πpsi which realizes the PSI functionality Fpsi .
+Parameters: There are two parties, a sender with input L =
+{(y1 , z1 ), ..., (yny , zny )} where yi ∈ F, zi ∈ {0, 1}out and a receiver with a
+set X ⊆ F where |X| = nx .
+Functionality: Upon input (sender, sid, L) from the sender and
+(receiver, sid, X) from the receiver, the functionality samples a random
+function F : F → {0, 1}out such that Fk (y) = z for each (y, z) ∈ L and
+sends X ′ := {Fk (x) | x ∈ X} to the receiver.
+Subsequently, upon input (sender, sid, y) from the sender, the function-
+ality returns F (y) to the sender.
+
+Figure 7: Ideal functionality Fopprf of Oblivious Programmable PRF.
+
+                                       37
+  Parameters:               There are two parties, a sender with L =
+  {(y1 , z1 ), ..., (yℓ , zℓ )} and a receiver with a set X ⊆ F where |X| = n.
+
+
+  Protocol:        Upon input (sender, sid, L) from the sender                         and
+  (receiver, sid, X) from the receiver, the parties do the following:
+
+     1. The sender sends (sender, sid, L) and the receiver sends
+        (receiver, sid, X) to Foprf with |F̂| ≈ 2κ . The parties respectively
+        receive k and X ′ = {Fk (x) | x ∈ X}.
+
+     2. The sender uses the XoPaXoS solver to compute P⃗ ∈ Fm over the
+        field F such that P⃗ ← Encode((y1 , z1 − Fk (y1 )), ..., (yℓ , zℓ − Fk (yℓ )))
+        and sends it to the receiver.
+
+     3. The receiver outputs {x∗1 , ..., x∗n } such that x∗i := x′i +Decode(P, xi ).
+
+  Subsequently, upon input (sender, sid, y) from the sender, output:
+  Fk (x) + Decode(P, x).
+
+Figure 8: Protocol Πopprf which realizes the Oblivious Programmable PRF
+functionality Fopprf .
+
+
+
+  Parameters: There are two parties, a sender with set Y ⊂ F, associated
+  values Ỹ ⊂ {0, 1}σy and a receiver with a set of keys X ⊆ F, associated
+  values X̃ ⊂ {0, 1}σx where |Y | = |Ỹ | = ny , |X| = |X̃| = nx . The
+  functionality is parameterized by Reorder : Fn → (π : [n] → [m]) which
+  on input X outputs a injective function π.
+  Functionality: Upon receiving (sender, sid, Y, Ỹ ) from the sender and
+  (receiver, sid, X, X̃) the functionality computes π ← Reorder(X) and uni-
+  formly samples Q0 , Q1 ∈ {0, 1}m , Z 0 , Z 1 ∈ {0, 1}(σx +σy )×m such that
+
+    qi0′ ⊕ qi1′ = 1, zi0′ ⊕ zi1′ = (x̃i′ ||ỹi )        if ∃xi ∈ X, yj ∈ Y s.t. xi = yj ,
+    qi0′ ⊕ qi1′ = 0,   zi0′ ⊕ zi1′ = 0                  otherwise
+
+  where i′ = π(i). Output Q0 , Z 0 , π to the receiver and Q1 , Z 1 to the
+  sender.
+
+  Figure 9: Ideal functionality Fcpsi of Circuit Private Set Intersection.
+
+                                                   38
+ Parameters: There are two parties, a sender with set Y ⊂ F, associated
+ values Ỹ ⊂ {0, 1}σy and a receiver with a set of key X ⊆ F, associated
+ values X̃ ⊂ {0, 1}σx where |Y | = |Ỹ | = ny , |X| = |X̃| = nx . The
+ protocol is parameterized by an expansion factor ϵ, cuckoo hash table
+ size m = ϵnx , and k hash functions hj : {0, 1}∗ → m.
+ Protocol:
+
+    1. The receiver constructs a cuckoo hash table Tx of X such that
+       x ∈ X, there exists a j ∈ [k] such that H(x||j) = Tx [hj (x)].
+
+    2. The sender constructs a simple hash table Ty of Y such that y ∈ Y ,
+       for all j ∈ [k] it holds that H(y||j) ∈ Ty [hj (y)].
+
+    3. For all i, the sender samples random ri ∈ {0, 1}ℓ , wi ∈ {0, 1}σy
+       and for all y ′ ∈ Ty [i], the receiver defines L := {(y ′ , ri ||ỹ ⊕ wi )} ∈
+       (F×{0, 1}ℓ+σy )m where ỹ is associated value for y s.t. y ′ = H(y, j).
+
+    4. The    sender           sends   (sender, sid, L)   and    the      receiver
+                                     ′                                  ′
+       sends     (receiver, sid, Tx )     to     Fopprf    where     Tx         :=
+       (H(1, Tx [1]), ..., H(m, Tx [m])).             The   receiver      receives
+       X ∗ = {(ri′ ||wi′ ) | i ∈ [m]}.
+
+    5. For each i, the sender sends (receiver, sid, ri′ ||wi′ ) and the receiver
+       sends (sender, sid, ri ||wi ||x̃) to F2pc where x̃ is the associated value
+       with x = Tx [i] (or zero if Tx [i] is empty). F2pc computes a circuit
+       C that for each i ∈ [m]:
+
+        (a) Sets qi := 1 if ri′ = ri and qi := 0 otherwise,
+                                     0 1               0 1                    ′
+        (b) Outputs  secret shares qi , qi of qi and zi , zi of zi := qi · (wi ⊕
+            wi )||x̃ .
+
+Figure 10: Protocol Πcpsi which realizes the circuit PSI functionality Fcpsi .
+
+ Parameters: There are two parties, a sender and a receiver. The func-
+ tionality is parameterized by a circuit C : {0, 1}in1 +in2 → {0, 1}out1 +out2 .
+ Functionality: Upon receiving (sender, sid, X) from the sender and
+ (receiver, sid, Y ) where X ∈ {0, 1}in1 and Y ∈ {0, 1}in2 , the function-
+ ality computes (Z1 , Z2 ) := C(X, Y ) and returns Z1 ∈ {0, 1}in1 to the
+ receiver and Z2 ∈ {0, 1}in2 to the sender.
+
+  Figure 11: Ideal functionality F2pc of generic two party computation.
+
+
+                                        39
+

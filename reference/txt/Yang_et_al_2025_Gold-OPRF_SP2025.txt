@@ -1,0 +1,2500 @@
+Gold OPRF: Post-Quantum Oblivious Power-Residue PRF
+Yibin Yang∗        Fabrice Benhamouda†            Shai Halevi‡       Hugo Krawczyk§           Tal Rabin¶
+
+                                          February 17, 2026
+
+
+
+                                                Abstract
+        We propose plausible post-quantum (PQ) oblivious pseudorandom functions (OPRFs) based
+     on the Power-Residue PRF (Damgård CRYPTO’88), a generalization of the Legendre PRF. For
+     security parameter λ, we consider the PRF Goldk (x) that maps an integer x modulo a public
+     prime p = 2λ · g + 1 to the element (k + x)g mod p, where g is public and log g ≈ 2λ.
+        At the core of our constructions are efficient novel methods for evaluating Gold within two-
+     party computation (2PC-Gold), achieving different security requirements. Here, the server Ps
+     holds the PRF key k whereas the client Pc holds the PRF input x, and they jointly evaluate
+     Gold in 2PC. 2PC-Gold uses standard Vector Oblivious Linear Evaluation (VOLE) correlations
+     and is information-theoretic and constant-round in the (V)OLE-hybrid model. We show:
+        • For a semi-honest Ps and a malicious Pc : a 2PC-Gold that just uses a single (V)OLE
+          correlation, and has a communication complexity of 3 field elements (2 field elements if
+          we only require a uniformly sampled key) and a computational complexity of O(λ) field
+          operations. We refer to this as half-malicious security.
+        • For malicious Ps and Pc : a 2PC-Gold that just uses λ4 + O(1) VOLE correlations, and has
+          a communication complexity of λ4 + O(1) field elements and a computational complexity of
+          O(λ) field operations.
+     These constructions support additional features and extensions, e.g., batched evaluations with
+     better amortized costs where Pc repeatedly evaluates the PRF under the same key.
+         Furthermore, we extend 2PC-Gold to Verifiable OPRFs and use the methodology from Beullens
+     et al. (Eurocrypt’25) to get strong OPRF security in the universally composable setting.
+         All the protocols are efficient in practice. We implemented 2PC-Gold—with (PQ) VOLEs—
+     and benchmarked them. For example, our half-malicious (resp. malicious) n-batched PQ OPRFs
+     incur about 100B (resp. 1.9KB) of amortized communication for λ = 128.
+
+
+
+
+ ∗
+   Georgia Tech, yyang811@gatech.edu. This work was partially done while the author was at AWS.
+ †
+   Amazon Web Services, fabrice.benhamouda@gmail.com.
+ ‡
+   Amazon Web Services, shai.halevi@gmail.com.
+ §
+   Amazon Web Services, hugokraw@gmail.com.
+ ¶
+   Amazon Web Services, talr@seas.upenn.edu.
+Contents
+1 Introduction                                                                                         1
+  1.1 Our Results . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    1
+  1.2 Related Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     3
+
+2 Preliminaries                                                                                        5
+  2.1 Notation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .   5
+  2.2 Schwartz-Zippel Lemma . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        5
+  2.3 Security Model . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     6
+  2.4 Pohlig-Hellman Discrete Logarithm Algorithm . . . . . . . . . . . . . . . . . . . . . .          6
+  2.5 Legendre and Power-Residue PRFs . . . . . . . . . . . . . . . . . . . . . . . . . . . .          6
+  2.6 Vector OLE . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     7
+  2.7 VOLE-Based ZK . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        8
+
+3 Technical Overview                                                                              11
+  3.1 Overview of Half-Malicious 2PC-Gold . . . . . . . . . . . . . . . . . . . . . . . . . . . 11
+  3.2 Overview of Malicious 2PC-Gold . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 13
+  3.3 Offline-Online Mode . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 15
+  3.4 Eliminating 1-bit Leakage in Our Protocols . . . . . . . . . . . . . . . . . . . . . . . 16
+
+4 Gold PRF Basics                                                                                16
+  4.1 Formal Hardness Assumptions . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 16
+  4.2 Power-Residue Subgroup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 17
+
+5 Formalization and Analysis of 2PC-Gold                                                           18
+  5.1 Ideal Functionality for 2PC-Gold . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 18
+  5.2 Formal 2PC-Gold Protocols and Theorems . . . . . . . . . . . . . . . . . . . . . . . . 19
+  5.3 Some Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 25
+
+6 Verifiability and Strong UC Security                                                           27
+  6.1 Verifiability: Ensuring a Consistent Key . . . . . . . . . . . . . . . . . . . . . . . . . 27
+  6.2 Avoiding Collisions in Gold: Towards Strong UC Security . . . . . . . . . . . . . . . . 30
+
+7 Implementation and Benchmark                                                                      31
+  7.1 Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 31
+  7.2 Performance of Our Protocols . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 33
+  7.3 Comparison with Prior Work . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 35
+  7.4 Projected Overhead for Additional Properties . . . . . . . . . . . . . . . . . . . . . . 36
+
+
+
+
+                                                    i
+1       Introduction
+OPRF. Pseudorandom functions [GGM86] (PRFs) are essential tools in cryptography. Modern
+applications often require the evaluation of PRFs in a distributed and privacy-preserving manner.
+This leads to the notion of oblivious pseudorandom functions (OPRFs) [FIPR05, NR97].
+    Concretely, consider a PRF F , a server Ps that holds a PRF key k, and a client Pc that holds
+a PRF input x. Through the OPRF protocol, Pc learns the output Fk (x) without obtaining any
+additional information about k while Ps learns nothing about x (including nothing about the
+output Fk (x)). Alternatively, an OPRF can be viewed as a specialized instance of secure two-party
+computation (2PC) [Yao86] tailored for evaluating a PRF.
+    It is important to note that OPRFs are sometimes defined with more stringent requirements
+than a standard 2PC over a PRF, i.e., they demand additional properties. However, the core
+component—2PC over PRFs—underlies also the stronger notions and we focus on the design of such
+a component. We then show how to extend the design to obtain stronger forms of OPRFs.
+Post-Quantum OPRF. Currently, the most widely deployed OPRF protocols rely on Diffie-Hellman-
+type assumptions, with the 2HashDH OPRF [JKK14] being a notable example. While these protocols
+are lightweight and highly efficient, they are insecure against quantum adversaries [Sho94, Sho99].
+In light of the potential threats posed by quantum computing, it is imperative to develop OPRF
+protocols that remain secure in the quantum era.
+     Over the past five years, numerous proposals for post-quantum (PQ) OPRFs have emerged,
+e.g., [ADDS21, BKW20, Bas23, ADDG24, SHB23, HHM+ 24, DGH+ 21, APRR24, FOO23, BDFH24,
+AG24, ESTX24, HKL+ 25]. However, a significant efficiency gap remains: these PQ OPRFs are
+primarily of theoretical interest and are not yet practical for widespread deployment. Addressing this
+efficiency gap is crucial for practical adoption of PQ OPRFs, and our work focuses on constructing
+novel PQ OPRFs to bridge this gap.
+Challenges. Constructing an efficient PQ OPRF presents two primary and intertwined challenges.
+First, it requires identifying or designing a suitable PQ PRF. Second, it involves developing methods
+to efficiently evaluate the chosen PQ PRF within 2PC based on PQ assumptions.
+
+1.1     Our Results
+In this work, we aim to bridge the efficiency gap by leveraging the Power-Residue PRF [Dam90],
+a generalization of the Legendre PRF. Let λ denote the security parameter (e.g., λ = 128, which
+produces 128-bit outputs, targeting the NIST Security Strength Category 1 for PQ cryptography).
+To get an O(λ)-bit output, we consider the following PRF:
+
+                                          Fk (x) := (k + x)g mod p
+
+where p = 2λ · g + 1 is a non-secret prime, k ∈ Fp is the key, and x ∈ Fp is the input to the PRF.
+   Crucially, when p is sufficiently large (log p ≈ 3λ), there are currently no known quantum attacks
+against this PRF.1
+Gold. We name this PRF Gold since it has a private base and a public exponent, whereas the
+well-known discrete logarithm has a public base and a private exponent—reversing the order of
+characters in dlog gives Gold.
+   There exists an efficient quantum distinguisher if it is allowed to make quantum queries [RS04, vDH00]. In this
+    1
+
+work, we restrict ourselves to (quantum) attacks with classical queries and justify this choice in Section 2.5.
+
+
+                                                        1
+2PC-Gold. Our first major contribution is developing a family of efficient 2PC protocols, called
+2PC-Gold, for evaluating the Gold function across various settings between a server Ps that inputs
+a key k and a client Pc with input x. 2PC-Gold protocols leverage standard Vector Oblivious
+Linear Evaluation (VOLE) correlations (recalled in Section 2.6) in a black-box manner and are
+information-theoretically secure and constant-round in the VOLE-hybrid model.2 Our 2PC-Gold
+protocols include:
+
+• A protocol secure against an unbounded semi-honest Ps and an unbounded malicious Pc that uses
+  a single (V)OLE correlation, and has a communication complexity of 3 field elements (2 if only
+  a uniformly sampled key is required) and a computational complexity of O(λ) field operations
+  (essentially, the cost of a single exponentiation). This protocol requires 3 rounds (2 if only a
+  uniformly sampled key is required). We refer to this as our half-malicious protocol. It is useful in
+  scenarios where the server is trusted not to depart from its intended behavior.
+
+• An enhanced protocol secure against unbounded malicious Ps and Pc that uses λ + 8 VOLE
+  correlations, and has a communication complexity of λ + 15 field elements and a computational
+  complexity of O(λ) field operations. We further show that for any small constant ϕ that, w.l.o.g.,
+  divides λ, the communication complexity can be improved to ϕλ + 2ϕ + 13 field elements, and the
+  number of VOLE correlations required is reduced to ϕλ + O(1). This protocol requires 5 rounds (3
+  with the Fiat-Shamir transformation [FS87]). We refer to this as our malicious protocol.
+
+The above protocols have additional features and extensions useful in different applications, including:
+
+• Offline-Online Mode: Our half-malicious and malicious 2PC-Gold support an offline-online
+  mode. The generation of VOLE correlations can be performed during an input/key-independent
+  offline phase. Moreover, in our malicious 2PC-Gold, the majority of the work can be further shifted
+  to the offline phase, resulting in an online communication complexity of only 6 Fp elements.
+
+• Batching: Our protocols support batched evaluations for better amortized costs, allowing Pc to
+  repeatedly evaluate the PRF under the same key with arbitrary inputs. For example, the online
+  communication of our malicious 2PC-Gold can be reduced to amortized 2 + n4 Fp elements for
+  n-batched evaluations.
+
+• Classical and PQ Instantiations: Our half-malicious and malicious 2PC-Gold rely solely on
+  standard VOLE correlations and are information-theoretically secure in the VOLE-hybrid model.3
+  By employing appropriate methods to generate these VOLE correlations, our unmodified protocols
+  can be instantiated to achieve either classical or post-quantum security in the plain model. We
+  implement both options and report performance in Section 7. This performance will further
+  improve in the future with ongoing optimizations in VOLE generation.
+
+• Key Verification: Malicious 2PC-Gold supports zero-knowledge proofs [GMR85] of any NP
+  relation over the key. Notably, we build efficient verifiable OPRFs based on this property.
+
+See Section 3 for a concise technical overview of 2PC-Gold.
+   2
+     To clarify, our 2PC protocols for evaluating Gold is information-theoretically secure in the VOLE-hybrid model.
+However, when we employ this protocol as an OPRF, we rely on computational assumptions to guarantee Gold being
+a secure PRF and to generate VOLE correlations.
+   3
+     We note that looking ahead, our simulation does not need rewinding in the VOLE-hybrid model.
+
+
+
+                                                         2
+O-Gold and UC-Gold. OPRFs have been defined in multiple ways in the literature. In its basic
+form, just the 2PC over a PRF between server and client (i.e., 2PC-Gold) suffices for the OPRF
+definition. This, however, is not sufficient for some applications and stronger OPRF notions have
+been formulated. Our second major contribution is augmenting 2PC-Gold to achieve these
+notions.
+    Let H1 be a hash function mapping arbitrary strings to Fp elements and H2 be another hash
+function producing {0, 1}2λ elements. We define the function O-Goldk (x) as H2 (x, Goldk (H1 (x))). A
+simple 2PC over O-Gold (leaking4 Goldk (H1 (x)) to Pc ) can be implemented by Pc inputting H1 (x)
+to 2PC-Gold, obtaining y := Goldk (H1 (x)) and locally computing H2 (y). O-Gold function inherits
+the 2PC security of Gold and, in addition, supports arbitrary inputs, avoids collisions under the
+same k, and allows modeling its outputs as a random oracle. It also serves as a basis for a verifiable
+OPRF and to achieve strong universal-composable security.
+    We show how different forms of verifiability can be efficiently implemented for our OPRFs, includ-
+ing the approach to achieve standard verifiable OPRFs [JKK14]; see Section 6.1. Finally, we show
+how to extend O-Gold to achieve strong UC security by following the methodology from [BDFH24]
+in Section 6.1; we call the resultant OPRF UC-Gold.5
+    We refer to the three constructions—2PC-Gold, O-Gold, and UC-Gold—as OPRFs, each distin-
+guished by its features.
+Implementation. All our protocols are efficient in practice. We implemented half-malicious and
+malicious 2PC-Gold, with classical and PQ VOLEs.6 We report the performance in Section 7. The
+cost of O-Gold is similar to 2PC-Gold, and we estimate concrete overheads for UC-Gold.
+    Consider λ = 128. Our half-malicious (resp. malicious) non-batched PQ 2PC-Gold needs 774KB
+(resp. 970KB) of communication, 568ms (resp. 1.1s) of wall-clock time in a WAN-like network, and
+163ms (resp. 510ms) of wall-clock time in a LAN-like network. Most of the overhead comes from
+generating standard PQ VOLE correlations: it only needs 96B (resp. 2.7KB) in the VOLE-hybrid
+world. Indeed, by deploying the sublinear generation of large enough PQ VOLE correlations (n ≈ 107
+for half-malicious and n ≈ 3 × 105 for malicious in our experiments, but n can be much smaller;
+see Section 7.2) from [BCGI18], our half-malicious (resp. malicious) batched PQ 2PC-Gold only needs
+100B (resp. 1.9KB) of amortized communication, 87µs (resp. 1.6ms) of amortized wall-clock time
+in a WAN-like network, and 57µs (resp. 1ms) of amortized wall-clock time in a LAN-like network.
+Finally, achieving UC-Gold requires an additional (amortizable) 899KB of communication.
+
+1.2   Related Work
+OPRF and Its Applications. The concept of obliviously evaluating PRFs dates back to [NR97]
+and was later refined and formalized as Oblivious PRF (OPRF) by [FIPR05].
+    Informally, OPRFs increase the entropy of the client’s inputs, making them essential com-
+ponents in many real-world privacy-preserving applications. Notable examples include private
+set intersection (e.g., [CM20, KKRT16]), key management (e.g., [JKR19]), anonymous tokens
+(e.g., [DGS+ 18, KLOR20]), and password-based key-exchange (e.g., [JKX18]). Many OPRF applica-
+tions (e.g., PSI and key management) can benefit from the batched OPRF.
+  4
+    This leakage to Pc is usually harmless in OPRF applications.
+  5
+    We note that [BDFH24]’s proof considers the classical random oracle model; extension to the Quantum
+ROM [BDF+ 11] is an interesting topic for future work.
+  6
+    Our implementation: https://github.com/gconeice/PR-OPRF.
+
+
+
+                                                  3
+    One of the most successful OPRF constructions is the 2HashDH OPRF [JKK14]. This construction
+relies on Diffie-Hallman-type assumptions and is extremely efficient: the basic version requires only
+2 group elements of communication per evaluation. For more details, we refer the reader to a
+Systematization of Knowledge work on OPRFs [CHL22].
+PQ OPRF Constructions. Research on PQ OPRF schemes has emerged in the past five years.
+    One approach is to build PQ OPRFs based on isogenies. This was initiated by [BKW20],
+relying on the SIDH and CSIDH assumptions. Subsequent work [Bas23, HHM+ 24] optimized
+these constructions and addressed vulnerabilities exposed by SIDH attacks [BKM+ 21, MM22]
+over [BKW20]’s constructions. However, isogeny-based OPRFs remain computationally intensive.
+    Another approach is to build PQ OPRFs based on lattices, initiated by the work [ADDS21]. This
+is merely a feasibility result: [ADDS21]’s constructions require more than 2MB (resp. 128GB) of
+communication per evaluation for semi-honest (resp. malicious) security. Very recent work [AG24,
+ESTX24] optimized the communication cost to amortized under 200KB for malicious security over
+batched evaluations. To our best knowledge, the only available implementation of lattice-based
+OPRF protocols is the one in [ADDS21] for semi-honest security.
+    An alternative, straightforward approach to constructing PQ OPRFs is to apply Yao’s Garbled
+Circuits [Yao86] to, e.g., AES with the help of post-quantum oblivious transfers (e.g., [MR19,
+DCZ+ 24]). This idea was explored in [FOO23]. However, the size of the garbled circuit for AES is
+relatively large, making further optimization inherently hard.
+    This approach, however, opens up the possibility of building PQ OPRFs based on PQ MPC-
+friendly PRFs. The literature has explored this method using two such PRFs:
+
+• “Crypto Dark Matter” PRFs [BIP+ 18]: These PRFs are specifically designed for efficient
+  use within MPC. Several proposals have explored the oblivious evaluations of these PRFs. In
+  particular, [DGH+ 21] studied preprocessing 2PC over them, and [ADDG24] studied TFHE over
+  them. Most recently, [APRR24] has aggressively improved the constructions of these PRFs and
+  showed that the amortized communication cost per evaluation over batched evaluations can only
+  be ≈1Kbit for semi-honest security. However, these PRF constructions rely on new assumptions
+  that need further study. Moreover, achieving malicious security may require substantial effort,
+  e.g., [ADDG24] relies on a heuristic argument to achieve it. Furthermore, these PRFs are only
+  weak PRFs (i.e., they are only secure when the input is chosen uniformly at random). In the
+  semi-honest case, this is not an issue as the input can be hashed; however, in the malicious case,
+  additional mechanisms are required.
+
+• Legendre PRFs [Dam90]: Another type of MPC-friendly PRF is the Legendre PRF, originally
+  proposed by Damgård in 1988. This PRF was first identified as MPC-friendly by [GRR+ 16]
+  and has since been employed to construct PQ OPRFs in works [SHB23, BDFH24]. The state-of-
+  the-art construction presented in the recent work of [BDFH24] incurs approximately 900KB of
+  (non-amortizable) communication per evaluation for malicious security.
+
+    Our work constructs PQ OPRFs using the generalized Legendre PRF, i.e., the Power-Residue
+PRF also introduced in [Dam90]. See Section 2.5 for more detailed discussions of the Legendre and
+Power-Residue PRFs.
+    Recent work [KCM24] considers building PQ distributed OPRF from the Legendre PRF. More
+specifically, [KCM24] considers distributed OPRF with multiple (≥3) non-colluding servers (i.e., the
+threshold setting), while we consider the classical OPRF setting with a single server. Meanwhile, for
+
+
+                                                 4
+n servers, the cost in [KCM24] is exponential in n, making it unsuitable for many servers. Extending
+our protocols to the distributed OPRF setting is an interesting future direction.
+    We note that our work may appear to extend the recent study by [BDFH24], which also utilizes
+VOLE correlations; however, this is not the case. In particular, our protocols use VOLE correlations
+in the opposite direction to build a novel customized 2PC for PRF evaluation, enabling efficient
+extension to batched (amortized) evaluations and malicious security. Moreover, our protocols rely
+solely on black-box usage of the standard VOLE correlations, whereas [BDFH24] requires non-black-
+box modifications of the VOLE functionality. Finally, our work provides a complete end-to-end
+implementation along with a comprehensive benchmark. At the same time, our work borrows from
+[BDFH24] the elegant methodology for building the strong UC variant of Gold.
+VOLE and VOLE-Based ZK. Our protocols leverage the standard VOLE correlations; see Sec-
+tion 2.6. In particular, our malicious OPRFs utilize efficient zero-knowledge proofs based on VOLE,
+commonly referred to as VOLE-based ZK; see Section 2.7.
+Concrete Performance Comparison. Section 7.3 includes a concrete performance comparison
+between our protocols and prior work.
+
+
+2     Preliminaries
+2.1   Notation
+• λ is the security parameter (e.g., 128).
+• The server is Ps . We refer to Ps by she, her, hers...
+• The client is Pc . We refer to Pc by he, his, him...
+• x := y denotes that y is assigned to x.
+                                                                                               $
+• We denote sets by upper-case letters. We denote that x is uniformly drawn from a set S by x ← S.
+• [m] := {1, . . . , m} and [a, b) := {a, a + 1, . . . , b − 1}.
+• We use F to denote a finite field. For a prime p, we use Fp to denote the standard modular-p
+  arithmetic field.
+• We use Z to denote the integer ring.
+• We use G to denote a cyclic group.
+• We denote row vectors by bold lower-case letters (e.g., a), where ai (or a[i]) denotes the i-th
+  component of a (starting from 1). |a| denotes the length of a.
+• For vectors a, b where |a| = |b|. ⟨a, b⟩ denotes the inner product; a ⊙ b denotes the element-wise
+  product.
+• xa := (xa1 , . . . xam ) for some a = (a1 , . . . , am ).
+• We use n to denote the number of OPRF evaluations.
+
+2.2   Schwartz-Zippel Lemma
+The security of our protocols relies on the well-known Schwartz-Zippel lemma [Sch80, Zip79] and its
+corollary:
+
+Lemma 1 (Schwartz-Zippel). Let F be a finite field and P ∈ F[X] be a polynomial of degree d (in
+X). Then
+                                 h
+                                                  $
+                                                      i   d
+                               Pr P (v) = 0 | v ← F ≤
+                                                         |F|
+
+                                                  5
+Corollary 1. Let F be a field and d be a positive integer, for any a, b ∈ Fd , if a ̸= b, then
+                         h                                                    i d−1
+                                              $
+                       Pr ⟨a, c⟩ = ⟨b, c⟩ | β ← F, c := (1, β, . . . , β d−1 ) ≤
+                                                                                 |F|
+Indeed, our work only requires the Schwartz-Zippel lemma for the univariate case.
+
+2.3    Security Model
+We formalize our protocols in the universally composable (UC) framework [Can01]. We consider
+static corruptions. In particular, our basic OPRF protocol is secure against a semi-honest Ps and a
+malicious Pc . We refer to this protocol as the half-malicious OPRF. On the other hand, our malicious
+protocol is secure against malicious Ps and Pc . For simplicity, we omit standard UC (sub-)session
+IDs. We also omit that each time a party sends a message to the functionality, it provides a receipt
+to the simulator, and that whenever the functionality needs to deliver an output to a party, it waits
+for the simulator’s instruction to do so. Note, this includes the standard security with abort.
+
+2.4    Pohlig-Hellman Discrete Logarithm Algorithm
+Our work uses the well-known Pohlig-Hellman algorithm [PH78] for solving (special-case) discrete
+logarithms (DLOGs). Consider aQfinite cyclic group G of order m generated by h ∈ G, where m
+has a prime factorization as m = ri=1 pei i . Then
+                                               P there exists a√deterministic    algorithm to solve the
+DLOG of any element x ∈ G in base h in O                                 group operations.
+                                                                       
+                                                 i ei · (log m + p i )
+    Our work uses the Pohlig-Hellman algorithm in a finite cyclic group of order m = 2λ , in which
+the DLOG can be solved in O(λ2 ) group operations.
+
+2.5    Legendre and Power-Residue PRFs
+Pseudorandom Functions (PRFs) [GGM86] are deterministic keyed functions that are indistinguish-
+able from random functions, when the key is chosen uniformly at random.
+    Our protocols essentially obliviously evaluate the Power-Residue PRF, which is a generalization
+of the Legendre PRF. Both PRFs can be traced back to the work of Damgård [Dam90] in 1988. This
+section briefly reviews these two PRFs and existing (classical and quantum) attacks.
+                                                                                               p−1
+Legendre PRF. Let p be a prime. For a ∈ Fp , the Legendre symbol ap is defined as: ap := a 2
+(mod p).                                                                                       
+    It is conjectured that for a sufficiently large public prime p, the function Fk (x) := k+xp   is a
+PRF defined over Fp 7→ {1, −1}, with key k ∈ Fp . The output of Fk on −k is zero, which is neither
+1 nor −1. However, since k is supposed to be chosen uniformly, an adversary cannot find the single
+input x = −k that results in an output of zero.7
+Power-Residue PRF. A glaring downside of the Legendre PRF is that it only produces a single-bit
+output. In many scenarios, (oblivious) PRF is only useful when it can produce O(λ) bits. A direct
+way to achieve this is by repeating the Legendre PRF O(λ) times (e.g., on O(λ) different keys;
+see [BDFH24]). This is clearly undesirable. Instead, we exploit the higher order residues, a natural
+generalization of the Legendre PRF also proposed by [Dam90].
+  7
+    We note that in (UC) OPRF constructions, the UC environment may choose the input x = −k. This is also true
+for OPRFs based on the Power-Residue PRF, and we handle this case carefully.
+
+
+                                                      6
+   In more detail, consider a sufficiently large prime p = eg + 1 where p, e, g are public. For a
+               $
+random key k ← Fp , the PRF F on input x ∈ Fp is defined as:
+                                               p−1
+                             Fk (x) := (k + x) e = (k + x)g     (mod p)
+
+This PRF can produce e different non-zero outputs (and a unique input results in a zero output).
+This is because, as indicated by its name, each non-zero output is a g-th residue (aka an e-th root of
+unity). This is crucial for efficiency, as now one evaluation can produce a ⌊log e⌋-bit output. Note,
+for e = 2, the Power-Residue PRF is the Legendre PRF.
+    In this work, we set e to be 2λ and name this PRF Gold. One evaluation of Gold can produce
+λ-bit entropy. See Section 4.1 for how to transfer the output to {0, 1}λ , or O(λ) bits in general, and
+for associated formal assumptions.
+Statistical Properties. The study of the distribution of Legendre symbols dates to Davenport,
+1931 [Dav31], followed by extensive work (e.g., [Per92, MS97, GMS14, Tót07, DHS98, DE52]). It
+points to statistical properties of Legendre symbols that resemble the behavior of fair coin tosses.
+Some of these properties can be extended to Power-Residue symbols [DE52].
+Attacks and Quantum Resistance. Several works attempt to break the Legendre and Power-
+Residue PRFs. This trend has become popular recently, mainly because of Legendre’s candidate
+usage in the Ethereum 2.0 blockchain.
+    Both Legendre and Power-Residue PRF can be broken in quantum polynomial time with a single
+quantum superposition query access to the PRF [RS04, vDH00]. However, currently, cryptographic
+protocols and algorithms are only implemented on classical computers, including OPRFs. As long as
+all systems holding the OPRF key are classical, an adversary cannot make a quantum superposition
+of queries. Thus, we restrict ourselves to attacks with classical queries.
+    For the Legendre PRF, classical and quantum attacks include [BBUV20, KKK20b, MZ22,
+SHB23, KKK20a, Kho19, FS21]. In particular, the best-known (quantum) attack by [FS21] has time
+complexity 2O(log p) ·p1/3 . For the Power-Residue PRF, the additional (quantum) attack by [BBUV20]
+                            p log2 p
+has time complexity O( Le      log2 e
+                                      ) where L ≤ p1/4 denotes the number of queries.
+    Finally, a recent elegant work [CW24b] considers an extension of the Legendre PRF to any modulo
+N instead of a prime modulo p. The authors break the pseudorandomness of such a function when N
+is composite and can be factored, which implies PQ insecurity [Sho94]. However, this factoring-based
+attack (and subsequent work [CW24a]) does not apply to the Legendre and Power-Residue PRFs
+modulo a prime p.
+Legendre vs. Power-Residue with e = 2λ . When e = 2λ , breaking the Power-Residue PRF is
+                                                                                             p−1
+not harder than breaking the Legendre PRF. Indeed, one can trivially compute (k + x) 2 from
+        p−1
+(k + x) e . Conversely, we do not know of any reduction from breaking the Legendre PRF to the
+Power-Residue PRF. We leave it as an interesting open problem.
+    Nevertheless, considering the previously cited works, we believe that our Power-Residue PRF Gold
+is a natural, reasonable assumption (see the formal definition in Section 4.1) and encourage further
+study on its pseudorandomness.
+
+2.6   Vector OLE
+Our OPRFs use Vector Oblivious Linear Evaluation (VOLE) correlations: they are in the VOLE-
+hybrid model. VOLE correlations of size m (or m VOLE correlations) over a field F are correlated
+
+                                                     7
+                                                                   a,b
+                                                Functionality FVOLE
+ FVOLE , parameterized by a field F, running with a sender Pa , a receiver Pb and an adversary S, proceeds as follows:
+  a,b
+
+                                                                                $
+ Initialize. Upon receiving (init) from Pa and Pb , if Pb is honest, set ∆(b) ← F, else receive ∆(b) from S. Store
+ ∆(b) . Send ∆(b) to Pb . Ignore subsequent (init).
+ Extend. Upon receiving (extend, m) from Pa and Pb :
+                          $
+ • If Pb is honest, set v ← Fm , else receive v ∈ Fm from S.
+                           $
+ • If Pa is honest, set u ← Fm and compute w := v − u∆(b) ∈ Fm , else receive u ∈ Fm and w ∈ Fm from S and
+   compute v := w + u∆ ∈ Fm .
+                           (b)
+
+ • Send (u, w) to Pa and v to Pb .
+
+
+
+                       Figure 1: The VOLE correlation functionality [WYKW21].
+
+
+random vectors held by a sender Pa and a receiver Pb . The sender Pb obtains a uniformly sampled
+             $                        $                                                                         $
+scalar ∆(b) ← F and a vector v ← Fm . The receiver Pa obtains a uniformly sampled vector u ← Fm
+and a correlated vector w := v − u∆(b) .
+     Our protocols rely solely on a weaker form of VOLE correlations known as endemic [MR19]
+VOLE correlations, where the adversary is allowed to choose its own correlated shares. See Figure 1
+for the formal definition.
+                                                        c,s
+     Looking ahead, our half-malicious OPRFs use FVOLE       : Ps plays the role of the VOLE receiver,
+                                                                                     s,c
+whereas Pc plays the role of the VOLE sender. Our malicious OPRFs also use FVOLE          (with Ps ’s and
+Pc ’s roles are switched in VOLE).
+     Multiple ways exist to realize FVOLE with malicious security. In this work, we adopt the approaches
+in [BDFH24] and [WYKW21]. Namely, when we only need a small amount of VOLE correlations
+(e.g., evaluating OPRF once), we realize it using the subset VOLEs [Roy22, BBD+ 23] and randomly
+linear combinations [BDFH24], via Oblivious Transfers (OTs) [Rab81]. In contrast, when we need
+many VOLE correlations (e.g., evaluating multiple inputs over a fixed-key OPRF), we deploy the
+“silent VOLE extension” technique to save (amortized) costs. This is also known as pseudorandom
+correlation generator (PCG), stemming from the seminal works [BCGI18, BCG+ 19].
+     The above approaches only rely on minicrypt-type cryptographic primitives (e.g., PRF, PRG)
+and/or the Learning Parity with Noise (LPN) assumption [BFKL94], in the OT-hybrid model. When
+using post-quantum OTs (e.g., [MR19, DCZ+ 24]), our instantiations of FVOLE are PQ secure:
+
+Lemma 2 (Informal). Assuming the existence of one-way functions or the hardness of LPN, there
+exists a protocol that UC-emulates FVOLE (Figure 1) in the OT-hybrid model.
+
+    A more straightforward way to realize FVOLE is via linearly homomorphic encryptions. With
+lattice-type assumptions, post-quantum security can be achieved. Our estimation shows that the
+performance difference is nuanced (see discussions in, e.g., [BDSW23]). We leave the exploration
+of this approach as a valuable future work. Crucially, our OPRFs are black-box in the VOLE
+functionality and can benefit from any future improvement over VOLE constructions.
+
+2.7    VOLE-Based ZK
+Our malicious OPRFs also use VOLE correlations to build lightweight ZKPs to protect against a
+malicious Ps , aligning with recent progress on VOLE-based ZK (e.g., [DIO21, YSWW21, HY24]).
+
+                                                          8
+      Ps (m, x, y, z, r, wx , wy , wz , wr )                        Pc (m, ∆, vx , vy , vz , vr )
+
+                                                                    γ ←$ Fp
+                                                            γ
+
+                  m
+                  X                                                              m
+                                                                                 X
+      C1 := r +       γ i · (xi wy,i + yi wx,i − wz,i )             Π := vr +          γ i · (vx,i vy,i − vz,i ∆)
+                  i=1                                                            i=1
+                    m
+                    X
+      C0 := wr +          γ i wx,i wy,i
+                    i=1
+
+                                                          C1 , C0
+
+                                                                    If C1 ∆ + C0 ̸= Π, proof fails and abort.
+
+
+Figure 2: The diagram of the batch LPZK technique. Here, Ps is the prover, and Pc is the verifier.
+
+
+Here, Ps is the prover, whereas Pc is the verifier. We review related techniques in this section.
+                                                              s,c
+IT-MAC. Consider a single VOLE correlation generated by FVOLE       defined over Fp . That is, Ps holds
+u and wu whereas Pc holds ∆ and vu , such that vu = wu + u∆ . This correlation can be rather
+                              (c)                                  (c)
+
+interpreted as the information-theoretic message authentication code (IT-MAC) [BDOZ11, NNOB12]
+commitment over the value u, from Ps to Pc . We denote this correlation as ⟨(u, wu ), vu ⟩∆(c) or [u]∆(c)
+in short. IT-MAC commitments have the following properties:
+
+• Perfect Hiding: vu and ∆(c) , held by Pc , are independent of the committed value u.
+
+• Statistical Binding: Ps can open [u]∆(c) by sending u and wu , where Pc would check if
+      ?
+  vu = wu + u∆(c) . For a malicious Ps to open it to a different value u′ ̸= u, she has to guess
+  ∆(c) —succeed with probability p1 .
+
+• Linear Homomorphism: Suppose Ps and Pc hold ⟨(x, wx ), vx ⟩∆(c) and ⟨(y, wy ), vy ⟩∆(c) . For
+  any public α, β, γ ∈ Fp , parties can locally generate [αx + βy + γ]∆(c) as follows: Ps computes
+  αwx + βwy , whereas Pc computes αvx + βvy + γ∆(c) .
+
+Note, the linear homomorphism property implies that, for a random IT-MAC [u]∆(c) (from VOLE),
+Ps can send z − u to commit to z, where u acts as a one-time pad [Bea95].
+Line-Point Zero-Knowledge. Our malicious OPRFs need Ps to prove in ZK that three IT-MAC
+commitments form a multiplication triple. Namely, Ps and Pc hold [x]∆(c) = ⟨(x, wx ), vx ⟩∆(c) ,
+[y]∆(c) = ⟨(y, wy ), vy ⟩∆(c) , [z]∆(c) = ⟨(z, wz ), vz ⟩∆(c) , where Ps wants to prove in ZK to Pc that
+z = xy. This can be done using the line-point zero-knowledge (LPZK) technique [YSWW21, DIO21].
+LPZK relies on the following equality (let ∆ = ∆(c) for simplicity):
+                                   known by P
+                                  z     }| c{
+                                  vx vy − vz ∆
+                               =(x∆ + wx )(y∆ + wy ) − (z∆ + wz )∆
+
+
+                                                             9
+                           = (xy − z) ∆2 + (xwy + ywx − wz ) ∆ +               wx wy
+                             | {z }        |      {z      }                    | {z }
+                                   0               known by Ps               known by Ps
+
+Hence, if ZK is not required, Ps can send two coefficients C1 = xwy + ywx − wz and C0 = wx wy ,
+                                       ?
+and Pc will check if vx vy − vz ∆ = C1 ∆ + C0 . This is sound because the equality holds only when ∆
+happens to be the root of a quadratic equation if xy ̸= z. If ∆ has full entropy to Ps , this will only
+happen with probability p2 since this is a degree-2 polynomial [Sch80, Zip79]. Of course, this is not
+ZK as C1 , C0 are correlated with x, y, z. ZK can be recovered by consuming one random IT-MAC
+[r]∆(c) (from VOLE). That is, Ps sends C1 = xwy + ywx − wz + r and C0 = wx wy + wr and Pc
+                               ?
+checks if vx vy − vz ∆ + vr = C1 ∆ + C0 .
+    LPZK technique can be optimized in the batched settings. Namely, parties hold [x]∆(c) , [y]∆(c) ,
+[z]∆(c) each of length m, and Ps wants to prove in ZK that z = x ⊙ y. In this case, instead of
+sending 2m coefficients, the m verifications can be batched as follows: Pc sends a random linear
+combination, Ps evaluates the linear combination on the m coefficients C1 and m coefficients C0 ,
+and then sends resulting 2 aggregated coefficients. One random IT-MAC [r]∆(c) is needed as before
+for ZK. In this work, this random linear combination is generated as the powers of a random field
+element, achieving information-theoretical security. The full batched LPZK is depicted in Figure 2.
+Generalized LPZK. As observed by [YSWW21], the LPZK technique can be generalized to higher
+degree polynomials. In this work, we use this generalized technique to improve concrete efficiency in
+the following setting: Ps and Pc hold [x]∆(c) = ⟨(x, wx ), vx ⟩∆(c) , [y]∆(c) = ⟨(y, wy ), vy ⟩∆(c) , where Ps
+wants to prove in ZK to Pc that y = xe for some public positive integer e. The core of this technique
+is the following (generalized) equality:
+                          known by P
+                         z     }| c{
+                         vxe − vy ∆e−1
+                       =(x∆ + wx )e − (y∆ + wy )∆e−1
+                                                                       e−2  
+                           e           e    e−1              e−1
+                                                                       X    e
+                       =(x − y)∆ + (ex            wx − wy )∆       +              xi wxe−i ∆i
+                                                                              i
+                                                                       i=0
+        
+         e
+where        denotes the binomial coefficient “e chooses i”. Crucially, all coefficients before each ∆
+         i
+term in the last row are known by Ps . Hence, if we do not need ZK, Ps can send e coefficients
+where Pc checks the equality. Similar to the LPZK, a malicious Ps can only create a wrong
+proof with probability pe . ZK can be recovered using e − 1 random IT-MACs (from VOLE).
+See [YSWW21, HHK+ 24] for details. The batched optimization can also be applied: with m e-th
+exponential proofs, the total communication cost is e + 1 Fp elements.
+    The generalized LPZK can be used to improve the following task (used by our malicious OPRFs):
+                                           128
+parties hold [x]∆(c) and want to obtain [x2 ]∆(c) . The naïve approach would require Ps to commit to
+128 intermediate results with a batched multiplication LPZK proof—the total communication is 131
+                                                                                   4   8   12
+Fp elements. By deploying the generalized LPZK, Ps can only commit to, e.g., x2 , x2 , x2 , · · · , with
+a batched 24 -th exponential relation proof—the total communication decreases to 128/4 + 24 + 1 = 49
+Fp elements. Note that this optimization does not improve communication asymptotically. It also
+increases the computation concretely.
+    All the proof techniques shown in this section provide information-theoretic security in the
+VOLE-hybrid model.
+
+                                                      10
+                       Ps (pp, k = ∆(s) , v)                  Pc (pp, u, w, x)
+
+                                                              msg1 := −w + ux
+                                                       msg1
+
+                          $
+                       α ← Fp
+                                   λ
+                       msg2 := α2 · (msg1 + v)
+                                                       msg2
+                                                                                  g
+                                                              res := u−1 · msg2
+                                                              Output res
+
+
+Figure 3: The diagram of our half-malicious 2PC-Gold between Ps and Pc . pp := (1λ , p, g) denotes
+the public parameters. Ps holds the PRF key k whereas Pc holds the PRF input x. The objective is
+to allow Pc obliviously obtain (k + x)g . Recall that k, v, u, w form a single VOLE correlation, i.e.,
+v = w + uk.
+
+
+3     Technical Overview
+In this section, we present our half-malicious and malicious 2PC-Gold with sufficient detail to
+understand our first major contribution. Other Gold OPRFs, formalization, and detailed analysis
+are presented in subsequent sections.
+    We focus on efficiently and obliviously evaluating Gold in the VOLE-hybrid model (see Figure 1).
+Namely, for a public prime p = 2λ · g + 1 where g is of O(λ) bits, Ps holds a PRF key k ∈ Fp whereas
+Pc holds a PRF input x ∈ Fp , and the objective is to allow Pc to learn (k + x)g over Fp obliviously,
+with the help of VOLE correlations over Fp . See Section 4 for the choice of g and how to efficiently
+convert the output into a O(λ)-bit element.
+    We first address scenarios where Ps uses a (fresh) uniformly sampled PRF key. Later, we show
+how to adapt the protocol to accommodate a server-specified key at the cost of Ps sending a single
+extra field element.
+    We note that Section 2.1 includes the used notation.
+
+3.1   Overview of Half-Malicious 2PC-Gold
+We give an overview of our half-malicious 2PC-Gold, namely, providing security against a malicious
+client and a semi-honest server. The protocol is depicted in Figure 3.
+Random Root Technique. Our protocol relies heavily on a simple observation [GRR+ 16, FKN94]:
+                                                                                 λ
+To evaluate (k + x)g obliviously, it is sufficient to let Pc obliviously learn α2 · (k + x), where
+                                                                                                 α ∈ Fp
+                                                                                       λ     g
+is uniformly sampled and unknown to Pc . Then, Pc can locally compute α2 · (k + x)               over Fp .
+This works because (1) for any α ∈ F∗p , α     2λ ·g
+                                                = 1 over Fp (which ensures correctness), and (2)
+  λ
+α · (k + x) is distributed as a uniformly chosen root of the equation X g = (x + k)g over Fp , which
+ 2
+
+can be simulated by choosing such a random root (see Section 4.2).
+
+
+                                                       11
+Protocol. Our half-malicious 2PC-Gold (see Figure 3) only requires two messages in the VOLE-
+hybrid model. Informally, the first message is sent by Pc and encrypts the evaluated input x. Then,
+                                                             λ
+the second message is sent by Ps and allows Pc to recover α2 · (k + x) over Fp where α is sampled
+uniformly by Ps .
+                                c,s
+    In detail, Ps and Pc use FVOLE   (Figure 1) to obtain one VOLE correlation: Ps holds ∆(s) , v
+whereas Pc holds u, w such that v = w + u∆(s) . Since ∆(s) is uniformly sampled, it can be used as
+the PRF key k.8 We make the following remarks w.r.t. correctness, security, and performance:
+
+• Correctness: Recall that v = w + u∆(s) = w + uk. The correctness relies on the following
+  equality:
+                                                                  λ
+                                      u−1 · msg2 = u−1 · α2 · (msg1 + v)
+                                                                  λ
+                                                    = u−1 · α2 · (−w + ux + v)
+                                                                  λ
+                                                    = u−1 · α2 · (uk + ux)
+                                                         λ
+                                                    = α2 · (k + x)
+
+  Note that u is zero with negligible probability p1 since it is uniformly sampled by FVOLE .
+
+• Semi-honest Ps : This protocol is secure against a semi-honest Ps in the VOLE-hybrid model.
+  Indeed, consider msg1 + v = u · (k + x). If k + x ̸= 0, since u is uniformly random in the view
+  of Ps , so is u · (k + x). Thus, it can be simulated by a random value in Fp . In case k + x = 0,
+  Ps learns this fact, which we formalize as a 1-bit leakage in our UC treatment (Figure 5). See
+  Section 3.4 for simple and efficient ways to eliminate this leakage.
+
+• Malicious Pc : This protocol is secure against a malicious Pc in the VOLE-hybrid model. Indeed,
+  the only place a malicious Pc can cheat is by choosing an arbitrary msg
+                                                                       ]1 .
+  Let us first assume that u ̸= 0. Then the simulator S can extract a corresponding input x  e from
+  ]1 as follows: since S knows u and w (by emulating FVOLE ), it can compute x
+  msg                                                                                ]1 +w)·u−1 .
+                                                                               e := (msg
+  Then, S gets from the ideal functionality the PRF output (k + x
+                                                                e) . Finally, S can use the random
+                                                                  g
+
+  root technique described above to simulate msg2 as a random root X of X g = (k + x   e)g .
+                                                                                                          λ
+  If u = 0, we remark that v = w. Thus, S knows v and can trivially simulate msg2 = α2 ·(msg
+                                                                                         ]1 +v).
+
+• Performance: Our half-malicious 2PC-Gold is extremely efficient. It has near-optimal communi-
+  cation: 2 messages, each consisting of a single Fp element. It consumes a single VOLE correlation
+  per OPRF invocation, and the time complexity of each party is dominated by the time to perform
+  a single exponentiation modulo p (with O(λ)-bit exponents). In more detail, Pc and Ps also
+  perform one multiplication modulo p, and Pc performs an inversion modulo p, which can be done
+  using the standard extended GCD algorithm in time Õ(log2 p).
+
+Note that the security of our protocol in the VOLE-hybrid model is information-theoretic.
+Batched Evaluations. Our protocol can support n-batched evaluations using n VOLE correlations
+(which can be generated more efficiently as a batch). That is, we can execute the protocol in Figure 3
+                                                                                      λ
+in n parallel instances: for each i ∈ [n], Pc sends −wi + ui xi ; then Ps sends αi2 · ui · (k + xi );
+   8
+    In applications where Ps inputs an arbitrary key k∗ (e.g., a key committed earlier), Ps will send k∗ − ∆(s) , allowing
+Pc to adjust the correlation as v = w + uk∗ . That is, Pc sets w := w − (k∗ − ∆(s) ) · u.
+
+
+                                                             12
+v, w, u ∈ Fnp are output by FVOLE s.t. v = w + uk. As noted in footnote 8, if Ps wants to adjust
+the key to a given value k ∗ instead of using the FVOLE ’s ∆(s) , it suffices to send k ∗ − ∆(s) only once.
+We remark that these n inputs do not need to be different.
+
+3.2    Overview of Malicious 2PC-Gold
+We give an overview of our malicious 2PC-Gold, which is information-theoretically secure against a
+malicious Ps and a malicious Pc in the VOLE-hybrid model.
+   Here, we focus on 2PC-Gold with malicious security. This is different from the public verifiability
+property of an OPRF, which is covered in Section 6.1.
+Malicious Ps Attack Surface. To see how our malicious 2PC-Gold works, it is instructive to
+analyze what a malicious Ps can do in our half-malicious 2PC-Gold. The only place the malicious Ps
+can inject an error is in the second message msg2 sent from Ps to Pc . As a result, to protect against
+a malicious Ps , it suffices to require Ps to prove in ZK that msg2 is generated correctly. That is,
+                                   c,s
+1. Ps adds the value v, output by FVOLE , to msg1 , yielding the intermediate result int = msg1 + v.
+                              λ                               λ
+2. Ps multiplies int with α2 to generate msg2 = int · α2 for some α ∈ Fp .
+
+Even with such zero-knowledge proof, we note that a malicious Ps is still able to learn whether k + x
+equals zero. This is the 1-bit leakage we mentioned in Section 3.1. See Section 3.4 for details on how
+to eliminate it efficiently.
+Deploying ZK. Malicious 2PC-Gold exploits the VOLE-based ZK techniques (see Section 2.7) to
+ensure a well-formed msg2 . Namely, Ps and Pc will use another VOLE correlation functionality,
+                          s,c
+with reversed roles as FVOLE   , in addition to the correlations required by the half-malicious 2PC-Gold
+from Figure 3. These new correlations can be viewed as IT-MAC commitments from Ps to Pc over a
+Ps -known random element r ∈ Fp , denoted as [r]∆(c) . Note, ∆(c) is known by Pc and can be viewed
+as the verifier private coins in the ZK proof. (Instead, ∆(s) in our half-malicious protocol is used as
+the OPRF key.) If parties can get [v]∆(c) and [α]∆(c) , since msg1 and msg2 are public, parties can
+                                                                     λ
+directly use a VOLE-based ZK to prove that msg2 is equal to α2 · (msg1 + v). In other words, with
+                                                               λ
+[v]∆(c) , [α]∆(c) and msg1 , parties can generate [msg2 = α2 · (msg1 + v)]∆(c) ; then Ps can bindingly
+open msg2 to Pc . While this blueprint is relatively straightforward, there are several challenges to
+tackle:
+
+1. [v]∆(c) needs to be generated correctly, even with a malicious Ps . Note, v is not an arbitrary value
+                                                       c,s
+   but rather is part of the VOLE correlation from FVOLE   , used by our half-malicious protocol. That
+   is, we not only need Ps to commit to v but to commit to a consistent v. More importantly, recall
+   that v = w + uk where u will be used as a one-time pad during the OPRF evaluation; hence, we
+   must generate [v]∆(c) without revealing any information correlated to u.
+
+2. [α]∆(c) needs to be generated. This is easy as α is only used to protect Ps ’s OPRF key. In fact,
+                                                               s,c
+   [α]∆(c) can be directly generated as one correlation from FVOLE   since the committed value α is
+   pseudorandom.
+                   λ
+3. Generating [α2 ]∆(c) from [α]∆(c) requires λ + 3 field elements of communication: λ of them are
+                                                        1           2                  λ
+   used to commit to the intermediate results (i.e., [α2 ]∆(c) , [α2 ]∆(c) , . . ., [α2 ]∆(c) ), and 3 of them
+
+
+
+                                                     13
+   are used to deploy the batched LPZK technique (see Section 2.7) to ensure each squaring is
+   computed correctly.
+   We could further reduce this cost via the generalized LPZK technique (see Section 2.7). Namely,
+                                                                                            ϕ
+   w.l.o.g., for any constant ϕ that divides λ, Ps commits to ϕλ intermediate results as [α2 ]∆(c) ,
+      2ϕ              λ
+   [α2 ]∆(c) , . . ., [α2 ]∆(c) and proves in ZK that each 2ϕ -powering is computed correctly. Now, the
+                                            λ
+   communication cost to generate [α2 ]∆(c) is reduced to ϕλ + 2ϕ + 1 field elements.
+
+Generating Consistent [v]∆(c) . We now show how to tackle Challenge 1. Recall that v = w + uk
+where v, k are known by Ps and u, w are known by Pc . We aim to generate [v]∆(c) . We first present
+an ineffective yet insightful approach. Ps commits to [v]∆(c) and [k]∆(c) ; then Pc reveals u and
+w = v − uk and requires Ps to show that [v]∆(c) − w − u[k]∆(c) = [v − w − uk]∆(c) commits to zero. We
+now argue why this check ensures a correct [v]∆(c) and [k]∆(c) . Assume Ps committed to [e        v ̸= v]∆(c)
+or [k ̸= k]∆(c) . Then, if the IT-MAC [e
+    e                                      v ]∆(c) − w − u[k]∆(c) commits to zero, based on the binding
+                                                           e
+property of IT-MAC, we know w.h.p. ve − w − uk       e = 0. This implies ve − uk e = v − uk. If k = ek, then
+v = ve. Otherwise, we have u = (v − ve)/(k − k). This means that Ps can successfully guess u before
+                                                   e
+                                                                                       s,c
+u is revealed. Note that since u is uniformly sampled when Pc is honest by FVOLE             (see Figure 1),
+this can only happen with probability p . However, although this approach guarantees a well-formed
+                                           1
+
+[v]∆(c) , it is ineffective. This is because u is revealed and, crucially, is later used as a one-time pad.
+    Therefore, we must ensure a well-formed [v]∆(c) without revealing any information correlated to
+u (and w). We notice that this can be done by exploiting a random linear combination to “sacrifice”
+another usa , which will be discarded immediately after the check to ensure u remains full entropy.
+                                                                   s,c
+In detail, let parties hold another VOLE correlation from FVOLE        : vsa = wsa + usa k where vsa , k are
+known by Ps and usa , wsa are known by Pc . Now, let Ps commit to [vsa ]∆c , [v]∆c and [k]∆c . Then,
+                           $
+Pc samples a uniform χ ← Fp and reveals χ, χu + usa and χw + wsa . Finally, Pc requires Ps to show
+that the following IT-MAC
+
+                           χ[v]∆(c) + [vsa ]∆(c) − (χw + wsa ) − (χu + usa )[k]∆(c)
+                          =[χ(v − w − uk) + (vsa − wsa − usa k)]∆(c)
+
+commits to zero. Note, this can be viewed as a consistency check over the value χv + vsa . That is, it
+ensures that χe v + vf sa = χv + vsa and k = k, where v
+                                         e                   sa , k are arbitrary (potentially inconsistent)
+                                                         e, vf    e
+values committed by Ps . Moreover, since χ is sampled and revealed only after ve, vf          sa are chosen,
+χev + vfsa = χv + v sa  implies v
+                                e = v and vfsa = v sa with  overwhelming     probability based  on the well-
+known Schwartz-Zippel lemma [Sch80, Zip79]. Crucially, the values revealed by Pc (i.e., χ, χu + usa
+and χw + wsa ) are independent of u, so u remains full entropy.
+    One essential remark is that we also need to ensure a well-formed χ, χu + usa and χw + wsa
+for a malicious Pc . These new messages also provide a new opportunity for a malicious Pc to
+exploit—indeed, a malicious Pc can learn the OPRF key with ill-formed messages. Interestingly,
+this can be resolved as follows: recall that u and usa can also be viewed as committed values inside
+IT-MAC but rather from Pc to Ps ; thus, χw + wsa can be used as a proof to force correct opening of
+χu + usa . That is, an honest Ps can check if χv + vsa is equal to χw + wsa + (χu + usa )k.
+    We emphasize that this check relies on k with enough entropy to the UC environment. Hence,
+when k is input from Ps , this does not work. Instead, parties can perform the consistency check
+with the committed ∆(s) rather than k (see Footnote 8 and Section 5.3). However, note that ∆(s)
+will also be revealed to the UC environment (1) as Ps ’s output when the OPRF uses a uniformly
+
+                                                     14
+sampled key, or (2) from k ∗ − ∆(s) when the OPRF uses a server-specified key. Therefore, the step
+of generating consistent [v]∆(c) must take place before the above step (1) or (2) is performed. This
+can be easily enforced if parties only need to execute the OPRF once but it requires additional care
+in other cases, e.g., batched offline phases presented in Section 3.3.
+    Finally, we remark that [k]∆(c) is an IT-MAC of the OPRF key and thus can be used to prove
+any NP relation over it using regular VOLE-based ZK. For example, it can be used to prove in ZK
+that the server reuses the same committed OPRF key across different invocations as how we do to
+achieve verifiable OPRFs in Section 6.1.
+Batched Evaluations. Our malicious protocol can be extended to the batched variant naturally
+                                                                c,s       s,c
+using more VOLE correlations in both directions (i.e., FVOLE        and FVOLE ). For n-batched evaluations,
+the step to generate IT-MACs of [v1 ]∆(c) , . . . , [vn ]∆(c) can be improved (i.e., addressing Challenge 1)
+                                                                                                     $
+by
+ Pn“sacrificing”  a singlePcorrelation.   Namely, after Ps commits to v, Pc can reveal χ ← Fp ,
+                            n
+    i=1 χ ui + usa and      i=1 χ wi + wsa , reducing the communication of this step from 6n + 1 to
+         i                       i
+                                   
+
+n + 6 field elements. Note that the ∆(s) must remain full entropy to the UC environment at this
+point. Furthermore, the batched (generalized) LPZK can be applied across n evaluations to generate
+  2λ ]
+[αi∈[n] ∆(c) and prove the correct msg2,i .
+
+
+3.3    Offline-Online Mode
+Our protocols support an offline-online mode where most portions of computation and communication
+can be pushed into an input-independent (and PRF-key-independent) offline (aka preprocessing)
+phase. Clearly, the generation of (V)OLE correlations is a hybrid input-independent functionality,
+so it can be pushed into the offline phase. This is true even when Ps wants to select its own OPRF
+key k ∗ , since this can be done via sending k ∗ − ∆(s) in the online phase.
+                                                                               λ
+     Moreover, for our malicious protocol, the parts generating [v]∆(c) and [α2 ]∆(c) can also be pushed
+into the offline phase. Again, this is true even when the Ps wants to select its own OPRF key k ∗ .
+Crucially, this does not affect the ability to obtain the committed key. That is, the parties in the
+offline phase would obtain [∆(s) ]∆(c) , which can be locally adjusted to [k ∗ ]∆(c) via k ∗ − ∆(s) . The
+online phase cost of our malicious protocol is very lean compared to the online phase cost of our
+half-malicious protocol: it only needs 3 more field elements (i.e., a batched LPZK), regardless of n.
+     In all, our protocols are very efficient in the amortized offline-online setting and reasonably
+efficient even with offline cost included. See Section 7.
+Batched Offline Phases. Our protocols support batched offline phases. That is, offline phases of
+nbatch evaluations can be prepared together for better amortized costs. Then, each n-sub-batched
+evaluation—where various values of n add up to nbatch —can be processed immediately without
+needing the entire nbatch batch, paying an n-amortized online phase. Note that once the online phase
+starts, the UC environment learns ∆(s) , making the consistency check in our malicious 2PC-Gold no
+longer UC-secure; see Section 3.2. Thus, in our malicious OPRFs, nbatch must be predetermined,
+and the batched offline phases must be completed in advance. We formalize batched offline and
+sub-batched online phases as our ideal functionality in Section 5.1.
+    In certain applications, fixing nbatch in advance is either impractical or impossible. In Section 6.1,
+we demonstrate how to remove this limitation easily via private verifiability.
+
+
+
+
+                                                    15
+3.4   Eliminating 1-bit Leakage in Our Protocols
+The protocols presented in Sections 3.1 and 3.2 incur a 1-bit leakage per evaluation. In particular,
+for each evaluation, Ps learns u · (k + x), which allows her to determine whether k + x equals zero.
+    Namely, our ideal functionality to capture these protocols has to leak this 1-bit information to
+the simulator if Ps is corrupted. Note, if we consider UC security, this 1-bit leakage is unavoidable
+even for a semi-honest Ps with a uniformly sampled key. This is because the environment can always
+set the honest Pc ’s input as −k.
+    While this leakage may not be a problem for many applications (in particular, this leakage also
+exists in Dodis-Yampolskiy PRF [DY05] and some corresponding OPRFs), we now demonstrate how
+to eliminate this leakage, depending on whether we need an OPRF with a uniformly sampled key or
+one specified by Ps .
+Uniformly Sampled Key. If only a uniformly sampled PRF key is needed, we first show how to
+enforce a malicious Ps to use a uniformly sampled key. Note, in FVOLE (see Figure 1), the malicious
+receiver (i.e., Ps ) is allowed to select an arbitrary scalar ∆(s) (i.e., an arbitrary PRF key). Our key
+observation is that this scalar ∆(s) can be randomized by Pc . That is, Pc can send a uniformly
+             $
+sampled ∆′ ← Fp to set the scalar as ∆(s) +∆′ —which will be used as the PRF key that is guaranteed
+to be uniformly sampled—and adjust his VOLE shares locally.
+    By enforcing a uniformly sampled key k, this leakage can be naturally eliminated in the standalone
+setting. However, in the UC setting, the leakage persists because the environment can always set
+x as −k after learning k. To further eliminate it in the UC setting, we can let Pc hash the input
+before executing the OPRF protocol(s). Intuitively, this prevents the leakage as the environment
+cannot find an x s.t. H(x) = −k when H(·) is modeled as a random oracle.
+Server-Specified Key. If we need an OPRF where the key is fully specified by Ps , the previously
+mentioned fix does not apply. Instead, we can eliminate the leakage by restricting the PRF key to
+be chosen from elements in Fp that have two leading zero bits (i.e., the two most significant bits are
+0s) and by limiting the PRF input to the subset of Fp consisting of all non-zero elements with two
+leading zero bits. In essence, this ensures that k + x is never zero.
+      If Ps is malicious, we can further require Ps to provide a VOLE-based ZK proof over IT-MAC
+[k ∗ ]∆(c) to show it has two leading zero bits. This proof requires communicating O(λ) field elements
+and performing O(λ) field operations. It can be amortized in batched evaluations.
+      Note that this fix requires a minor modification of the underlying PRF assumption to sample
+the key accordingly; see Section 4.1.
+
+
+4     Gold PRF Basics
+4.1   Formal Hardness Assumptions
+We define the underlying computation problem—the Decisional Shifted Power-Residue Symbol—as
+follows:
+
+Definition 1 (Decisional Shifted Power-Residue Symbol (DSPRS) Problem). Let p = p(λ) be a
+family of prime numbers, where each p = e(λ) · g(λ) + 1. Let k be uniformly sampled from Fp . Let
+D := {ag mod p | a ∈ F∗p }. Let OPR be an oracle that on input x ∈ Fp outputs (x + k)g mod p, and
+OR be a random oracle that maps elements from Fp to D. The DSPRS problem asks to distinguish
+between OPR and OR given 1λ and p, g, with classical queries.
+
+                                                  16
+                           SolveEq(1λ , p, g, a)
+                            1:   Apply Fact 2 to get a generator h = rg of G
+                            2:   Apply Fact 1 to get z such that hz = a
+                            3:   return rz
+
+Figure 4: An efficient algorithm to find a solution X of the equation X g ≡ a (mod p) where a ∈ G,
+G := {xg mod p | x ∈ F∗p }, and p = 2λ · g + 1 is a prime of length O(λ). Correctness comes from:
+hz = (rg )z = (rz )g = a.
+
+
+   The post-quantum security of our Gold PRF relies on the following hardness assumption:
+Assumption 1. For any p = p(λ) = e(λ) · g(λ) + 1, where e(λ) is smooth and g(λ) = Ω(λ), there is
+no probabilistic polynomial time (quantum) algorithm for the DSPRS problem (Definition 1) with
+non-negligible advantage in λ.
+    In this work, we set e = 2λ and log g = 2λ+O(1). Gold is essentially OPR in Definition 1. Existing
+attacks presented in Section 2.5 guide this choice. These parameters are very conservative—the
+best-known quantum attack for Gold by [BBUV20] has time complexity O( Lg ) using L ≤ p1/4 queries;
+the best-known quantum attack for the Legendre PRF over p (which also applies for Gold) by [FS21]
+has time complexity 2O(log p) · p1/3 using p1/3 queries.
+    Finally, we note that a minor modification of Definition 1 is needed to eliminate the one-bit
+leakage when the OPRF key is chosen by Ps (see Section 3.4). Namely, we only need to sample the
+PRF key from the subspace of Fp consisting of all elements with two leading zero bits.
+
+4.2   Power-Residue Subgroup
+Let p = 2λ ·g +1 be a prime of O(λ) bits. We review several useful properties of the g-th power-residue
+subgroup G of the multiplicative group F∗p of Fp . That is,
+
+                                       G := {xg mod p | x ∈ F∗p }
+
+where the group operation is multiplication modulo p.
+Fact 1. G is a finite cyclic group of order 2λ . Let h be a generator of G. Then, for any element
+x ∈ G, the Pohlig-Hellman algorithm [PH78] can solve the discrete logarithm (DLOG) of x in base h
+in O(λ2 ) group operations.
+Fact 2. There exist 2λ−1 generators in G. In particular, there exists an efficient way to find a
+                                   $                                λ−1
+generator h: repeatedly sample r ← F∗p , and set h := rg , until h2       ̸= 1.
+Converting Output. Fact 1 implies a straightforward deterministic way to transfer the output of
+2PC-Gold from G to {0, 1}λ . I.e., Pc can locally solve the DLOG of 2PC-Gold output to a publicly
+agreed base h. Note that when k + x = 0, Pc will abort, so there is no need to solve the DLOG. Of
+course, there exist other standard ways to post-process output, such as applying a hash function
+over it, in particular, if more than λ bits of output are required (e.g., O-Gold).
+Solving Equation X g ≡ a (mod p). Facts 1 and 2 can be exploited to design an efficient algorithm
+(defined in Figure 4) to find a solution X of the equation X g ≡ a (mod p) for some a ∈ G. This
+algorithm is essential for arguing the security of our protocols: the simulator uses it.
+
+                                                   17
+                                               Functionality F2PC-Gold
+ F2PC-Gold , parameterized by a field Fp where (1) p = p(λ) = 2λ · g + 1 is a prime and (2) g = g(λ) is an integer of
+ 2λ + O(1) bits, running with a server Ps , a client Pc and an adversary S, proceeds as follows:
+ Initialize. Upon receiving (init, nbatch ) from Ps and Pc where nbatch ∈ Z+ , if Ps is honest (or semi-honest), sample
+    $
+ k ← Fp , else receive k from S. Store nbatch and k. Send k to Ps . Set neval := 0. Ignore subsequent (init, ·).
+ Evaluate. Upon receiving (eval, n) from Ps and (eval, n, x1 , x2 , . . . , xn ) from Pc , where n ∈ Z+ and each
+ xi∈[n] ∈ Fp . If neval + n > nbatch , ignore the instruction; otherwise, set neval := neval + n and proceed as follows:
+ 1. For each i ∈ [n], compute yi := (k + xi )g over Fp .
+                                                                                          ?
+ 2. (One-bit leakage) If Ps is corrupted, for each i ∈ [n], compute ℓi := (k + xi ) = 0, send (eval, ℓ) to S. If
+    ∃i ∈ [n] such that ℓi is 1, send (abort) to Pc and halt.
+ 3. Send (eval, y) to Pc .
+
+
+
+                                     Figure 5: The 2PC-Gold functionality.
+
+
+5       Formalization and Analysis of 2PC-Gold
+We formalize our 2PC-Gold protocols in the UC framework. Our other OPRFs and their corresponding
+ideal functionalities, theorems, and proofs can be derived through straightforward modifications or,
+in the case of UC-Gold in section 6.1, via the elegant transformation from [BDFH24].
+
+5.1     Ideal Functionality for 2PC-Gold
+The ideal functionality F2PC-Gold achieved by our 2PC-Gold is defined in Figure 5. For simplicity, we
+assume the PRF key is uniformly sampled when Ps is honest. We remark that our protocols can
+support a server-specified key almost for free (see Section 5.3). We directly define F2PC-Gold (and
+realizations) with batched offline phases (i.e., init instruction) and sub-batched online phases (i.e.,
+eval instruction). The non-batched evaluation setting is the particular case where nbatch = n = 1.
+    Note that init can be called only once per session with a predetermined nbatch , capturing the
+maximum number of evaluations (if more are needed init needs to be called again). See Section 3.3
+for the reason behind this restriction and Section 6.1 for how to remove it easily. Our half-malicious
+2PC-Gold in fact does not even have this restriction. Specifically, Step 3 in our protocol in Figure 6
+can be executed repeatedly, even after the online phase has been performed. However, for simplicity,
+since our plain malicious protocol has this restriction on init (specifically Step 5 cannot be executed
+again after init ends), we adopt a unified F2PC-Gold that restricts init in all settings.
+One-Bit Leakage. Recall that protocols presented in Section 3 incur a one-bit leakage per evaluation.
+We show how to remove this leakage efficiently in Section 3.4. Since this functionality (with the
+one-bit leakage in Step 2) is already useful for many applications (justified below and in Section 3.4),
+we stick to this definition. Essentially, the changes to upgrade the functionality/protocols/proofs to
+the version without the one-bit leakage are inexpensive.
+One-Bit Leakage OPRF Applications. For some applications, the one-bit leakage is harmless,
+for example:
+
+1. PSI, where Ps is semi-honest: In the case of OPRF-based PSI where the server is semi-honest,
+   the server computes an OPRF with the client over the client’s set elements. Since the server
+   uses a uniformly random key, it is unlikely to gain additional information via collision. Indeed, a
+
+
+                                                           18
+   recent PSI work [SKR+ 24] bases its protocols on an OPRF (not Gold) that features the same
+   type of leakage, indicating that our OPRF with one-bit leakage can directly instantiate their PSI
+   protocols.
+
+2. Password-based protocols, where Ps is malicious: In the case of password-based protocols
+   from OPRF (e.g., OPAQUE [JKX18]), the client computes OPRF over its password and then
+   stores certain public functions of this value on the server. Since Ps can simply test the client’s
+   password locally, the one-bit leakage is harmless.
+
+5.2      Formal 2PC-Gold Protocols and Theorems
+We defer the reader to Section 3 for concise overviews of 2PC-Gold, including intuitive arguments
+regarding security. In this section, we formalize our protocols as Π2PC-Gold in Figures 6 and 7 with
+corresponding theorems.
+
+Theorem 1 (Half-Malicious). Protocol Π2PC-Gold (Figures 6 and 7 without gray boxes) information-
+                                                       c,s
+theoretically UC-realizes F2PC-Gold (Figure 5) in the FVOLE -hybrid model (Figure 1), in the presence
+of static corruptions, where a corrupt Ps can be semi-honest and a corrupt Pc can be malicious.
+
+Proof. By constructing the simulators. When both Ps and Pc are honest, simulation is trivial and
+the ideal world is statistically indistinguishable from the real world: it only fails when ui = 0 for one
+i ∈ [nbatch ], which happens with probability ≤ nbatch
+                                                     p . We now focus on the cases where either Ps or
+Pc is corrupted. In these cases, the simulation is perfect.
+    Semi-honest Ps : The simulator S only needs to sample the (honest) transcript seen by Ps .
+Clearly, simulating the call to init is trivial as S only needs to emulate FVOLE . Additionally, we
+can sample each call to eval separately, as long as we carefully reuse the same k = ∆(s) for each
+call. Thus, we only focus on the scenario with a single eval. The transcript in the real world is:
+                                                         $                $
+                        {k, n, v, −w + u ⊙ x} | k ← Fp , v, u ← Fnp , s.t. v = w + u · k
+
+where x is the Pc ’s input and ⊙ denotes the element-wise product. As −w = −v + u · k, by replacing
+w and adding v into the fourth entry, we need to sample:
+                                                                      $           $
+                                     {k, n, v, u ⊙ (k + x)} | k ← Fp , v, u ← Fnp
+
+                                        ?
+Note that S gets ℓi := (k + xi ) = 0 for each i ∈ [n] from the F2PC-Gold .9 Therefore, for each i ∈ [n], if
+ℓi = 1, we can replace ui (k + xi ) with a zero; otherwise, since ui is uniformly sampled and unknown
+to Ps , we can replace ui (k + xi ) with a uniformly sampled Fp element. That is,
+
+                                                                  $           $       $
+                                 {k, n, v, r ⊙ (1 − ℓ)} | k ← Fp , v ← Fnp , r ← Fnp
+
+The final distribution is sampled without x.
+   Malicious Pc∗ : The simulator S needs to interact with the malicious Pc∗ to sample the transcript
+and extract the inputs. Similar to the semi-honest Ps case, we only need to focus on the scenario
+                                    c,s
+with a single eval. S, emulating FVOLE   for Pc∗ , will perform as follows:
+  9
+      We note that in the protocols where the leakage is eliminated, ℓ can be viewed as 0—a vector of zero. See Section 3.4.
+
+
+
+                                                             19
+                                            Protocol Π2PC-Gold (Offline)
+ Π2PC-Gold , parameterized by a field Fp where (1) p = p(λ) = 2λ · g + 1 is a prime and (2) g = g(λ) is an integer of
+ 2λ + O(1) bits, running with a server Ps , a client Pc , with hybrid access to FVOLE
+                                                                                  c,s
+                                                                                       and FVOLE
+                                                                                              s,c
+                                                                                                    over Fp , proceeds as
+ follows:
+ Initialize. Ps and Pc , each on receiving (init, nbatch ) where nbatch ∈ Z+ , proceed as follows:
+ 1. Sample OPRF key: Ps and Pc each sends (init) to FVOLE        c,s
+                                                                     , where Ps receives the uniformly sampled OPRF
+     key k := ∆ ∈ Fp .
+                 (s)
+
+ 2. Sample ZKP private coins: Ps and Pc each sends (init) to FVOLE       s,c
+                                                                              , where Pc receives the uniformly sampled
+    ∆(c) ∈ Fp .
+ 3. Sample VOLE correlations used for OPRF evaluations: Ps and Pc each sends (extend, nbatch ) to FVOLE                   c,s
+                                                                                                                              ,
+                                                                                   nbatch
+    and then Ps receives v whereas Pc receives u, w such that u, v, w ∈ Fp                , v = w + u∆ .(s)
+
+ 4. Prepare the committed g-th residues:
+     (a) Sample the hiding pads: Ps and Pc each sends (extend, nbatch ) to FVOLE               s,c
+                                                                                                   , and then parties receive
+         length-nbatch random IT-MACs as [α]∆(c) . (Note: when Ps is honest, α looks uniform to Pc .)
+     (b) Sample the VOLE correlations used for raising powers: Ps and Pc each sends (extend, nbatch · λ) to
+           s,c
+         FVOLE   , and then parties receive length-(nbatch · λ) random IT-MACs as [δi,j ]∆(c) for each i ∈ [nbatch ], j ∈ [λ].
+                                                                              j                                      j
+     (c) Raising powers: for each i ∈ [nbatch ], j ∈ [λ], Ps sends αi2 − δi,j , then parties compute [αi2 ]∆(c) :=
+                           j
+         [δi,j ]∆(c) + (αi2 − δi,j ).
+     (d) ZKP check on raising powers: Ps and Pc deploy the batched LPZK check (see Section 2.7) to ensure
+                                              j−1            j
+                                                                                              j−1 2       j
+         for each i ∈ [nbatch ], j ∈ [λ], [αi2 ]∆(c) and [αi2 ]∆(c) satisfy the relation: αi2         = αi2 . Note, this needs
+       a random VOLE correlation from FVOLE
+                                       s,c
+                                            . If the check fails, Pc aborts the protocol.
+ 5. Prepare the committed v:
+     (a) Commit the OPRF key k = ∆(s) : Ps and Pc each sends (extend, 1) to FVOLE                     s,c
+                                                                                                           , and then parties
+         receive length-1 random IT-MACs as [β]∆(c) . Next, Ps sends ∆ − β to Pc , then parties compute
+                                                                                      (s)
+
+         [k = ∆(s) ]∆(c) := [β]∆(c) + (∆(s) − β).
+     (b) Commit v: Ps and Pc each sends (extend, nbatch ) to FVOLE           s,c
+                                                                                 , and then parties receive length-nbatch
+         random IT-MACs as [ζ]∆(c) . Next, for each i ∈ [nbatch ], Ps sends vi − ζi to Pc , then parties compute
+         [vi ]∆(c) := [ζi ]∆(c) + (vi − ζi ).
+     (c) Sample the sacrificed VOLE correlation: Ps and Pc each sends (extend, 1) to FVOLE                   c,s
+                                                                                                                 , and then Ps
+         receives vsa whereas Pc receives usa , wsa such that vsa , usa , wsa ∈ Fp , vsa = wsa + usa ∆ .
+                                                                                                       (s)
+
+     (d) Commit vsa : Ps and Pc each sends (extend, 1) to FVOLE         s,c
+                                                                             , and then parties receive length-1 random
+         IT-MACs as [γ]∆(c) . Next, Ps sends vsa − γ to Pc , then parties compute [vsa ]∆(c) := [γ]∆(c) + (vsa − γ).
+     (e) Perform the consistency check: Pc samples χ ∈ Fp , then computes upoly := usa + n                                     i
+                                                                                                                 P batch
+                                                                                                                    i=1 ui · χ
+         and wpoly := wsa + i=1 wi · χ . Next, Pc sends χ, upoly , wpoly to Ps , and then Ps computes vpoly :=
+                                  Pnbatch     i
+
+                                                   ?
+         vsa + n   i=1 vi · χ ; Ps checks if vpoly = wpoly + upoly ∆    , if not, Ps aborts the protocol. Finally, parties
+                P batch         i                                   (s)
+
+         locally compute the IT-MAC
+
+                      [vpoly − wpoly − upoly · ∆(s) ]∆(c) = [vpoly ]∆(c) − wpoly − upoly · [∆(s) ]∆(c)
+                                                                           n
+                                                                           X
+                                                          = [vsa ]∆(c) +         χi · [vi ]∆(c) − wpoly − upoly · [∆(s) ]∆(c)
+                                                                           i=1
+
+
+          and Ps proves to Pc that it commits to a zero via opening the IT-MAC. If the check fails, Pc aborts the
+          protocol.
+ Finally, Ps and Pc each sets neval := 0, ignoring the subsequent (init, ·). In the half-malicious protocol, Ps samples
+    $   n                          λ                                                                                    λ
+ α ← Fp batch and computes αi2 for each i ∈ [nbatch ] (in the malicious case, α is sampled and α2 is computed
+ in Sub-step 4a). Then, Ps outputs k.
+
+
+                                                              c,s     s,c
+Figure 6: Our 2PC-Gold protocols (offline phase) in the (FVOLE     , FVOLE )-hybrid model. The de-
+scriptions include our half-malicious and malicious protocols. In particular, the malicious protocol
+includes the steps (and corresponding sub-steps) in gray boxes .
+
+                                                                 20
+                                                 Protocol Π2PC-Gold (Online)
+ Π2PC-Gold , parameterized by a field Fp where (1) p = p(λ) = 2λ · g + 1 is a prime and (2) g = g(λ) is an integer of 2λ + O(1)
+                                                                       c,s       s,c
+ bits, running with a server Ps , a client Pc , with hybrid access to FVOLE and FVOLE over Fp , proceeds as follows:
+ Evaluate. Ps on receiving (eval, n) and Pc on receiving (eval, n, x), where n ∈ Z+ and x ∈ Fn p . If neval + n > nbatch , ignore
+ the instruction; otherwise, proceed as follows:
+ 6. Pc sends the first message: For each i ∈ [n], Pc sends msg1,i := −wneval +i + uneval +i · xi to Ps .
+                                                                                           λ
+ 7. Ps sends the second message: For each i ∈ [n], Ps sends msg2,i := α2neval +i · (msg1,i + vneval +i ) to Pc . If ∃i ∈
+                                                                               λ
+       [n], msg2,i = 0, Pc aborts the protocol. (Note, the computing of α2         has been performed in the offline phase.)
+ 8.    ZK proofs on a well-formed second message: Ps and Pc deploy the batched LPZK check (see Section 2.7) to
+                                                                        λ
+       ensure for each i ∈ [n], [vneval +i ]∆(c) (from Sub-step 5b), [α2neval +i ] (from Sub-step 4c), msg1,i (from Step 6), and msg2,i
+                                               λ
+    (from Step 7) satisfy the relation: α2neval +i · (msg1,i + vneval +i ) = msg2,i . Note, this needs a random VOLE correlation
+            s,c
+    from FVOLE  , which can be generated in the offline phase. If the check fails, Pc aborts the protocol.
+                                                                                                       g
+ 9. Pc computes the final output: for each i ∈ [n], Pc computes yi := u−1             neval +i · msg2,i    ∈ Fp . Pc outputs (eval, y).
+ Finally, Ps and Pc each sets neval := neval + n.
+
+
+                                                              c,s     s,c
+Figure 7: Our 2PC-Gold protocols (online phase) in the (FVOLE      , FVOLE )-hybrid model. The de-
+scriptions include our half-malicious and malicious protocols. In particular, the malicious protocol
+includes the steps (and corresponding sub-steps) in gray boxes . Note that for the malicious eval
+with n = 1, it suffices to use (cheaper) non-batched LPZK technique in Step 8.
+
+                                                                                   c,s
+      1. In Step 3, Pc∗ would send (extend, nbatch ) to S. Here, S emulates the FVOLE    and receives u, w
+         from Pc . S maintains a global counter ncur , initialized to 0. For each call eval with n, S sets
+                ∗
+
+         ncur := ncur + n after completing the following steps.
+
+      2. Extracting the inputs: In Step 6, for each i ∈ [n], Pc∗ would send msg           ^  1,i ∈ Fp to S; now, if
+                                                                                  −1
+         uncur +i = 0, set xi := 0; otherwise, set xi := (msg
+                                                          ^   1,i + wncur +i ) · uncur +i in Fp . S sends (eval, x)
+         to F2PC-Gold and receives y ∈ Fnp from F2PC-Gold , where for each i ∈ [n], yi = (k + xi )g .
+
+      3. Simulating the transcript: In Step 7, for each i ∈ [n]:
+                                                                                                         λ
+          (a) If uncur +i = 0, S samples uniform αi′ ∈ Fp and sends msg′2,i := αi′2 · (msg
+                                                                                       ^   1,i + wncur +i );
+          (b) Else if yi = 0, S sends msg′2,i := 0 to Pc∗ ;
+           (c) Else, S executes the PPT algorithm in Figure 4 to find a zi such that zig = yi , then S
+                                                                 λ
+               samples uniform αi′ ∈ Fp and sends msg′2,i := αi′2 · uncur +i · zi to Pc∗ .
+
+      4. S outputs whatever is output by Pc∗ .
+
+    We now argue why this is a valid simulator. Note that Ps does not have output except k and n,
+nbatch . As k is uniformly sampled (or a Ps ’s input in the server-specified case), all we need to show is
+that the transcript simulated by S is indistinguishable from the one in a real-world execution. This
+can be done by a straightforward case analysis (note, here ncur is the same as neval in our protocol):
+
+      • If uncur +i = 0, in the real-world execution, vncur +i = wncur +i + uncur +i · k = wncur +i , Ps would
+                  λ                          2λ
+        send αi2 · (msg
+                     ^   1,i + vncur +i ) = αi · (msg
+                                                  ^   1,i + wncur +i ), where αi is uniformly sampled by (honest)
+        Pc . In the ideal execution, our simulator S (Sub-step 3a) generates an identical distribution.
+
+
+
+
+                                                                   21
+   • If uncur +i ̸= 0, msg
+                       ^   1,i can be uniquely written as −wncur +i + uncur +i · xi . Hence, in the real-world
+                                 λ
+     execution, msg2,i = αi2 · uncur +i · (k + xi ) where αi is uniformly sampled by (honest) Pc . On
+     the other hand, in the ideal execution, since Step 2 extracts the same xi , yi = (k + xi )g . Now:
+        – If k + xi = 0, the real-world and ideal (Sub-step 3b) Pc∗ both receive a 0—an identical
+          distribution.
+                                                                     λ
+        – If k + xi ̸= 0, the ideal (Sub-step 3c) Pc∗ receives αi′2 · uncur +i · zi where zig = (k + xi )g .
+                                                                   λ                       λ
+          This implies there exists an a ∈ F∗p , such that zi = a2 · (k + xi ). Hence, αi′2 · uncur +i · zi =
+                     λ
+          (a · αi′ )2 · uncur +i · (k + xi ) where αi′ ∈ Fp is uniformly sampled by S—an identical
+          distribution to the real-world.
+To conclude, the distribution seen by Pc∗ in the real world is identical to the one seen by Pc∗ in
+the ideal world, which further infers an identical distribution seen by the UC environment. The
+simulation is perfect.
+Theorem 2 (Malicious). Protocol Π2PC-Gold (Figures 6 and 7 with gray boxes) information-theoretically
+                                          c,s     s,c
+UC-realizes F2PC-Gold (Figure 5) in the (FVOLE , FVOLE )-hybrid model (Figure 1), in the presence of
+static corruptions, where a corrupt Ps or Pc can be malicious.
+Proof. By constructing the simulators. When both Ps and Pc are honest, simulation is trivial and
+the ideal world is statistically indistinguishable from the real world: it only fails when ui = 0 for one
+i ∈ [nbatch ], which happens with probability ≤ nbatch p . We now focus on the cases where either Ps or
+Pc is corrupted. In these cases, the simulation is perfect.
+    For simplicity and readability, we assume nbatch = n. Supporting one nbatch with multiple n’s (of
+eval’s) can be handled the same as our proof of Theorem 1, i.e., by S maintaining an ncur .
+    Malicious Pc∗ : Intuitively, compared to the simulator used in our half-malicious protocol, the
+simulator S interacting with the malicious Pc∗ in our malicious protocol only needs to additionally
+sample the transcript generated by the consistency check (Step 5) as well as the VOLE-based ZK
+proofs (Steps 4 and 8) as a verifier. In a nutshell, this part of the simulation is simple since S, by
+                                         s,c
+emulating the hybrid functionality FVOLE      for Pc∗ , knows the ZKP private coins ∆(c) as well as every
+IT-MAC shares of Pc∗ ; hence, S can directly compute the corresponding values Pc∗ is expecting to
+receive. More precisely, we extend S for Pc∗ from the half-malicious case with the following steps:
+                                                           s,c
+   1. At Step 2, S, by emulating the hybrid functionality FVOLE for Pc∗ , receives ∆(c) ∈ Fp from Pc∗ .
+                                                                        s,c
+   2. At Sub-steps 4a and 4b, S, by emulating the hybrid functionality FVOLE for Pc∗ , receives
+      n · (1 + λ) IT-MAC shares of Pc from Pc .
+                                    ∗       ∗
+
+
+   3. At Sub-step 4c, S sends Pc∗ n · λ uniformly sampled elements in Fp . Note, this distribution
+      in the ideal world is identical to the real-world one since each committed value generated
+      in Sub-step 4b looks uniform to Pc∗ . Then, S adjusts each share of IT-MAC of Pc∗ according
+      to these uniform samples and ∆(c) .
+   4. At Sub-step 4d, S calls the batched LPZK simulator for verifier. This simulation is simple: S
+      receives the challenges from Pc∗ , which is used to aggregate the proof; then, S can compute
+      the Pc∗ ’s expected value Π ∈ Fp . Finally, S samples C1 ∈ Fp , sets C0 := Π − C1 · ∆(c) , and
+      sends C0 , C1 to Pc∗ . This simulated distribution is identical to the real-world one, as in the
+      real world and the batched LPZK check, C1 is one-time padded by a uniform value, generated
+           s,c
+      by FVOLE   .
+
+                                                     22
+                                                                   s,c
+  5. At Sub-step 5a, S, by emulating the hybrid functionality FVOLE     for Pc∗ , receives 1 IT-MAC
+     share of Pc∗ from Pc∗ . Then, S sends a uniformly sampled element in Fp . This generates an
+     identical distribution as argued in the simulator S’s Steps 2 and 3.
+                                                                   s,c
+  6. At Sub-step 5b, S, by emulating the hybrid functionality FVOLE     for Pc∗ , receives n IT-MAC
+     shares of Pc from Pc . Then, S sends n uniformly sampled elements in Fp . This generates an
+                 ∗        ∗
+
+     identical distribution as argued in the simulator S’s Steps 2 and 3.
+                                                               c,s
+  7. At Sub-step 5c, S, by emulating the hybrid functionality FVOLE for Pc∗ , receives wsa , usa from
+     Pc .
+      ∗
+
+                                                                   s,c
+  8. At Sub-step 5d, S, by emulating the hybrid functionality FVOLE     for Pc∗ , receives 1 IT-MAC
+     share of Pc from Pc . Then, S sends a uniformly sampled element in Fp . This generates an
+                ∗         ∗
+
+     identical distribution as argued in the simulator S’s Steps 2 and 3.
+                                                                                     ?       Pn
+  9. At Sub-step 5e, S receives χ, ug   poly , w
+                                               ] poly from Pc , then checks if ug
+                                                            ∗
+                                                                                poly = usa +  i=1 ui · χ
+                                                                                                         i
+                 ?          n
+     and w                  i=1 wi · χ . (Note, this can be done since S, by emulating the hybrid
+                                      i
+                         P
+          ] poly = wsa +
+                     s,c
+     functionality FVOLE for Pc∗ know all u, w, usa , wsa .) If check fails, S sends abort to Pc∗ and
+     outputs whatever outputted by Pc∗ . Crucially, the real-world honest Ps would also abort w.h.p.
+     This is because, if Ps does not abort, this implies
+                                                           n
+                                                           X                          n
+                                                                                      X
+                                    (s)
+                 w
+                 ]         poly · ∆
+                   poly + ug            = vpoly = (wsa +         wi · χi ) + (usa +         wi · χi ) · ∆(s)
+                                                           i=1                        i=1
+                                   Pn                                   Pn
+     Then, if w  poly ̸= wsa +
+                 ]                    i=1 wi · χ or ug
+                                                i
+                                                         poly ̸= usa +    i=1 ui · χ , since ∆
+                                                                                     i          (s) is uniformly
+
+     sampled in Fp , the above equality can only happen with up to negligible probability p1 , based
+     on CorollaryP 1. Now, conditioned on the check is passed, S can compute the equation
+     [vsa ]∆(c) + ni=1 χi · [vi ]∆(c) − wpoly − upoly · [∆(s) ]∆(c) over Pc∗ ’s shares and sends it to Pc∗ , which
+     is identical to the real world as it must be an IT-MAC of 0.
+
+ 10. At Step 8, S calls the batched LPZK simulator for verifier, same as the simulator S’s Step 4.
+
+To conclude, the distribution seen by Pc∗ in the real world is statistically close to the one seen by
+Pc∗ in the ideal world, which induces a statistically indistinguishable distribution seen by the UC
+environment. In particular, the statistical distance is ≤ p1 —a negligible probability.
+    Malicious Ps∗ : The simulator S for malicious Ps∗ needs to simulate (1) the transcripts seen by
+Ps and (2) the honest client’s output. In a nutshell, S achieves this by relying on the soundness of
+  ∗
+
+the VOLE-based ZK (i.e., the batched LPZK) and our consistency check. In detail, the simulator S,
+             c,s         s,c
+emulating FVOLE   and FVOLE  for Ps∗ , operates as follows:
+
+  1. At Step 1, S receives the OPRF key k = ∆(s) from Ps∗ . Note, this step reflects the fact that Ps∗
+                                                 c,s
+     can select her own OPRF key, captured by FVOLE  ; see Figure 1. Then, S sends k to F2PC-Gold
+     to set the ideal-world OPRF key.
+
+  2. At Step 3, S receives v ∈ Fn from Ps∗ .
+
+  3. At Step 4, S performs as follows:
+
+      (a) At Sub-step 4a, S receives n IT-MAC [α]∆(c) shares of Ps∗ from Ps∗ , including α ∈ Fnp .
+
+                                                      23
+   (b) At Sub-step 4b, S receives n · λ IT-MAC [δi,j ]∆(c) (for i ∈ [n], j ∈ [λ]) shares of Ps∗ from
+       Ps∗ , including {δi,j }i∈[n],j∈[λ] where each δi,j ∈ Fp .
+    (c) At Sub-step 4c, for each i ∈ [n], j ∈ [λ], S receives ηi,j ∈ Fp from Ps∗ and set ηi,j :=
+        ηi,j + δi,j .
+   (d) At Sub-step 4d, S mimics the verifier behaviors in the batched LPZK check. I.e., S sends
+       some uniform elements to Ps∗ .
+  Now, S checks if the following condition is satisfied:
+                                                                            j
+                                             ∃i ∈ [n], j ∈ [λ], ηi,j ̸= αi2
+  If so, S sends (abort) to F2PC-Gold and then outputs whatever outputted by Ps∗ . Crucially, when
+  the above condition is satisfied, relying on the soundness of the batched LPZK technique, the
+  real-world honest Pc would also abort except for up to probability λn+1
+                                                                       p . Subsequently, consider
+                                                                                                            j
+  only the case where the above condition is unsatisfied, i.e., we assume ∀i ∈ [n], j ∈ [λ], ηi,j = αi2 .
+4. At Step 5, S performs as follows:
+   (a) At Sub-step 5a, S receives the IT-MAC [β]∆(c) share of Ps∗ from Ps∗ , and a value in Fp
+       from Ps∗ , which is used to obtain [e
+                                           k]∆(c) . I.e., e
+                                                          k ∈ Fp is selected by Ps∗ , which does not
+       have to be equal to k.
+   (b) Similarly, at Sub-step 5b, S receives the IT-MAC [e                   vn ]∆(c) shares of Ps∗ from
+                                                         v1 ]∆(c) , . . . , [e
+       Ps .
+         ∗
+
+    (c) At Sub-step 5c, S receives vsa ∈ Fp from Ps∗ .
+   (d) At Sub-step 5d, S receives the IT-MAC [e
+                                              vsa ]∆(c) share of Ps∗ from Ps∗ .
+                                          $            $
+    (e) At Sub-step 5e, S samples χ ← Fp , upoly ← Fp and computes wpoly := vsa + ni=1 vi ·
+                                                                                           P
+        χi − upoly · k. (Note, vi∈[n] and vsa , specified by Ps∗ , are known by S.) Then, S sends
+        χ, upoly , wpoly to Ps∗ . We remark that the distribution generated here is identical to the
+        one for this step used in the real-world execution. This is because upoly in the real-world
+        execution is one-time padded by a uniform sampled usa ∈ Fp .
+  Now, S checks if the following condition is satisfied:
+                     n
+                     X
+            vesa +         χi · vei − wpoly − upoly · e
+                                                      k ̸= 0 ∨ e
+                                                               k ̸= k ∨ vesa ̸= vsa ∨ ∃i ∈ [n], vei ̸= vi
+                     i=1
+
+  If so, S sends (abort) to F2PC-Gold and then outputs whatever outputted by Ps∗ . Crucially,
+  we now argue that when the above condition is satisfied, the real-world honest Pc would also
+  abort w.h.p. as follows:
+     • If vesa + ni=1 χi · vei − wpoly − upoly · e k ̸= 0, based on the binding property of IT-MAC,
+                P
+        except for probability p1 , it cannot be opened to 0, implying real-world honest Pc ’s abort.
+     • If vesa + ni=1 χi · vei − wpoly − upoly · e     by plugging in wpoly = vsa + ni=1 vi · χi − upoly · k
+                P                                                                  P
+                                                 k=P0,
+        and in the real-world, upoly = usa + ni=1 ui · χi , we have:
+                                                            n
+                                                            X
+                        vsa − vsa ) + usa · (k − e
+                       (e                        k) +             χi · [(e
+                                                                         vi − vi ) + ui · (k − e
+                                                                                               k)] = 0
+                                                            i=1
+
+
+                                                       24
+           Now, if k
+                   e ̸= k ∨ vesa ̸= vsa ∨ ∃i ∈ [n], vei ̸= vi , since usa and ui∈[n] each is uniformly sampled
+           in Fp and has full entropy when v                         k, k are selected by Ps∗ , except for up to
+                                                  e, vesa , v, vsa , e
+           probability p1 , the vector:
+
+                               vsa − vsa ) + usa · (k − e
+                              (e                        k), {(e
+                                                              vi − vi ) + ui · (k − e
+                                                                                    k)}i∈[n]
+
+           must be a non-zero vector. Since χ is uniformly sampled from Fp after v
+                                                                                 e, vesa , v, vsa , e
+                                                                                                    k, k
+           were selected by Ps , based on Corollary 1, the equality would only hold (i.e., Pc not
+                             ∗
+
+           abort) with probability at most np .
+
+      To sum up, the real-world honest Pc would also abort except for up to probability n+2    p .
+      Subsequently, consider only the case where the condition is unsatisfied, which implies that
+      ∀i ∈ [n], vei = vi .
+
+   5. At Step 6, S receives (eval, ℓ) from F2PC-Gold where ℓ is the leaky array defined as ℓi =
+               ?
+      (k + xi ) = 0 for each i ∈ [n]. Now, for each i ∈ [n]:
+
+         • If ℓi = 1, S sends msg′1,i := −vi to Ps∗ . Note, this transcript is identical to the real-world
+           one as in the real-world execution msg1,i + vi = ui · (k + xi ) = 0.
+                                                        $
+         • If ℓi = 0, S samples and sends msg′1,i ← Fp to Ps∗ . Note, this transcript is identical to
+                                                                                                  c,s
+           the real-world one as in the real-world execution: (1) ui is uniformly sampled by FVOLE
+           and crucially remains full entropy to Ps at this point, and (2) msg1,i + vi = ui · (k + xi ).
+                                                   ∗
+
+
+   6. At Step 7, for each i ∈ [n], S receives msg
+                                              ^   2,i ∈ Fp . If ∃i ∈ [n], msg
+                                                                          ^   2,i = 0, S sends (abort) to
+      F2PC-Gold and then outputs whatever outputted by Ps ; obviously, the real-world Pc would also
+                                                              ∗
+
+      abort in this case.
+
+   7. At Step 8, S mimics the verifier behaviors in the batched LPZK check. I.e., S sends some
+      uniform elements to Ps∗ .
+                              λ
+   8. Finally, if ∃i ∈ [n], αi2 · (msg′1,i + vi ) ̸= msg
+                                                     ^   2,i , S sends (abort) to F2PC-Gold and then outputs
+      whatever outputted by Ps∗ . Otherwise, S sends (continue) to F2PC-Gold and then outputs
+      whatever outputted by Ps∗ . Clearly, based on the soundness of the batch LPZK technique,
+                                                       λ
+      in the real-world execution, if ∃i ∈ [n], αi2 · (msg1,i + vi ) ̸= msg′2,i , the real-world honest Pc
+      would also abort except for up to probability n+1       p ; otherwise, Pc in the real-world would output
+      correct OPRF evaluations, same as the ideal-world.
+
+To conclude, the distribution seen by Ps∗ in the real world is statistically close to the one seen by Ps∗
+in the ideal world, and the honest Pc outputs identical distribution is the two worlds. This induces a
+statistically indistinguishable distribution seen by the UC environment. In particular, the statistical
+distance is ≤ n(λ+2)+4
+                    p    —a negligible probability.
+
+5.3    Some Details
+Cost Analysis. We tally the cost of our half-malicious and malicious protocols in Figures 6 and 7
+(for simplicity, we assume nbatch = n):
+
+
+                                                     25
+• Step 3 and Sub-steps 4a and 4b require n(λ + 2) VOLE correlations over Fp .
+
+• Sub-step 4c requires Ps to sends nλ field elements, and each party to perform O(nλ) field
+  operations.
+
+• Sub-step 4d requires 1 VOLE correlation over Fp , Pc to send 1 field element, Ps to send 2 field
+  elements, and each party to perform O(nλ) field operations.
+
+• Sub-step 5a requires 1 VOLE correlation over Fp , Ps to send 1 field element, and each party to
+  perform 1 field operation.
+
+• Sub-step 5b requires n VOLE correlations over Fp , Ps to send n field elements, and each party to
+  perform n field operations.
+
+• Sub-step 5c requires 1 VOLE correlation over Fp .
+
+• Sub-step 5d requires 1 VOLE correlation over Fp , Ps to send 1 field element, and each party to
+  perform 1 field operation.
+
+• Sub-step 5e requires Pc to send 3 field elements, Ps to send 1 field element, and each party to
+  perform O(n) field operations.
+
+• Step 6 requires Pc to send n field elements.
+
+• Step 7 requires Ps to send n field elements. In our half-malicious protocol, it requires Ps to sample
+  n field elements and perform O(nλ) field operations (in the offline phase). Then, in both protocols,
+  it requires Ps to perform O(n) field operations.
+
+• Step 8 requires 1 VOLE correlation over Fp , Pc to send 1 field element, Ps to send 2 field elements,
+  and each party to perform O(n) field operations.
+
+• Step 9 requires Pc to perform O(nλ) field operations.
+
+To sum up, in the VOLE-hybrid model, our protocols cost10 :
+
+• Half-malicious one needs n VOLE correlations with:
+
+       – Ps ’s Comp.: O(nλ) (resp. O(n)) field operations in offline (resp. online) phase.
+       – Pc ’s Comp.: O(nλ) field operations in online phase.
+       – Comm.: 2n field elements in online phase.
+       – Round: 2. Note that the online phase only involves the generation of VOLE correlations.
+
+• Malicious one needs nλ + 3n + 5 VOLE correlations with:
+
+       – Ps ’s Comp.: O(nλ) (resp. O(n)) field operations in offline (resp. online) phase.
+       – Pc ’s Comp.: O(nλ) field operations in both offline and online phases.
+       – Comm.: nλ + n + 9 (resp. 2n + 3) field elements in offline (resp. online) phase.
+ 10
+      For computation, we count the field operations, which are the dominating costs.
+
+
+
+
+                                                         26
+      – Round: 5 (as all checks can be executed in parallel). It can be compressed to 3 using the
+        Fiat-Shamir transformation [FS87], which is PQ secure [YZ21].
+
+Optimization via Generalized LPZK. The communication bottleneck of our malicious protocol
+lies in Sub-step 4c where Ps needs to commit to nbatch ·λ field elements representing each intermediate
+result of computing αi∈[n  2λ          . We can exploit the generalized LPZK technique [YSWW21] (see
+                               batch ]
+Section 2.7) to optimize this step. In particular, w.l.o.g., let ϕ be some constant that divides λ. We
+can raise each element to the power of 2ϕ rather than 2. This will reduce the communication cost of
+                    ·λ
+this step to nbatch
+                ϕ      . Note that this will also increase the coefficients Ps needs to send in Sub-step 4d
+to 2 . Hence, ϕ can only be a small constant. In conclusion, for any constant ϕ divides λ, we can
+     ϕ
+                                                         ·λ
+improve the offline communication cost to nbatch       ϕ    + nbatch + 7 + 2ϕ field elements, with reduced
+VOLE correlations required.
+     Using the generalized LPZK will also increase the computation concretely—the hidden constant
+will increase by a factor of ≈ 2ϕ in asymptotic. Moreover, while it saves the required VOLE
+correlations for committing to the intermediate results by ϕ×, it requires 2ϕ − 2 more VOLE
+correlations (see [HHK+ 24]) to randomize the coefficients sent in ZKP. Finally, the statistical
+advantage needs to be adjusted.
+Key Selection. The protocols in Figures 6 and 7 assume a uniformly sampled PRF key k := ∆(s) .
+In some applications, Ps may instead want to specify this key k ∗ . This can be done by Ps sending
+k ∗ − ∆(s) at the very beginning of the online phase, followed by Pc adjusting his w. Crucially,
+k ∗ − ∆(s) is one-time padded by uniformly sampled ∆(s) and the simulator can trivially extract k ∗ .
+    Note, this does not affect the generation of [v]∆(c) in the offline phase of our malicious protocol
+since this generation (and check) can be based on [∆(s) ]∆(c) (see Sub-step 5a).
+    Of course, this increases the communication complexity of both protocols by 1 Fp element (in
+the online phase).
+ZKP over the Committed Key. In our malicious protocol, Sub-step 5a generates [∆(s) ]∆(c)
+and Step 5 ensures the unforgability of ∆(s) . This is an IT-MAC over the PRF key. (Note, this is true
+even in the case where Ps selects her own PRF key since [k ∗ ]∆(c) = [∆(s) ]∆(c) + (k ∗ − ∆(s) ).) Thus, Ps
+can execute the standard VOLE-based ZKP using this IT-MAC to demonstrate any properties over
+the used PRF key. In particular, for a standard fan-in 2 arithmetic circuit C : Fnp in 7→ F∗p with n×
+multiplication gates. Ps can perform a ZKP to show Pc that she knows w ∈ Fnp in −1 s.t. C(k, w) = 0
+with a communication complexity of nin + n× + O(1) field elements and a computation complexity
+of O(n× ) field operations. For example, Ps can prove (1) the leading two bits of the key are zero to
+get rid of the one-bit leakage in F2PC-Gold (Figure 5) as discussed in Section 3.4; and (2) the key
+binds to a public verification key as discussed in Section 6.1.
+
+
+6     Verifiability and Strong UC Security
+6.1    Verifiability: Ensuring a Consistent Key
+In this section, we discuss how to add different forms of verifiability to our protocols, which ensures
+the same key is used across multiple sessions and/or clients.
+    Verifiability is important, sometimes essential, in many applications. Naturally, this requires the
+client to keep verification information across OPRF invocations.
+
+
+
+                                                    27
+Private Verifiability. We show how to achieve private verifiability, namely, the verification
+information is specific to a client. This client wants to participate in an OPRF protocol multiple
+times and ensure that the server, which can be malicious, only uses a single key.
+                                                                                         c,s
+    Note, since the PRF key is embedded in the VOLE correlations generated by FVOLE          , if Pc can save
+all correlations (i.e., malicious batched offline phases), it already achieves private verifiability—the
+ZKP with a wrong key fails w.h.p.
+    We highlight that Pc can also achieve this by saving only one fresh correlation related to k.
+Specifically, consider Pc saves u and w, whereas Ps has k and v = uk + w. Now, during the new
+                                     c,s                                                        (s)
+invocation, we can start a new FVOLE        where Ps inputs her key k ′ (via sending k ′ − ∆new ) and the
+                                                                                                        c,s
+client verifies that k ′ = k. For this, let v ′ = u′ k ′ + w′ be a correlation generated by this new FVOLE   .
+Parties proceed:
+
+1. Pc sends α := u − u′ .
+
+2. Ps commits β := v − v ′ − α · k via a commitment scheme.
+
+3. Pc sends γ := w − w′ . If γ ̸= β, Ps aborts.
+
+4. Ps opens β, If β ̸= γ, Pc aborts.
+
+Here, the commitment scheme prevents a malicious Pc to learn k. Additionally, since u and u′ are
+uniformly sampled, w − w′ = v − v ′ − (uk − u′ k ′ ) is uniformly random to Ps given v, v ′ , u − u′ when
+                                                                                                  s,c
+k ̸= k ′ . After verification, these two involved correlations are discarded. Note that the FVOLE      to
+support ZK (and Steps 4 and 5 in Figure 6) must also be re-executed. These steps need to be
+                         (s)                             (s)
+executed before k ′ − ∆new is sent. This ensures that ∆new remains full entropy to the UC environment
+to protect against a malicious client.
+    We note that the UC environment can learn k from the honest Ps output, so a malicious Pc can
+easily pass the equality check in Step 3 with maliciously-chosen α∗ = u − u′ + δ and γ ∗ = w − w′ − δk
+for some δ ̸= 0. While this implies the extraction of k by the UC simulator, we still need to simulate
+the honest Ps ’s abort. This can be done by adding one extra instruction in the ideal functionality,
+defined as follows:
+
+        “Global-key query. If Pc is corrupted, receive (guess, k ′ ) from S: if k = k ′ , send
+        success to S and ignore any subsequent query; otherwise, send abort to both
+        parties.”
+This global-key query is harmless as the Pc with PRF evaluation can always verify his guess on the
+key locally.
+    Finally, we remark that the above technique to achieve private verifiability with a single correlation
+can be used to remove the predetermined nbatch limit: it allows the execution of a new offline phase
+with a new nbatch and ensures the same key is reused. Actually, we can directly adopt the commit-
+verify-open idea to the consistency check for [v]∆(c) (particularly the proof of a zero IT-MAC;
+see Section 3.2) in a way that it can be executed even after the key k (or ∆(s) ) is revealed to the UC
+environment.
+Public Verifiability. We show how to achieve public verifiability, namely, the verification informa-
+tion is public (denoted as VK) and can be used by multiple clients. VK can be viewed as a public
+key of the server, hiding and binding to her PRF key k, and it needs to be obtained by the clients
+
+
+                                                     28
+from a reliable source (e.g., authenticated by the server, via certificates, etc.). This corresponds to
+the notion of Verifiable OPRF (VOPRF) in the literature.
+    We achieve this inspired by [BDFH24, Lemma 7 and 8], which focuses on building (V)OPRFs
+from Legendre PRFs. We first port the core Lemma into our Gold setting as follows:
+
+Lemma 3. For a prime p and any positive integer g that divides p − 1, for any k ̸= k ′ ∈ Fp , there
+are at most g − 1 different x ∈ Fp such that (k + x)g = (k ′ + x)g .
+
+Proof. The equation is of degree-(g − 1) in x.
+
+Lemma 4. For a prime p and any positive integer g that divides p − 1, for m uniformly sampled
+                       $
+elements ℓ1 , . . . , ℓm ← Fp , the following statement holds:
+
+                                                                        (p − 1)(g − 1)m
+                           Pr ∃k ̸= k ′ , ∀i, (k + ℓi )g = (k ′ + ℓi )g ≤
+                             
+                                                                              2pm−1
+Proof. By applying the union bound and Lemma 3:
+
+            Pr ∃K ̸= K ′ , ∀i ∈ [m], (K + ℓi )g = (K ′ + ℓi )g
+                                                              
+                X
+                      Pr ∀i ∈ [m], (K + ℓi )g = (K ′ + ℓi )g                       (Union bound)
+                                                              
+          ≤
+                0≤K<K ′ <p
+                   X          Y
+                                   Pr (K + ℓi )g = (K ′ + ℓi )g                   (Independent ℓ)
+                                                               
+            =
+                0≤K<K ′ <p i∈[m]
+                   X          Y g−1
+            ≤                                                                          (Lemma 3)
+                                     p
+                0≤K<K ′ <p i∈[m]
+                (p − 1)(g − 1)m
+            =
+                     2pm−1
+
+
+
+   In our approach, let ℓ1 , . . . , ℓm ∈ Fp be public parameters which are assumed to be uniform; Ps
+publishes
+
+                                         VKm := (k + ℓ1 )g , . . . , (k + ℓm )g                      (1)
+
+as the public key. Based on Lemma 4, this achieves statistical binding for large enough m. Concretely,
+since log p ≈ 3λ and log g ≈ 2λ, we can set m = 7. For a uniformly sampled k, this also achieves
+computational hiding based on the hardness of the DSPRS problem (see Assumption 1). We only
+consider the uniform key since this is typical of how the OPRF key is chosen in the first place.
+     To validate, we exploit [k]∆(c) , the IT-MAC of k, generated intermediately in our malicious 2PC-Gold
+(i.e. Sub-step 5a in Figure 6). With it, Ps can prove that for each i ∈ [m], (k + ℓi )g meets the i-th
+entry of VKm where ℓi is public. Note, instead of raising to the power g directly, the random root
+                                                                                           λ
+technique (see Section 3.1) can be applied for better efficiency: Ps can let Pc get ri2 · (k + ℓi ) for
+   $                                            λ
+ri ← Fp . In detail, parties generate [ri2 ]∆(c) , i ∈ [m], which can be merged into Step 4; then Ps
+         λ
+sends ri2 · (k + ℓi ) and proves each multiplication is done correctly, which can be merged into Step 8.
+This results in m ϕλ + m additional Fp elements of communication (independently of n) and m ϕλ + m
+
+
+                                                          29
+additional VOLE correlations, in the VOLE-hybrid model. See Section 7.4 for concrete cost, including
+VOLE.
+    Practically, ℓ can be generated by applying a public hash function H over [m]. In this case, it is
+essential to hash the inputs to Gold with an independent hash function (this is H1 in the O-Gold
+function discussed below). Otherwise, VKm would reveal m Gold evaluations.
+Stateless Verifiability. Either private or public verifiability discussed above requires the client
+to be stateful or be able to receive authenticated VK. However, in some applications, the client is
+stateless and has no means to guarantee an authenticated VK. Interestingly, in applications such as
+Password-Protected Secret Sharing (PPSS) [JKKX16], a weaker form of verification suffices: if a
+malicious Ps changes the key with Pc using the same input, the output is different. 2PC-Gold does
+not ensure this property, particularly due to the collision issues discussed in Section 6.1. The same is
+the case for the function O-Gold that we defined (see section 1.1) as the 2Hash mode of Gold, namely,
+
+                                    O-Goldk (x) := H2 (x, Goldk (H1 (x))).
+
+However, the above property can be provided by including the verification value VK6 in the
+computation of O-Gold as
+
+                               H2 (x, Goldk (H1 (x)), Goldk (ℓ1 ), . . . , Goldk (ℓ6 ))                      (2)
+                   $
+where ℓ1 , . . . , ℓ6 ← Fp are public parameters. This value VK6 and its binding property (i.e., Lemma 4)
+ensures two keys produce two different public keys, ultimately resulting in two different OPRF
+outputs. Note that we only need VK6 rather than VK7 since H1 (x) acts as an extra point. Looking
+ahead, this modified O-Gold implements a strong UC OPRF [BDFH24], which also explains why it
+supports PPSS [JKKX16].
+
+6.2    Avoiding Collisions in Gold: Towards Strong UC Security
+       In this section, we discuss collisions in the Gold function and their effect in defining a Gold-based
+UC OPRF in the strong sense (e.g., [JKK14, JKKX16, BDFH24]). By the end of this section, we
+show how to build such an OPRF (UC-Gold).
+       Collisions in Gold—pairs (k, x) ̸= (k ′ , x′ ) s.t. Goldk (x) = Goldk′ (x′ )—are trivial to find. However,
+when considering the function O-Goldk (x) := H2 (x, Goldk (H1 (x))) where H1 and H2 are modeled
+as random oracles, the latter with 2λ bits of output, finding collisions with x ̸= x′ is infeasible.
+Yet, O-Gold inherits one form of Gold collisions, namely, colliding pairs (k, x), (k ′ , x) for k ̸= k ′ . To
+see that such pairs exist (and can be computed), consider a procedure similar to the algorithm
+in Figure 4 that on input k, x finds X such that X g = (k + x)g and then outputs k ′ := X − x.
+       While collisions of the form (k, x), (k ′ , x) do not violate the standard security of PRFs, OPRF
+applications often require stronger properties. In particular, strong UC formulations of OPRF
+model these functions as random oracles with outputs independent for any two pairs (k, x) ̸=
+(k ′ , x′ ). Therefore, collisions of the form (k, x), (k ′ , x) are not allowed (some OPRF applications,
+e.g., [JKKX16], are actually insecure in the presence of such collisions).
+       Hence, to achieve such strong UC OPRFs, we need to eliminate these collisions. Thanks to the
+fact (Lemma 4) that Goldk (ℓ1 ), . . . , Goldk (ℓ6 ) act as a commitment to a single k, the function defined
+in Equation (2) achieves this.
+       This function can be proven UC secure using the formalism and methodology from [BDFH24].
+Informally, they show that the 2Hash mode applied to a keyed function F , namely, H2 (x, Fk (H1 (x))),
+
+                                                         30
+results in a strong UC-secure OPRF (in their corresponding OPRF functionality) provided the
+following properties hold for F : (1) F has a secure UC two-party computation between a server with
+input a key k and a client with input x (similar to the leakage-free version of 2PC-Gold functionality
+from Figure 5); (2) F is one-more unpredictable; and (3) collisions Fk (x) = Fk′ (x) are hard to find
+for any x and any k ̸= k ′ .
+    For our case, we consider the function Fk (x) defined as the concatenation of the 7 values:
+
+                               Goldk (H1 (x)), Goldk (ℓ1 ), . . . , Goldk (ℓ6 ).
+
+This F inherits from Gold its UC 2PC security (Section 5.1) and one-more unpredictability (implied
+by the hardness of the DSPRS problem; see Assumption 1). In addition, it is collision-resistant (in
+the sense of condition (3) above) based on Lemma 4. Thus, if we consider F in 2Hash mode, we
+obtain exactly the function defined in Equation (2), and the results from [BDFH24, Theorem 1]
+imply this function is a UC OPRF in the formalization of [BDFH24]. For concreteness and future
+use, we define:
+                                                                                            
+                UC-Goldk (x) := H2 x, Goldk (H1 (x)), Goldk (H0 (1)), . . . , Goldk (H0 (6)
+
+where H0 , H1 , H2 are hash functions modeled as independent random oracles with ranges Fp , Fp and
+{0, 1}2λ , resp.
+
+7     Implementation and Benchmark
+We implemented our half-malicious and malicious 2PC-Gold with both non-batched and batched
+variants (Figures 6 and 7) using C++. In particular, since the performance difference is nuanced,
+we consider batched variants with a single batch, i.e., nbatch = n. In this section, we discuss this
+implementation and provide a comprehensive benchmark.
+    We only implemented 2PC-Gold since it is sufficient for many applications and reflects our
+performance. Note, 2PC-Gold and O-Gold have similar concrete performance, and we estimate
+additional costs needed for UC-Gold in Section 7.4. One can easily extend our compact and modular
+implementation to O-Gold and UC-Gold.
+    We only consider the case where the key is uniformly sampled since extra costs to support a
+server-specified key are negligible, as discussed in Section 7.4.
+    In this paper, we use the convention: 1KB= 210 B.
+Open-Source Implementation. Our implementation is public and available at
+
+                             https://github.com/gconeice/PR-OPRF
+
+7.1   Setup
+Security Level. Our implementation considers λ = 128, aiming at the NIST Security Strength
+Category 1 for post-quantum cryptography. In particular, we use 128-bit OTs, and AES-128 to
+implement, e.g., the PRNG. We chose this based on baselines in the literature. We note that the
+famous Grover algorithm [Gro96] can indeed provide a square-root quantum attack over AES-128,
+but this is not considered as a practical attack (see, e.g., [GLRS16, Zal99]). We can upgrade our
+implementation to be based on 256-bit OTs and AES-256 with some engineering efforts, and our
+estimated performance overhead is only ≤ 2×.
+
+                                                      31
+Prime p. Our implementation sets p = 2128 · g + 1 as a 384-bit prime to produce 128-bit OPRF
+outputs. We choose g = 2256 − 33375, which is the largest 256-bit prime, ensuring p is also a prime.
+Observe that for our selected p, hash functions or PRNGs generating outputs in {0, 1}384 suffice to
+produce Fp elements.11 We remark that g does not need to be a prime, but we chose a prime g as a
+conservative option. We use the GMP library [Gt20] for Fp operations.
+Functionality FVOLE . Recall that our protocols are designed in the VOLE-hybrid (Figure 1) model.
+To generate these VOLE correlations, we deploy the following malicious-secure VOLE protocols:
+
+• Non-batched variant: Our non-batched (i.e., single-input) variant, either half-malicious or
+  malicious, only requires a small number of VOLE correlations. Hence, we implemented the VOLE
+  protocol in [BDFH24], which relies on [Roy22, BBD+ 23]. In short, in this protocol, besides a
+  one-time setup to generate random OTs and some GGM trees, each VOLE correlation requires
+  ≈ log p+2σ
+         t    elements of Fp , where σ = 64 is the statistical security parameter and t = 8 is a
+  communication-computation trade-off parameter—a per-correlation cost of ≈ 3KB.
+
+• Batched variant: Our n-batched (particularly for a sufficiently large n) variant, either half-
+  malicious or malicious, requires a large number of VOLE correlations. Hence, we deployed
+  the [WYKW21]’s VOLE protocol to extend a small amount of VOLE correlations into a large
+  amount of VOLE correlations with sublinear communication (in length) based on OTs and the
+  post-quantum LPN assumption. That is, amortized communication is almost free. [WYKW21]’s
+  implementation is open-sourced in the EMP-Toolkit [WMK16], and we adopted it with adjustments
+  toward Fp and PQ OTs.
+
+OTs. We utilize the libOTe library [RR] to implement OTs. These (random) OTs are generated
+using the state-of-the-art malicious-secure post-quantum OT extension technique [Roy22] relied
+on base (random) OTs, which we generate using the malicious-secure OT protocol in [MR19]. In
+particular, [MR19]’s OT protocol can be instantiated under either a classical (i.e., Diffie-Hellman-type
+with curve25519) or post-quantum (i.e., lattice-type with Kyber512) assumption. Switching between
+these instantiations yields classical or post-quantum security to the full 2PC-Gold. We consider both
+in our benchmark.
+Hardware. Our experiments were executed on two AWS EC2 m5.large machines12 that respectively
+implemented Ps and Pc . Each party ran single-threaded. We configured different network settings
+via Linux tc command:
+
+• WAN-like: 25Mbps with a 30ms round-trip latency.
+
+• LAN-like: 1Gbps with a 2ms round-trip latency.
+
+These configurations are selected to match prior work.
+Metrics. We report the following metrics:
+
+• Communication: the total communication.
+
+• Computation: the total execution time of Ps and Pc respectively. Note that the end-to-end
+  (E2E) execution time is exactly the Pc ’s execution time.
+
+
+
+
+                                                  32
+                                                                                            ϕ=
+                             Security               Metric
+                                                                            1            2          4         8
+                                                Comm. (KB)                 488          302        242       914
+                             Classical       WAN, E2E Time (ms)            1447         1120       966      2229
+                                             LAN, E2E Time (ms)            879          606        508      1509
+                                                Comm. (KB)                 1216         1030       970      1642
+                                PQ           WAN, E2E Time (ms)            1682         1333       1206     2423
+                                             LAN, E2E Time (ms)            887          607        510      1503
+
+Table 1: Performance of our non-batched malicious protocol as a function of the optimization
+parameter ϕ. Note that ϕ = 1 is essentially the case of no optimization. We highlight the column
+ϕ = 4, which provides the lowest cost.
+
+                  Security            WAN, Time      LAN, Time                          Security            WAN, Time      LAN, Time
+   Variant                    Comm.                                      Variant                   Comm.
+                   Ps -Pc               Ps    Pc      Ps    Pc                           Ps -Pc               Ps    Pc      Ps    Pc
+ Non-batched        G-
+                    #         46KB    338ms 368ms   158ms 160ms        Non-batched        G-
+                                                                                          #         774KB   538ms 568ms   161ms 163ms
+ (single-input)       -       242KB   936ms 966ms   506ms 508ms        (single-input)       -       970KB    1.1s  1.1s   507ms 510ms
+    Batched         G-
+                    #          99B     61µs  87µs    30µs  56µs           Batched         G-
+                                                                                          #          100B    61µs  87µs    30µs  57µs
+  (amortized)         -       1.9KB   1.6ms 1.6ms    1ms   1ms          (amortized)         -       1.9KB   1.6ms 1.6ms    1ms   1ms
+
+                             (a) Classical                                                   (b) Post-quantum
+
+Table 2: Performance of our protocols with classical and post-quantum OTs. The overall security is
+inherited from the OT. #G denotes the semi-honest security whereas denotes the malicious security.
+The costs of batched protocols correspond to the costs of a single OPRF evaluation when amortized
+as part of an n-batched evaluation with n ≈ 107 for half-malicious and n ≈ 3 × 105 for malicious
+(smaller n are also possible, see text and Table 4).
+
+
+7.2      Performance of Our Protocols
+Optimization Parameter ϕ. Recall that our malicious 2PC-Gold can leverage the generalized
+LPZK technique [YSWW21] (Section 2.7) to balance communication and computation. We set
+ϕ = 4.
+    We performed experiments over our non-batched malicious 2PC-Gold with either classical or
+post-quantum security to select this optimization parameter ϕ. Table 1 tabulates the results.
+    According to these results, we set ϕ = 4. We remark that while our batched protocols may enjoy
+a larger ϕ since the communication overhead induced by 2ϕ coefficients in ZKP can be amortized,
+our experiments showed that this is not the case because of 2ϕ field operations in computation.
+Overall Performance. Table 2a (resp. Table 2b) tabulates the results with classical (resp.
+post-quantum) OTs.
+    For the batched test cases, we set the evaluation number n large enough to enable VOLE extension
+and use up the extended VOLE correlations, seeking the best amortization. In particular, n ≈ 107
+(resp. ≈ 3 × 105 ) for half-malicious (resp. malicious) protocols.13 This is purely for benchmarking.
+While this n ≈ 107 (or ≈ 3 × 105 ) is determined by the LPN parameter in [WMK16], one can adjust
+  11
+     A random integer in [2384 ] is < p with overwhelming probability.
+  12
+     Intel Xeon Platinum 8259CL @ 2.50GHz, 2 vCPUs, 8GiB Memory
+  13
+     Note, Ps and Pc each only needs to save the base VOLE correlations to support, e.g., day-to-day invocations. For
+example, for n = 107 , about 5000 base correlations suffice, requiring about 1MB physical memory.
+
+
+
+                                                                  33
+         Security                             Offline Comm. (B)                   Online Comm. (B)
+                                 OT                  VOLE           Πoffline            Πonline
+  Ps -Pc
+                         Ps → Pc Pc → Ps       Ps → Pc Pc → Ps Ps → Pc Pc → Ps    Ps → Pc    Pc → Ps
+             Classical    13,805     8,368
+   G-
+   #                                             16       25,552    –       –       48        48
+               PQ        439,757    327,800
+             Classical    14,917     22,109
+     -                                         179,792    28,592   2,496    192     144       48
+               PQ        440,869    341,541
+
+Table 3: Fine-grained communication analysis of our non-batched protocols. #  G denotes the semi-
+honest security whereas denotes the malicious security. Note that the difference between classical
+and PQ instantiations lies only in OTs.
+
+                                Security                   WAN, Time         LAN, Time
+                    Variant                   Comm.
+                                 Ps -Pc                     Ps     Pc        Ps     Pc
+                  Batched         G-
+                                  #             175B       181µs  216µs     120µs  146µs
+                (amortized)         -          17.1KB     24.4ms 24.4ms    19.4ms 19.4ms
+
+Table 4: Performance of our PQ protocols with moderate size n. #
+                                                               G denotes the semi-honest security
+whereas denotes the malicious security. The costs of batched protocols correspond to the costs
+of a single OPRF evaluation when amortized as part of an n-batched evaluation with n = 105 for
+half-malicious and n = 103 for malicious.
+
+
+their VOLE extension parameters (e.g., using the LPN estimator [LWYY24]) to smaller values (e.g.,
+105 ) with little effect on the amortized cost.
+    The performance of our batched variant is almost identical between classical and post-quantum
+instantiations. This is because only λ = 128 base OTs need to be generated accordingly, and the
+(amortized) cost difference is negligible.
+Fine-Grained Analysis. We performed fine-grained analysis over the communication of our
+non-batched protocols, tabulated in Table 3. Here, Πoffline (resp. Πonline ) denotes the offline (resp.
+online) phase of our protocols (see Figures 6 and 7) in the VOLE-hybrid model; the communication
+of OTs includes the generation of base OTs and OT extension.
+    We make the following remarks:
+• The communication difference between classical and PQ instantiations only lies in the cost of OTs.
+  In particular, the communication cost of OTs mainly depends on the generation of base OTs.
+• For either classical or PQ instantiation, the communication of OTs between the half-malicious
+  and malicious protocols is small. This might be counter-intuitive since our malicious protocols
+  require OTs in both directions. However, note that we only need to generate base OTs in one
+  direction, and the extended OTs can be used as base OTs in the opposite direction.
+• The communication of Πoffline +Πonline in malicious protocols (2.8KB) does not match the amortized
+  communication cost of the batched variants (1.9KB). This is mainly because in the batched variants,
+                                                            λ
+  the 16 coefficients of the generalized LPZK to prepare [α2 ]∆(c) can be amortized over n evaluations,
+  inducing a 16 · 384 bits difference.
+• The online phase of our malicious protocol incurs 96 additional Bytes (i.e., 2 Fp elements),
+  compared to the online phase of our half-malicious protocol. This reflects the VOLE-based ZK
+
+                                                         34
+  over a single multiplication. In the batched variant, the additive overhead (i.e., independent of n)
+  is 3 Fp elements, where one extra element is used to aggregate the n-multiplication check.
+• Almost all communication of our protocols is used to generate VOLE correlations. As our protocols
+  are black-box in VOLE, it is valuable to study how to more efficiently generate a small amount of
+  VOLE correlations, even classically. Indeed, even improving the cost of generating (base) PQ OTs
+  may significantly increase the performance of our non-batched PQ performance.
+  Our half-malicious non-batched protocol needs only a single VOLE correlation, whereas our
+  malicious non-batched protocol requires a total of 54 VOLE correlations (2 in one direction and
+  52 in the other direction).
+Selecting n for Cost Amortization. In our batched setting, we need a large enough n to
+effectively amortize the communication cost. For example, in our malicious PQ batched setting, the
+amortized cost comes from two components: (1) a per OPRF evaluation cost that we can estimate
+to be about 1.9KB using Table 2b (where n ≈ 3 × 105 ); (2) the generation of around 1, 800 base
+VOLE correlations (in each direction, depending solely on the LPN parameters), necessary to initiate
+VOLE extensions using the primal LPN. We can use Table 3 to estimate the latter as follows:
+                     Base PQ OTs in Table 3       VOLE setup in Table 3       3, 600 more VOLEs
+                       z     }|    {                z     }|   {                z }| {
+                       (430 + 333)KB          +     (175 + 28)KB          +     3600 · 3KB
+which is approximately 12, 000KB. We can then approximate the amortized cost for any n to:
+1.9KB + 12, 000KB/n. For example, for n = 103 , the cost is about 14KB; for n = 105 , it is about
+2KB.
+    We instantiated the LPN-based VOLE extension with a smaller n to verify the above estimation;
+see Table 4.
+    An even smaller cost of (2) can be achieved by using VOLE extension protocols that rely on the
+dual LPN [BCGI18], which requires fewer base VOLE correlations.
+
+7.3   Comparison with Prior Work
+We compare our protocols concretely with prior post-quantum OPRFs. Most of them do not have a
+(public) implementation, but we try our best to compare with them:
+• Isogeny-based: The state-of-the-art semi-honest (both client and server are semi-honest) OPRF
+  based on isogenies is OPUS [HHM+ 24]. OPUS focuses on the non-batched setting, and it is unclear
+  how it can be optimized/amortized in the batched setting. When λ = 128, the communication
+  cost of OPUS is ≈ 24KB. This outperforms our half-malicious non-batched PQ protocol. (Note
+  that in our half-malicious model, the client is fully malicious, and only the server is semi-honest.)
+  However, OPUS requires 258 rounds while ours requires 3 rounds in the VOLE-hybrid model
+  (with Fiat-Shamir), and the generation of VOLE correlations can be finished in ≤5 rounds. More
+  importantly, OPUS is extremely computationally intensive. We tested the open-sourced OPUS
+  implementation on our machines, and it required over 13s E2E for each evaluation in the WAN.
+  Hence, ours is over 20× better in terms of E2E time and has stronger security. Our improvement
+  is over 50× in LAN and over 100000× in the batched setting.
+  The state-of-the-art malicious isogeny-based OPRF is [Bas23], which requires 8.7MB communica-
+  tion. Our communication is over 9× smaller. Note, [Bas23]’s protocol is a theoretical result, and
+  no implementation is available. Similar to OPUS, it is very heavy in computation.
+
+                                                        35
+• Lattice-based: The state-of-the-art malicious OPRF based on lattices is [AG24, ESTX24], which
+  requires ≈200KB in the batched amortized setting. Ours is ≈100× better. Both [AG24] and
+  [ESTX24] need 2 rounds.
+  The state-of-the-art semi-honest OPRF based on lattices is [HKL+ 25], which requires 23KB in
+  the batched amortized setting. Ours is ≈235× better. [HKL+ 25] needs 6 rounds.
+  On the other hand, [ESTX24] requires ≈400KB in the non-batched malicious setting, which is
+  ≈2× better than our corresponding protocol in communication. However, [ESTX24] relies on
+  SNARG, which is computationally expensive.
+
+• “Crypto-Dark-Matter” [BIP+ 18]: The state-of-the-art semi-honest OPRF based on the
+  “Crypto-Dark-Matter” is [APRR24], which requires 119 Bytes of communication in the batched
+  amortized setting. Ours achieves 100 Bytes, and in addition, we provide security against a
+  malicious client. [APRR24] needs 2 rounds in the VOLE-hybrid model, same as ours. On the
+  other hand, in general, “Crypto-Dark-Matter” PRF constructions have a lower computational
+  overhead. It should also be noted that the parameters used in [APRR24] are overly aggressive, as
+  analyzed by [AR24].
+
+• Legendre-based: The state-of-the-art malicious OPRF based on regular Legendre PRFs
+  is [BDFH24] which focuses on non-batched setting and estimates a 911KB communication (without
+  implementation). This protocol needs 9 rounds [ESTX24].
+  In comparison, our real-world tested communication is 970KB. However, [BDFH24] estimates
+  a 296KB cost of OTs, relying on [BMM22] to generate base OTs. By using these OTs, our
+  communication can get down to 502KB—1.8× better. More significantly, our per-evaluation
+  communication reduces to just 1.9KB when amortized over batched evaluations. In contrast,
+  [BDFH24]’s protocol does not support batched amortization. This is inherent in their approach
+  because they use (non-standard) VOLE to commit the evaluation input x by revealing x − ∆,
+  where ∆ is the scalar from the VOLE. Thus, for each new x, new VOLE correlations (with a new
+  ∆) must be generated. See also Section 1.2.
+  Note that our protocols rely solely on standard VOLE correlations in a black-box manner.
+  [BDFH24]’s protocol requires a customized VOLE functionality. Hence, our protocols are more
+  friendly to future improvements of VOLE.
+
+7.4   Projected Overhead for Additional Properties
+In this section, we discuss the overhead that will occur if additional properties are added to our
+implementation. We focus solely on the non-batched setting, as this overhead would be amortized in
+the batched setting.
+Server-specified Key. This only incurs an additional Fp element (48 Bytes) to be transferred in
+the online phase.
+Randomized ∆(s) . This only incurs an additional Fp element (48 Bytes) to be transferred in the
+offline phase. Recall that this can eliminate the one-bit leakage if we only need a uniformly sampled
+key; see Section 3.4.
+Avoiding Leakage for a Server-specified Key. In the case of a server-specified key, we can
+eliminate the one-bit leakage by using a key with two leading zeros, as discussed in Section 3.4. This
+can be done by requiring (malicious) Ps to bit-decompose [k]∆(c) . To improve efficiency, Ps can
+
+                                                 36
+decompose k into 95 4-bit trunks and 2 1-bit trunks. Hence, it requires 97 VOLE correlations (each
+cost ≈ 3KB) and 97 derandomization over correlations (each cost 48 Bytes, i.e., sending z − u to
+convert a random IT-MAC [u]∆(c) to [z]∆(c) ). In total, this gives a ≈ 296KB overhead. We also need
+to ensure that Ps uses values within the ranges [0, 16) (and [0, 2)). This can be freely incorporated
+with the power-raising check as degree-16 (and 2) polynomials.
+Public Verifiability. Recall that Gold over 7 public random inputs can be used as the public
+verification information (i.e., VK7 in Equation (1)) to achieve public verifiability. To ensure the key
+used is indeed in line with published VK7 , each public input (i.e., ℓi∈[7] ) requires ϕλ + 1 = 33 more
+VOLE correlations (each cost ≈ 3KB) and ϕλ = 32 derandomization over the intermediate result
+                                                         λ
+(each cost 48 Bytes) and 1 field element for sending ri2 · (k + ℓi ); see Section 6.1. Hence, the total
+overhead for achieving public verifiability is ≈ 703KB.
+UC-Gold. To achieve UC-Gold, we need to verify VK6 (which does not need to be public now) and
+also deploy leakage-free 2PC-Gold; see Section 6.1. Hence, the total overhead for achieving UC-Gold
+is ≈ 899KB (≈ 603KB for verification of VK6 and ≈ 296KB for verification that the key has two
+leading zeros to remove leakage). This overhead is independent of n and can be amortized.
+
+
+Acknowledgement
+We thank our S&P’25 reviewers for their thoughtful feedback. We also thank Ward Beullens, Julia
+Hesse, Yuval Ishai, Peter Rindal, and Lawrence Roy for insightful discussions.
+
+
+References
+[ADDG24]     Martin R. Albrecht, Alex Davidson, Amit Deo, and Daniel Gardham. Crypto dark
+             matter on the torus - oblivious PRFs from shallow PRFs and TFHE. In Marc Joye and
+             Gregor Leander, editors, EUROCRYPT 2024, Part VI, volume 14656 of LNCS, pages
+             447–476. Springer, Cham, May 2024.
+
+[ADDS21]     Martin R. Albrecht, Alex Davidson, Amit Deo, and Nigel P. Smart. Round-optimal
+             verifiable oblivious pseudorandom functions from ideal lattices. In Juan Garay, editor,
+             PKC 2021, Part II, volume 12711 of LNCS, pages 261–289. Springer, Cham, May 2021.
+
+[AG24]       Martin R. Albrecht and Kamil Doruk Gür. Verifiable oblivious pseudorandom functions
+             from lattices: Practical-ish and thresholdisable. In Kai-Min Chung and Yu Sasaki,
+             editors, ASIACRYPT 2024, Part IV, volume 15487 of LNCS, pages 205–237. Springer,
+             Singapore, December 2024.
+
+[APRR24]     Navid Alamati, Guru-Vamsi Policharla, Srinivasan Raghuraman, and Peter Rindal.
+             Improved alternating-moduli PRFs and post-quantum signatures. In Leonid Reyzin
+             and Douglas Stebila, editors, CRYPTO 2024, Part VIII, volume 14927 of LNCS, pages
+             274–308. Springer, Cham, August 2024.
+
+[AR24]       Irati Manterola Ayala and Håvard Raddum. Zeroed out: Cryptanalysis of weak PRFs
+             in alternating moduli. Cryptology ePrint Archive, Report 2024/2055, 2024.
+
+
+
+                                                  37
+[Bas23]     Andrea Basso. A post-quantum round-optimal oblivious PRF from isogenies. Cryptology
+            ePrint Archive, Report 2023/225, 2023.
+
+[BBD+ 23]   Carsten Baum, Lennart Braun, Cyprien Delpech de Saint Guilhem, Michael Klooß,
+            Emmanuela Orsini, Lawrence Roy, and Peter Scholl. Publicly verifiable zero-knowledge
+            and post-quantum signatures from VOLE-in-the-head. In Helena Handschuh and Anna
+            Lysyanskaya, editors, CRYPTO 2023, Part V, volume 14085 of LNCS, pages 581–615.
+            Springer, Cham, August 2023.
+
+[BBUV20]    Ward Beullens, Tim Beyne, Aleksei Udovenko, and Giuseppe Vitto. Cryptanalysis of
+            the Legendre PRF and generalizations. IACR Trans. Symm. Cryptol., 2020(1):313–330,
+            2020.
+
+[BCG+ 19]   Elette Boyle, Geoffroy Couteau, Niv Gilboa, Yuval Ishai, Lisa Kohl, and Peter Scholl.
+            Efficient pseudorandom correlation generators: Silent OT extension and more. In
+            Alexandra Boldyreva and Daniele Micciancio, editors, CRYPTO 2019, Part III, volume
+            11694 of LNCS, pages 489–518. Springer, Cham, August 2019.
+
+[BCGI18]    Elette Boyle, Geoffroy Couteau, Niv Gilboa, and Yuval Ishai. Compressing vector OLE.
+            In David Lie, Mohammad Mannan, Michael Backes, and XiaoFeng Wang, editors, ACM
+            CCS 2018, pages 896–912. ACM Press, October 2018.
+
+[BDF+ 11]   Dan Boneh, Özgür Dagdelen, Marc Fischlin, Anja Lehmann, Christian Schaffner, and
+            Mark Zhandry. Random oracles in a quantum world. In Dong Hoon Lee and Xiaoyun
+            Wang, editors, ASIACRYPT 2011, volume 7073 of LNCS, pages 41–69. Springer, Berlin,
+            Heidelberg, December 2011.
+
+[BDFH24]    Ward Beullens, Lucas Dodgson, Sebastian Faller, and Julia Hesse. The 2Hash OPRF
+            framework and efficient post-quantum instantiations. Cryptology ePrint Archive, Report
+            2024/450, 2024.
+
+[BDOZ11]    Rikke Bendlin, Ivan Damgård, Claudio Orlandi, and Sarah Zakarias. Semi-homomorphic
+            encryption and multiparty computation. In Kenneth G. Paterson, editor, EURO-
+            CRYPT 2011, volume 6632 of LNCS, pages 169–188. Springer, Berlin, Heidelberg, May
+            2011.
+
+[BDSW23]    Carsten Baum, Samuel Dittmer, Peter Scholl, and Xiao Wang. Sok: vector ole-based
+            zero-knowledge protocols. Des. Codes Cryptogr., 91(11):3527–3561, 2023.
+
+[Bea95]     Donald Beaver. Precomputing oblivious transfer. In Don Coppersmith, editor,
+            CRYPTO’95, volume 963 of LNCS, pages 97–109. Springer, Berlin, Heidelberg, August
+            1995.
+
+[BFKL94]    Avrim Blum, Merrick L. Furst, Michael J. Kearns, and Richard J. Lipton. Cryptographic
+            primitives based on hard learning problems. In Douglas R. Stinson, editor, CRYPTO’93,
+            volume 773 of LNCS, pages 278–291. Springer, Berlin, Heidelberg, August 1994.
+
+[BIP+ 18]   Dan Boneh, Yuval Ishai, Alain Passelègue, Amit Sahai, and David J. Wu. Exploring
+            crypto dark matter: New simple PRF candidates and their applications. In Amos
+
+
+                                               38
+            Beimel and Stefan Dziembowski, editors, TCC 2018, Part II, volume 11240 of LNCS,
+            pages 699–729. Springer, Cham, November 2018.
+
+[BKM+ 21]   Andrea Basso, Péter Kutas, Simon-Philipp Merz, Christophe Petit, and Antonio Sanso.
+            Cryptanalysis of an oblivious PRF from supersingular isogenies. In Mehdi Tibouchi
+            and Huaxiong Wang, editors, ASIACRYPT 2021, Part I, volume 13090 of LNCS, pages
+            160–184. Springer, Cham, December 2021.
+
+[BKW20]     Dan Boneh, Dmitry Kogan, and Katharine Woo. Oblivious pseudorandom functions
+            from isogenies. In Shiho Moriai and Huaxiong Wang, editors, ASIACRYPT 2020,
+            Part II, volume 12492 of LNCS, pages 520–550. Springer, Cham, December 2020.
+
+[BMM22]     Saikrishna Badrinarayanan, Daniel Masny, and Pratyay Mukherjee. Efficient and tight
+            oblivious transfer from PKE with tight multi-user security. In Giuseppe Ateniese and
+            Daniele Venturi, editors, ACNS 22International Conference on Applied Cryptography
+            and Network Security, volume 13269 of LNCS, pages 626–642. Springer, Cham, June
+            2022.
+
+[Can01]     Ran Canetti. Universally composable security: A new paradigm for cryptographic
+            protocols. In 42nd FOCS, pages 136–145. IEEE Computer Society Press, October 2001.
+
+[CHL22]     Sílvia Casacuberta, Julia Hesse, and Anja Lehmann. SoK: Oblivious pseudorandom
+            functions. In 2022 IEEE European Symposium on Security and Privacy, pages 625–646.
+            IEEE Computer Society Press, June 2022.
+
+[CM20]      Melissa Chase and Peihan Miao. Private set intersection in the internet setting from
+            lightweight oblivious PRF. In Daniele Micciancio and Thomas Ristenpart, editors,
+            CRYPTO 2020, Part III, volume 12172 of LNCS, pages 34–63. Springer, Cham, August
+            2020.
+
+[CW24a]     Henry Corrigan-Gibbs and David J. Wu. Legendre sequences are pseudorandom under
+            the quadratic-residuosity assumption. Cryptology ePrint Archive, Report 2024/1252,
+            2024.
+
+[CW24b]     Henry Corrigan-Gibbs and David J. Wu. The one-wayness of jacobi signatures. In
+            Leonid Reyzin and Douglas Stebila, editors, CRYPTO 2024, Part V, volume 14924 of
+            LNCS, pages 3–13. Springer, Cham, August 2024.
+
+[Dam90]     Ivan Damgård. On the randomness of Legendre and Jacobi sequences. In Shafi
+            Goldwasser, editor, CRYPTO’88, volume 403 of LNCS, pages 163–172. Springer, New
+            York, August 1990.
+
+[Dav31]     Harold Davenport. On the distribution of quadratic residues (mod p). Journal of the
+            London Mathematical Society, 1(1):49–54, 1931.
+
+[DCZ+ 24]   Shen Dong, Hongrui Cui, Kaiyi Zhang, Kang Yang, and Yu Yu. A simple post-quantum
+            oblivious transfer protocol from mod-LWR. Cryptology ePrint Archive, Paper 2024/1116,
+            2024.
+
+
+
+                                              39
+[DE52]      Harold Davenport and Paul Erdös. The distribution of quadratic and higher residues.
+            Publ. Math. Debrecen, 2(3–4):252–65, 1952.
+
+[DGH+ 21]   Itai Dinur, Steven Goldfeder, Tzipora Halevi, Yuval Ishai, Mahimna Kelkar, Vivek
+            Sharma, and Greg Zaverucha. MPC-friendly symmetric cryptography from alternating
+            moduli: Candidates, protocols, and applications. In Tal Malkin and Chris Peikert,
+            editors, CRYPTO 2021, Part IV, volume 12828 of LNCS, pages 517–547, Virtual Event,
+            August 2021. Springer, Cham.
+
+[DGS+ 18]   Alex Davidson, Ian Goldberg, Nick Sullivan, George Tankersley, and Filippo Valsorda.
+            Privacy pass: Bypassing internet challenges anonymously. PoPETs, 2018(3):164–180,
+            July 2018.
+
+[DHS98]     Cunsheng Ding, Tor Hesseseth, and Weijuan Shan. On the linear complexity of legendre
+            sequences. IEEE Transactions on Information Theory, 44(3):1276–1278, 1998.
+
+[DIO21]     Samuel Dittmer, Yuval Ishai, and Rafail Ostrovsky. Line-point zero knowledge and its
+            applications. In 2nd Conference on Information-Theoretic Cryptography, 2021.
+
+[DY05]      Yevgeniy Dodis and Aleksandr Yampolskiy. A verifiable random function with short
+            proofs and keys. In Serge Vaudenay, editor, PKC 2005, volume 3386 of LNCS, pages
+            416–431. Springer, Berlin, Heidelberg, January 2005.
+
+[ESTX24]    Muhammed F. Esgin, Ron Steinfeld, Erkan Tairi, and Jie Xu. LeOPaRd: Towards
+            practical post-quantum oblivious PRFs via interactive lattice problems. Cryptology
+            ePrint Archive, Paper 2024/1615, 2024.
+
+[FIPR05]    Michael J. Freedman, Yuval Ishai, Benny Pinkas, and Omer Reingold. Keyword search
+            and oblivious pseudorandom functions. In Joe Kilian, editor, TCC 2005, volume 3378
+            of LNCS, pages 303–324. Springer, Berlin, Heidelberg, February 2005.
+
+[FKN94]     Uriel Feige, Joe Kilian, and Moni Naor. A minimal model for secure computation
+            (extended abstract). In 26th ACM STOC, pages 554–563. ACM Press, May 1994.
+
+[FOO23]     Sebastian H. Faller, Astrid Ottenhues, and Johannes Ottenhues. Composable oblivious
+            pseudo-random functions via garbled circuits. In Abdelrahaman Aly and Mehdi Tibouchi,
+            editors, LATINCRYPT 2023, volume 14168 of LNCS, pages 249–270. Springer, Cham,
+            October 2023.
+
+[FS87]      Amos Fiat and Adi Shamir. How to prove yourself: Practical solutions to identification
+            and signature problems. In Andrew M. Odlyzko, editor, CRYPTO’86, volume 263 of
+            LNCS, pages 186–194. Springer, Berlin, Heidelberg, August 1987.
+
+[FS21]      Paul Frixons and André Schrottenloher. Quantum security of the legendre PRF.
+            Cryptology ePrint Archive, Report 2021/149, 2021.
+
+[GGM86]     Oded Goldreich, Shafi Goldwasser, and Silvio Micali. How to construct random functions.
+            Journal of the ACM, 33(4):792–807, October 1986.
+
+
+
+
+                                               40
+[GLRS16]    Markus Grassl, Brandon Langenberg, Martin Roetteler, and Rainer Steinwandt. Apply-
+            ing grover’s algorithm to aes: quantum resource estimates. In International Workshop
+            on Post-Quantum Cryptography, pages 29–43. Springer, 2016.
+
+[GMR85]     Shafi Goldwasser, Silvio Micali, and Charles Rackoff. The knowledge complexity of
+            interactive proof-systems (extended abstract). In 17th ACM STOC, pages 291–304.
+            ACM Press, May 1985.
+
+[GMS14]     Katalin Gyarmati, Christian Mauduit, and András Sárközy. The cross-correlation
+            measure for families of binary sequences. In Gerhard Larcher, Friedrich Pillichshammer,
+            Arne Winterhof, and Chaoping Xing, editors, Applied Algebra and Number Theory,
+            number Theory, pages 126–143. Cambridge University Press, 2014.
+
+[Gro96]     Lov K. Grover. A fast quantum mechanical algorithm for database search. In 28th
+            ACM STOC, pages 212–219. ACM Press, May 1996.
+
+[GRR+ 16]   Lorenzo Grassi, Christian Rechberger, Dragos Rotaru, Peter Scholl, and Nigel P. Smart.
+            MPC-friendly symmetric key primitives. In Edgar R. Weippl, Stefan Katzenbeisser,
+            Christopher Kruegel, Andrew C. Myers, and Shai Halevi, editors, ACM CCS 2016,
+            pages 430–443. ACM Press, October 2016.
+
+[Gt20]      Torbjörn Granlund and the GMP development team. GNU MP: The GNU Multiple
+            Precision Arithmetic Library, 6.2.1 edition, 2020. https://gmplib.org.
+
+[HHK+ 24]   Carmit Hazay, David Heath, Vladimir Kolesnikov, Muthuramakrishnan Venkitasubra-
+            maniam, and Yibin Yang. LogRobin++: Optimizing proofs of disjunctive statements
+            in VOLE-based ZK. Cryptology ePrint Archive, Paper 2024/1427, 2024.
+
+[HHM+ 24]   Lena Heimberger, Tobias Hennerbichler, Fredrik Meisingseth, Sebastian Ramacher, and
+            Christian Rechberger. OPRFs from isogenies: Designs and analysis. In Jianying Zhou,
+            Tony Q. S. Quek, Debin Gao, and Alvaro A. Cárdenas, editors, ASIACCS 24. ACM
+            Press, July 2024.
+
+[HKL+ 25]   Lena Heimberger, Daniel Kales, Riccardo Lolato, Omid Mir, Sebastian Ramacher, and
+            Christian Rechberger. Leap: A fast, lattice-based OPRF with application to private set
+            intersection. Cryptology ePrint Archive, Paper 2025/333, 2025.
+
+[HY24]      Carmit Hazay and Yibin Yang. Toward malicious constant-rate 2PC via arithmetic
+            garbling. In Marc Joye and Gregor Leander, editors, EUROCRYPT 2024, Part V,
+            volume 14655 of LNCS, pages 401–431. Springer, Cham, May 2024.
+
+[JKK14]     Stanislaw Jarecki, Aggelos Kiayias, and Hugo Krawczyk. Round-optimal password-
+            protected secret sharing and T-PAKE in the password-only model. In Palash Sarkar
+            and Tetsu Iwata, editors, ASIACRYPT 2014, Part II, volume 8874 of LNCS, pages
+            233–253. Springer, Berlin, Heidelberg, December 2014.
+
+[JKKX16]    Stanislaw Jarecki, Aggelos Kiayias, Hugo Krawczyk, and Jiayu Xu. Highly-efficient and
+            composable password-protected secret sharing (or: How to protect your bitcoin wallet
+            online). In 2016 IEEE European Symposium on Security and Privacy, pages 276–291.
+            IEEE Computer Society Press, March 2016.
+
+                                               41
+[JKR19]    Stanislaw Jarecki, Hugo Krawczyk, and Jason K. Resch. Updatable oblivious key
+           management for storage systems. In Lorenzo Cavallaro, Johannes Kinder, XiaoFeng
+           Wang, and Jonathan Katz, editors, ACM CCS 2019, pages 379–393. ACM Press,
+           November 2019.
+[JKX18]    Stanislaw Jarecki, Hugo Krawczyk, and Jiayu Xu. OPAQUE: An asymmetric PAKE
+           protocol secure against pre-computation attacks. In Jesper Buus Nielsen and Vincent
+           Rijmen, editors, EUROCRYPT 2018, Part III, volume 10822 of LNCS, pages 456–486.
+           Springer, Cham, April / May 2018.
+[KCM24]    Novak Kaluderovic, Nan Cheng, and Katerina Mitrokotsa. A post-quantum distributed
+           OPRF from the legendre PRF. Cryptology ePrint Archive, Report 2024/544, 2024.
+[Kho19]    Dmitry Khovratovich. Key recovery attacks on the Legendre PRFs within the birthday
+           bound. Cryptology ePrint Archive, Report 2019/862, 2019.
+[KKK20a]   Novak Kaluđerović, Thorsten Kleinjung, and Dušan Kostić. Cryptanalysis of the
+           generalised legendre pseudorandom function. Open Book Series, 4(1):267–282, 2020.
+[KKK20b]   Novak Kaluđerović, Thorsten Kleinjung, and Dusan Kostic. Improved key recovery on
+           the legendre PRF. Cryptology ePrint Archive, Report 2020/098, 2020.
+[KKRT16]   Vladimir Kolesnikov, Ranjit Kumaresan, Mike Rosulek, and Ni Trieu. Efficient batched
+           oblivious PRF with applications to private set intersection. In Edgar R. Weippl, Stefan
+           Katzenbeisser, Christopher Kruegel, Andrew C. Myers, and Shai Halevi, editors, ACM
+           CCS 2016, pages 818–829. ACM Press, October 2016.
+[KLOR20]   Ben Kreuter, Tancrède Lepoint, Michele Orrù, and Mariana Raykova. Anonymous
+           tokens with private metadata bit. In Daniele Micciancio and Thomas Ristenpart, editors,
+           CRYPTO 2020, Part I, volume 12170 of LNCS, pages 308–336. Springer, Cham, August
+           2020.
+[LWYY24]   Hanlin Liu, Xiao Wang, Kang Yang, and Yu Yu. The hardness of LPN over any
+           integer ring and field for PCG applications. In Marc Joye and Gregor Leander, editors,
+           EUROCRYPT 2024, Part VI, volume 14656 of LNCS, pages 149–179. Springer, Cham,
+           May 2024.
+[MM22]     Luciano Maino and Chloe Martindale. An attack on SIDH with arbitrary starting curve.
+           Cryptology ePrint Archive, Report 2022/1026, 2022.
+[MR19]     Daniel Masny and Peter Rindal. Endemic oblivious transfer. In Lorenzo Cavallaro,
+           Johannes Kinder, XiaoFeng Wang, and Jonathan Katz, editors, ACM CCS 2019, pages
+           309–326. ACM Press, November 2019.
+[MS97]     Christian Mauduit and András Sárközy. On finite pseudorandom binary sequences i:
+           Measure of pseudorandomness, the legendre symbol. Acta Arithmetica, 82(4):365–377,
+           1997.
+[MZ22]     Alexander May and Floyd Zweydinger. Legendre PRF (multiple) key attacks and the
+           power of preprocessing. In CSF 2022 Computer Security Foundations Symposium, pages
+           428–438. IEEE Computer Society Press, August 2022.
+
+                                              42
+[NNOB12]    Jesper Buus Nielsen, Peter Sebastian Nordholt, Claudio Orlandi, and Sai Sheshank
+            Burra. A new approach to practical active-secure two-party computation. In Reihaneh
+            Safavi-Naini and Ran Canetti, editors, CRYPTO 2012, volume 7417 of LNCS, pages
+            681–700. Springer, Berlin, Heidelberg, August 2012.
+
+[NR97]      Moni Naor and Omer Reingold. Number-theoretic constructions of efficient pseudo-
+            random functions. In 38th FOCS, pages 458–467. IEEE Computer Society Press,
+            October 1997.
+
+[Per92]     Rene Peralta. On the distribution of quadratic residues and nonresidues modulo a
+            prime number. Mathematics of Computation, 58(197):433–440, 1992.
+
+[PH78]      Stephen Pohlig and Martin Hellman. An improved algorithm for computing loga-
+            rithms over gf (p) and its cryptographic significance (corresp.). IEEE Transactions on
+            information Theory, 24(1):106–110, 1978.
+
+[Rab81]     Michael O Rabin. How to exchange secrets with oblivious transfer. Technical Report
+            TR-81, 1981.
+
+[Roy22]     Lawrence Roy. SoftSpokenOT: Quieter OT extension from small-field silent VOLE in the
+            minicrypt model. In Yevgeniy Dodis and Thomas Shrimpton, editors, CRYPTO 2022,
+            Part I, volume 13507 of LNCS, pages 657–687. Springer, Cham, August 2022.
+
+[RR]        Peter Rindal and Lance Roy. libOTe: an efficient, portable, and easy to use Oblivious
+            Transfer Library. https://github.com/osu-crypto/libOTe.
+
+[RS04]      Alexander Russell and Igor E Shparlinski. Classical and quantum function reconstruction
+            via character evaluation. Journal of Complexity, 20(2-3):404–422, 2004.
+
+[Sch80]     Jacob T Schwartz. Fast probabilistic algorithms for verification of polynomial identities.
+            Journal of the ACM (JACM), 27(4):701–717, 1980.
+
+[SHB23]     István András Seres, Máté Horváth, and Péter Burcsi. The legendre pseudorandom
+            function as a multivariate quadratic cryptosystem: security and applications. Applicable
+            Algebra in Engineering, Communication and Computing, pages 1–31, 2023.
+
+[Sho94]     Peter W. Shor. Algorithms for quantum computation: Discrete logarithms and factoring.
+            In 35th FOCS, pages 124–134. IEEE Computer Society Press, November 1994.
+
+[Sho99]     Peter W Shor. Polynomial-time algorithms for prime factorization and discrete loga-
+            rithms on a quantum computer. SIAM review, 41(2):303–332, 1999.
+
+[SKR+ 24]   Yunqing Sun, Jonathan Katz, Mariana Raykova, Phillipp Schoppmann, and Xiao Wang.
+            Actively secure private set intersection in the client-server setting. In Bo Luo, Xiaojing
+            Liao, Jun Xu, Engin Kirda, and David Lie, editors, ACM CCS 2024, pages 1478–1492.
+            ACM Press, October 2024.
+
+[Tót07]     Viktória Tóth. Collision and avalanche effect in families of pseudorandom binary
+            sequences. Periodica Mathematica Hungarica, 55:185–196, 2007.
+
+
+
+                                                43
+[vDH00]     Wim van Dam and Sean Hallgren. Efficient quantum algorithms for shifted quadratic
+            character problems. arXiv preprint quant-ph/0011067, 2000.
+
+[WMK16]     Xiao Wang, Alex J. Malozemoff, and Jonathan Katz. EMP-toolkit: Efficient MultiParty
+            computation toolkit. https://github.com/emp-toolkit, 2016.
+
+[WYKW21] Chenkai Weng, Kang Yang, Jonathan Katz, and Xiao Wang. Wolverine: Fast, scalable,
+         and communication-efficient zero-knowledge proofs for boolean and arithmetic circuits.
+         In 2021 IEEE Symposium on Security and Privacy, pages 1074–1091. IEEE Computer
+         Society Press, May 2021.
+
+[Yao86]     Andrew Chi-Chih Yao. How to generate and exchange secrets (extended abstract). In
+            27th FOCS, pages 162–167. IEEE Computer Society Press, October 1986.
+
+[YSWW21] Kang Yang, Pratik Sarkar, Chenkai Weng, and Xiao Wang. QuickSilver: Efficient
+         and affordable zero-knowledge proofs for circuits and polynomials over any field. In
+         Giovanni Vigna and Elaine Shi, editors, ACM CCS 2021, pages 2986–3001. ACM Press,
+         November 2021.
+
+[YZ21]      Takashi Yamakawa and Mark Zhandry. Classical vs quantum random oracles. In Anne
+            Canteaut and François-Xavier Standaert, editors, EUROCRYPT 2021, Part II, volume
+            12697 of LNCS, pages 568–597. Springer, Cham, October 2021.
+
+[Zal99]     Christof Zalka. Grover’s quantum searching algorithm is optimal. Physical Review A,
+            60(4):2746, 1999.
+
+[Zip79]     Richard Zippel. Probabilistic algorithms for sparse polynomials. In International
+            symposium on symbolic and algebraic manipulation, pages 216–226. Springer, 1979.
+
+
+
+
+                                              44
+

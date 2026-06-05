@@ -1,0 +1,2665 @@
+     Is PSI Really Faster Than PSU? Achieving
+     Efficient PSU with Invertible Bloom Filters
+
+                         Lucas Piske1     and Ni Trieu1
+
+               Arizona State University [lpiske,nitrieu]@asu.edu
+
+
+
+      Abstract. Private Set Union (PSU) enables two parties to compute
+      the union of their private sets without revealing anything beyond the
+      union itself. Existing PSU protocols remain much slower than private
+      set intersection (PSI), often by a factor of around 30×.
+      In this work, we present the first PSU protocol based on Invertible Bloom
+      Lookup Tables (IBLTs), introducing a fundamentally new framework
+      that departs from traditional, inefficient approaches. Our protocol ex-
+      ploits structural invariants between each party’s IBLTs and their union to
+      compute the union efficiently without explicitly constructing a combined
+      IBLT. Central to our approach is the notion of union peelability, which
+      allows union elements to be recovered directly from the original IBLTs.
+      We securely implement this functionality using only Oblivious Trans-
+      fer (OT) and Oblivious Pseudorandom Function (OPRF) for equality
+      checks, ensuring no information beyond the union is leaked.
+      As a result, for set sizes ranging from 214 to 220 , our protocol achieves
+      a runtime of 0.08 to 2.95 seconds in the LAN setting, which is compara-
+      ble to state-of-the-art PSI. We also show substantial speedups over prior
+      PSU work—up to 10× faster in LAN settings and consistently faster in
+      WAN scenarios—while maintaining linear computation and communica-
+      tion complexity with small constants.
+
+
+1   Introduction
+Private set union (PSU) is a fundamental cryptographic protocol that enables
+two parties to compute the union of their private sets while revealing nothing be-
+yond the union itself – hiding the intersection and revealing only the union. PSU
+has diverse applications, including privacy-preserving identity management [5],
+collaborative cyber risk assessment through shared blacklists or vulnerability
+data [12], and private database joins across multiple sources [16]. It also sup-
+ports association rule learning [15] and joint graph computations [4], enabling
+parties to combine information without revealing sensitive inputs.
+    There has recently been a substantial effort toward building an efficient and
+secure PSU. [16] introduced a practical oblivious transfer (OT)-based PSU
+framework secure against semi-honest adversaries, which has since inspired sev-
+eral follow-up optimizations [1, 9, 13, 14, 28, 29]. These works have significantly
+improved the efficiency of PSU in practice, pushing the state of the art forward.
+Nevertheless, a notable performance gap remains. Even the most recent PSU
+protocols require roughly 30 − 101 seconds in the LAN setting to handle sets
+of size 220 [6, 13, 28], which stands in stark contrast to private set intersection
+(PSI), where protocols now run in under one second at the same scale.
+    To pinpoint the source of this inefficiency, we revisit the popular PSU protocol
+proposed in the PI’s work [16], which has become the mainstream approach in
+subsequent PSU research [1,9,13,14,28,29]. The protocol consists of two phases:
+– Reverse Private Membership Test (r-PMT): The receiver learns a bit b indi-
+   cating the membership of each sender’s element x in their own set Y . A key
+   property of using r-PMT is that it hides the actual intersection: the receiver
+   cannot determine which x yields b = 1 and which yields b = 0.
+– Oblivious Transfer (OT): For each sender element, the sender inputs x, ⊥,
+   where ⊥ is a predefined placeholder. The receiver uses the previously com-
+   puted bit b as the choice bit in the OT protocol. Consequently, the receiver
+   learns x if b = 0 (i.e., the element is not in their set), or ⊥ if b = 1.
+    The above step1 is repeated for each x in the sender’s set X. By combining
+obtained results from OTs, the receiver learns the set difference X \Y and locally
+computes the union as X ∪ (X \ Y ).
+    The main performance bottleneck in the above protocol is the r-PMT step,
+which requires generic MPC to perform an equality check for each item in the
+sender’s set. This makes PSU significantly less efficient than PSI, where such
+checks can be done without MPC since intersection items are revealed anyway.
+As a result, there is a substantial performance gap between PSU and both PSI
+and insecure union protocols.
+    This work eliminates the need for this costly comparison step. We propose a
+new direction that does not follow the traditional OT-based framework of [16].
+Our approach leverages the Invertible Bloom Lookup Table (IBLT) [11], a variant
+of the traditional Bloom filter [2]. While the IBLT supports all the standard
+Bloom filter operations, it also introduces new capabilities, most notably the
+List operation, which enables the enumeration of all inserted items.
+    When applying IBLT to PSU, a natural concern is the potentially large ex-
+pansion factor of the IBLT compared to the original set size. Surprisingly, our
+experiments (see Section 7) – guided by the theoretical analysis in [11] – show
+that the expansion factor is actually quite small (ranging from 1.5 to 4.5) to
+achieve a negligible false positive rate. This is in contrast to Bloom filter, which
+requires an expansion factor of about 60 to reach a similar level of accuracy.
+Moreover, we introduce an efficient way to perform the List operation on the
+private union using a single VOLE-based OPRF instance, which is significantly
+faster than computing the r-PMT inside MPC. Together, these techniques make
+IBLT-based PSU a practical and efficient solution. In summary, our contribu-
+tions are:
+
+ – We introduce the first PSU protocol based on IBLTs. Unlike prior construc-
+   tions that rely on heavy cryptographic primitives, our protocol requires only
+1
+    Existing protocols use hash-to-bin or oblivious shuffle techniques to improve perfor-
+    mance.
+
+
+                                            2
+   OT and a single VOLE-based OPRF instance, achieving linear communica-
+   tion and computation with small constants. The novelty lies in leveraging
+   structural invariants between two IBLTs, IBLT0 and IBLT1 , and their union
+   IBLT∪ , enabling an efficient and lightweight design. To our knowledge, this
+   is the first use of IBLTs in the context of private set operations.
+ – We take the first step toward understanding how to peel the union of two
+   IBLTs without explicitly constructing the merged table. We identify five
+   key structural properties that define the relationship between (IBLT0 , IBLT1 )
+   and their union IBLT∪ . Building on these properties, we design the uPeel
+   function and its privacy-preserving variant, which enables peeling elements
+   of IBLT∪ directly from IBLT0 and IBLT1 . This abstraction is central to our
+   PSU protocol, allowing for the efficient recovery of the union set without
+   materializing IBLT∪ , and we believe it may also have broader applications in
+   secure set operations that require the efficient combination of private sets.
+ – We provide the first experimental results for IBLT parameters that achieve a
+   negligible failure probability. The original IBLT work [11] presents a theorem
+   giving an asymptotic formula for the likelihood of the List operation succeed-
+   ing, based on the tunable parameters used to instantiate the data structure.
+   However, this theorem only provides an asymptotic estimate, which may
+   differ from the actual success probability in practice. To the best of our
+   knowledge, no efficiently computable function has been proven to give a tight
+   bound on this probability. Following the approach of prior PSI works [19,20],
+   which rely on empirical experiments to estimate the success probability of
+   encoding a Cuckoo Hash Table, we conduct an extensive set of experiments
+   to evaluate the success probability of the List operation across a wide range
+   of IBLT parameter settings. We present these results in this work, providing
+   practical guidance for parameter selection and offering insights that may be
+   useful for any future work requiring a reliable listing of elements encoded in
+   an IBLT.
+ – We implement our proposed protocol and compare its performance against
+   the most efficient state-of-the-art PSU protocols [13, 28, 29] across multiple
+   network settings and varying input set sizes. In the LAN setting, we observe
+   runtime improvements from 10× to 15×, approaching the performance of the
+   state-of-the-art PSI [1, 23], which requires roughly a few seconds for input
+   set sizes of 220 under the same network setting. In the WAN setting with
+   200 Mbps bandwidth, improvements range from 2.32× to 4.86×, and for 50
+   Mbps WAN, gains range from 1.54× to 2.07×.
+
+Enhanced PSU Functionality. Recent work [13] introduces an “enhanced” PSU
+functionality, designed to prevent leakage in protocols that rely on hash-to-bin
+techniques for batched r-PMT and are vulnerable to “during-execution leakage.”
+Our scheme, however, does not rely on r-PMT or hash-to-bin and therefore does
+not require this new functionality. Additionally, the notion of “during-execution
+leakage” refers to scenarios where an adversary gains extra information (e.g.,
+the union size) before protocol completion, typically if a party aborts mid-
+computation. This concern is specific to the malicious setting. Since our work
+
+
+                                        3
+focuses on the semi-honest model, such leakage does not apply. We note that in
+our protocol, the receiver may learn union items incrementally, but in the semi-
+honest setting, this does not count as “during-execution leakage.” In Appendix C,
+we further discuss the enhanced PSU functionality and related work.
+
+
+1.1   Technical Overview of Our Approach
+
+Unlike Bloom filters, where duplicates can be easily handled by computing the
+secure bitwise OR across multiple filters (each representing a party’s set), IBLTs
+require a more careful treatment to manage duplicate insertions. To address
+this, we first describe how to peel items from an IBLT, which serves as the
+foundation for handling duplicates. We then show how to implement this in a
+privacy-preserving manner
+
+Peeling The Union Of Two IBLTs. Our method for computing the union
+of two sets using IBLTs builds on a detailed analysis of the structural prop-
+erties of the original IBLTs and their union. Specifically, we consider three
+IBLTs—IBLT0 , IBLT1 , and IBLT∪ —all constructed using the same parameters
+prm = (M, k, ℓ, H), where M is the number of bins, k is the number of hash
+functions, ℓ is the size of each bin, and H is the set of hash functions. The IBLT
+IBLT∪ encodes the union of the elements stored in IBLT0 and IBLT1 .
+    We first observe that the peelability of a bin in IBLT∪ can be determined
+solely from the counts and sums in the corresponding bins of IBLT0 and IBLT1 .
+We identify five exhaustive cases that describe all possible relationships between
+the counts in the two original IBLTs and their effect on the union IBLT:
+
+ 1. A bin contains a single element in one IBLT and is empty in the other,
+    making it trivially peelable in the union.
+ 2. A bin contains exactly one element in each IBLT, but the elements are
+    distinct, resulting in multiple elements in the union bin (not peelable).
+ 3. A bin contains exactly one element in each IBLT, and the elements are
+    identical, resulting in a peelable bin with that element preserved.
+ 4. At least one of the original IBLTs has multiple elements in the bin, which
+    guarantees multiple elements in the union bin (not peelable).
+ 5. Both original bins are empty, leaving the union bin empty as well (not pee-
+    lable).
+
+     Using these properties, we introduce the function uPeel: given a bin index
+(i, j) and the two original IBLTs (IBLT0 , IBLT1 ), uPeel outputs the element stored
+in the corresponding union bin if it is peelable; otherwise, it returns ⊥. We
+then formalize the notion of union peelability, which captures the property that
+a union IBLT can be fully or partially peeled using only the original IBLTs.
+Our theorem 2 shows that, for union peelable triples, performing the standard
+Peel operation of the original IBLT on IBLT∪ is equivalent to applying uPeel to
+(IBLT0 , IBLT1 ).
+
+                                         4
+The Secure Union-Peel Approach. We extend the uPeel function to a privacy-
+preserving setting by defining the FUnionPeel functionality, which outputs only the
+result of uPeel and nothing else. Each party provides its own IBLTs along with
+the bin index (i, j). We then securely implement FUnionPeel , allowing both parties
+to recover the elements of the union directly from their respective IBLTs without
+explicitly constructing the union IBLT. The main challenge is ensuring that the
+peeling process reveals no information beyond the union set itself, particularly
+when bins contain different combinations of counts and sums.
+    To address this, we consider the five cases described above to determine the
+peelability of a bin. Some cases are straightforward—for example, when one table
+contains a single element and the other is empty, the element can be immediately
+recovered. Different cases require additional computation, such as secure equality
+testing, where both tables contain exactly one element and peeling succeeds only
+if the two elements are identical. In all remaining cases, the bin is deemed non-
+peelable and contributes no recoverable element.
+    To securely implement these cases, we leverage efficient cryptographic build-
+ing blocks: OT and an OPRF. The OT allows a party to obtain the correct
+candidate value for a union bin without revealing which case applies, whereas
+the OPRF is used to privately test equality when both tables contain one el-
+ement. By carefully merging these tools into a single construction, we prevent
+any leakage about the underlying counts or non-union elements. For the special
+case where one table must provide its element to enable correct union peeling,
+we include an auxiliary OT to ensure that the element is revealed only when
+required and nothing more.
+    Finally, both parties obtain the union items by running this process in parallel
+across all bins. The concept of union peelability, which we formalize in this work,
+guarantees that for union-peelable triples (IBLT0 , IBLT1 , IBLT∪ ), our UnionPeel
+procedure produces the same results as applying the standard peeling algorithm
+to IBLT∪ . This ensures correctness while maintaining efficiency and privacy.
+
+2    Preliminaries
+In this work, κ and λ denote the computational and statistical security param-
+eters, and x||y denotes the concatenation of bit strings x and y. We use [, ·, ]
+notation for sets: [m] = {1, . . . , m}, [i, j] = {i, . . . , j}, and [a] × [b] = {(i, j) | i ∈
+[a], j ∈ [b]}.
+
+Oblivious Transfer (OT). An OT [22] is a fundamental cryptographic primi-
+tive in which a sender holds two messages (m0 , m1 ) and a receiver holds a choice
+bit c. The receiver learns mc without gaining any information about m1−c , while
+the sender learns nothing about c. In this work, we use the 1-out-of-N OT vari-
+ant [3], which generalizes 1-out-of-2 OT to a sender input vector (m0 , . . . , mN −1 )
+of length N ≥ 2. Additionally, we formalize the OT functionality such that each
+sender message can be from different domains. For example, the first message in
+the vector can have as its domain D0 = {0, 1}∗ as its domain, while the second
+has as its domain D1 = ZM .
+
+                                              5
+    This minor property is necessary for one of our protocols, but note that we
+avoid explicitly defining the domains for the sake of simplicity of our protocol
+descriptions, and that the domains should be clear from context. Since the do-
+mains for each message are public functionality parameters, we can implement
+this functionality using a regular 1-oo-N OT parameter with all bit-string mes-
+sages, choosing the bit-strings to be long enough so that they can encode all our
+domain elements. The formal definition of the 1-out-of-N OT functionality in
+question is as follows.
+
+
+
+                       1-out-of-N OT Ideal Functionality FOTN
+                                                               D
+
+ Parameters: We have two parties R and S, and the parameters N ∈ N and D =
+ (D0 , . . . , DN −1 ) is a vector of domain sets.
+ Behavior:
+  – Wait for c ∈ ZN from R and (m0 , . . . , mN −1 ) ∈ D0 × · · · × DN −1 from S.
+  – Give mc ∈ Dc to R and ⊥ to S.
+
+              Fig. 1: The 1-out-of-N OT Functionality Description.
+
+
+
+Oblivious Pseudorandom Function (OPRF). An OPRF is a two-party
+protocol where the sender S holds a secret key k for a PRF, and the receiver
+queries the function on inputs {x1 , . . . , xn }. The receiver learns only the evalu-
+ations Fk (x1 ), . . . , Fk (xn ), while S learns nothing about the receiver’s inputs. A
+formal definition of the OPRF functionality follows.
+
+
+
+                               Ideal Functionality FOPRF
+ Parameters: Two parties: sender S and receiver R, a PRF scheme F for domain
+ D, and a query bound n ∈ N.
+ Behavior:
+  – Wait for input ordered set X = {x1 , . . . , xn } ⊆ D of size n from R.
+  – Sample a key k to the PRF F and give it to S.
+  – Give (Fk (x1 ), . . . , Fk (xn )) to R.
+
+
+                   Fig. 2: The OPRF Functionality Description.
+
+
+
+Private Set Union. We present the traditional PSU functionality, which
+is realized by our protocol ΠPSU and formally defined as follows. Note that
+this functionality does not account for “during-execution leakage,” as we restrict
+our focus to the semi-honest setting; such leakage pertains to the malicious
+model [21].
+
+
+                                           6
+                              Ideal Functionality FPSU
+ Parameters: Two parties P0 and P1 ; the universe of input set elements ZM , where
+ M ∈ N≥2 ; the input set sizes n0 , n1 ∈ N.
+ Behavior:
+  – Wait for each party Pb∈{0,1} to provide an input set Xb ⊆ ZM of size nb .
+  – Output X∪ = X0 ∪ X1 to both parties.
+
+                   Fig. 3: The PSU Functionality Description.
+
+
+    We emphasize that restricting the parties’ input sets to subsets of ZM is
+primarily for simplifying the presentation of our constructions. This restriction
+can be relaxed to support more general input domains by introducing a one-
+to-one mapping from the desired domain into ZM . After obtaining the output
+from FPSU , the parties can then apply the inverse of this mapping to recover
+the result in their original domain. Provided that M is chosen sufficiently large,
+this approach naturally extends to many practical domains, such as the set of
+bitstrings {0, 1}ℓ for ℓ > 0, as commonly considered in other PSU works.
+
+
+3   A Revised Original IBLT Construction
+
+Like a Bloom filter [2], an IBLT has m bins and k hash functions H to determine
+element placement. We use the IBLT variant from [11], which partitions the bins
+into k subtables of size ℓ = m/k, with each hash function hi : U → Zℓ mapping
+only to subtable i. This ensures no two hash functions map an element to the
+same position, a property assumed in the original theorems on algorithm failure.
+Each bin in this IBLT has two fields: a count field cnt storing a non-negative
+integer, and a sum field sum holding an element in ZM . These fields facilitate
+the insertion process. Unlike the original IBLT, we omit additional key-value
+fields, as they are unnecessary for our construction. For simplicity, we represent
+the IBLT using two k × ℓ matrices, sum and cnt, rather than m separate bins.
+Each row i corresponds to the subtable associated with hash function hi , and
+all entries are initially set to zero.
+    To insert an element x into an IBLT, each hash function hi ∈ H maps x to
+a position j in its corresponding subtable, forming pairs (i, j) ∈ [k] × [ℓ]. The
+element x is then added to sumi,j modulo M , and cnti,j is incremented by one,
+tracking the number of elements in that position. Unlike the original XOR-based
+scheme [11], using modular addition simplifies presentation without affecting
+functionality. In this work, we assume IBLTs are instantiated and populated in
+a single step. To formalize this, we define an Encode function (Algorithm 1) that
+initializes the IBLT and inserts all elements of a given set X at once. The IBLT
+parameters, such as k and ℓ, are provided as inputs; their selection is detailed in
+Section 7.
+
+
+                                         7
+ Algorithm 1: Encodeprm (X)
+   Input: M ∈ N≥2 , ℓ, k ∈ N, X ⊆ U, and H = {hi : U → Zℓ }i∈[k]
+   , where prm = (M, k, ℓ, H).
+   Set all components of sum ∈ Zk×ℓ  M , cnt ∈ Z
+                                                 k×ℓ
+                                                     as zero.
+   Set Q ← {(x, i, hi (x)) | i ∈ [k] ∧ x ∈ X}.
+   Set sumi,j ← sumi,j + x (mod M ) for every (x, i, j) ∈ Q.
+   Set cnti,j ← cnti,j + 1 for every (x, i, j) ∈ Q.
+   Output IBLT = (sum, cnt, M, k, ℓ, H).
+
+   Deleting an element x from an IBLT mirrors insertion, except x is subtracted
+from sumi,j and cnti,j is decremented. To handle multiple deletions, we define
+the DeleteSet algorithm (Algorithm 2), which applies this procedure to each
+element in the input set X.
+
+
+
+ Algorithm 2: DeleteSet(IBLT, X)
+  Input: IBLT = (sum, cnt, M, k, ℓ, H = {hi : U → [ℓ]}i∈[k] ) and X ⊆ U
+  Set Q ← {(x, i, hi (x)) | i ∈ [k] ∧ x ∈ X}.
+  Set sumi,j ← sumi,j − x (mod M ) for every (x, i, j) ∈ Q.
+  Set cnti,j ← cnti,j − 1 for every (x, i, j) ∈ Q.
+  Output IBLT′ = (sum, cnt, M, k, ℓ, H).
+
+
+
+     The final operation is the listing procedure. Iteratively, it searches for a pee-
+lable bin (i, j) with cnti,j = 1 and peels off sumi,j by adding it to the output
+set and deleting it from the IBLT. This process is repeated until no peelable bin
+remains—i.e., no entry cnti,j = 1 exists in the structure. For clarity and later
+use, we formally define the Peel function in Definition 1 and present a detailed
+listing algorithm as Algorithm 3.
+
+
+
+
+Definition 1. Let prm = (M, k, ℓ, H) where k, ℓ ∈ N, M ∈ N≥2 and H =
+{hi : U → [ℓ]}i∈[k] be a family of hash functions. Let IBLT ← Encodeprm (X),
+where X ⊆ U. Let i ∈ [k] and j ∈ [ℓ]. We define the Peel function in the
+following way:
+
+
+                                        (
+                                         sumi,j    if cnti,j = 1
+                     Peel(IBLT, i, j) =
+                                         ⊥,        otherwise
+
+                                          8
+    Algorithm 3: List(IBLT)
+     Input: IBLT = (sum, cnt, M, k, ℓ, H)
+     Set t ← 0.
+     Set IBLT(0) ← (sum, cnt, M, k, ℓ, H).
+     Set Q(0) ← {(i, j) | i ∈ [k] ∧ j ∈ [ℓ]}.
+     while Q(t) ̸= ∅ do
+        Parse IBLT(t) as (sum(t) , cnt(t) , M, k, ℓ, H).
+        Set V (t) ← { Peel(sum, cnt, i, j) | (i, j) ∈ Q(t) } \ ⊥.
+        Execute IBLT(t+1) ← DeleteSet(IBLT(t) , V (t) ).
+        Set Q(t+1) ← { (i, hi (v)) | i ∈ [k] ∧ v ∈ V (t) }.
+        Increment t by 1.
+     end
+     Output V = V (0) ∪ · · · ∪ V (t−1) .
+    Our listing procedure differs from [11] in two key ways, which were not clearly
+described in [11]. First, we examine all positions in the set Q(t) in each iteration
+to identify peelable bins and delete them together, rather than deleting immedi-
+ately upon discovery. Second, in subsequent iterations, we only check positions
+that were modified in the previous round, thereby avoiding a full IBLT scan.
+This optimization is natural and efficient, as unmodified, non-peelable positions
+remain non-peelable.
+    The IBLT data structure ensures that all encoded elements can be success-
+fully listed with high probability. In [11], the authors analyze this probability
+and formally prove the following theorem:
+
+Theorem 1. [11] Let m = k · ℓ be the bin count, τ be the threshold amount
+of elements that will be encoded as part of the IBLT, and n be the number of
+elements encoded as part of the IBLT. As long as m is chosen such that m >
+(ck + ε) · τ for some ε > 0, List fails with probability O(τ −k+2 ) whenever n ≤ t.
+Here, the values of ck are given by
+                        n                                             o
+                                                           −kαxk−1
+             c−1
+              k   = sup  α : 0 < α <  1; ∀x ∈ (0, 1), 1 − e        < x
+
+    The original work also provides lower bounds on the expansion rate in terms
+of ck for specific values of k (e.g., c4 = 1.295, c5 = 1.425), but the theorem
+gives only an asymptotic success probability for listing, not an exact formula
+for concrete parameters. In practice, the actual failure probability could differ.
+However, as shown in our experiments (Section 7), with an appropriate expansion
+rate (1.5-4.5), the failure probability becomes negligible—approximately 2−λ ,
+where λ denotes the security parameter.
+
+
+4      Peeling The Union Of Two IBLTs
+
+This section investigates the peeling relationship between individual IBLTs and
+their union in the plaintext setting. We present and formalize five properties for
+
+
+                                            9
+a group of IBLTs (IBLT0 , IBLT1 , IBLT∪ ), all defined with the same parameters
+prm = (M, k, ℓ, H), where IBLT∪ encodes the union of the elements from IBLT0
+and IBLT1 . These cases, introduced in Section 1.1, precisely characterize when
+a bin in the union IBLT is peelable and specify the corresponding sum and
+count values. For example, case (1) captures the situation where only one IBLT
+contains an item at position (i, j); in this case, the union’s count is 1, and its sum
+equals the value from that IBLT. An example illustrating all cases is provided
+in Appendix D. Formally,
+
+(1) ∃b ∈ {0, 1}, cntb,i,j = 1 ∧ cnt1−b,i,j = 0 =⇒ cnt∪,i,j = 1 ∧ sum∪,i,j = sumb,i,j
+(2) cnt0,i,j = cnt1,i,j = 1 ∧ sum0,i,j ̸= sum1,i,j =⇒ cnt∪,i,j > 1
+(3) cnt0,i,j = cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j =⇒ cnt∪,i,j = 1 ∧ sum∪,i,j = sum0,i,j
+(4) cnt0,i,j > 1 ∨ cnt1,i,j > 1 =⇒ cnt∪,i,j > 1
+(5) cnt0,i,j = cnt1,i,j = 0 =⇒ cnt∪,i,j = 0
+
+     Note that each bin belongs to exactly one of these categories, and together,
+these five cases cover all possible combinations of cnt0,i,j and cnt1,i,j . The
+structural relationships between these IBLTs are fundamental to our private
+set union protocol. Collectively, these cases allow us to determine whether a bin
+(i, j) of IBLT∪ is peelable using only (IBLT0 , IBLT1 ). Moreover, when a bin is
+peelable, they identify the element stored in (i, j) of IBLT∪ , which is the sum
+value. Building on this, we define the function uPeel in Definition 2, which takes
+(IBLT0 , IBLT1 ) and a bin index (i, j) as input and outputs the element in IBLT∪
+at the same bin if such a bin is peelable, or ⊥ otherwise.
+
+Definition 2. Let prm = (M, k, ℓ, H) where k, ℓ ∈ N, M ∈ N≥2 and H =
+{hi : U → [ℓ]}i∈[k] be a family of hash functions. Let IBLT0 ← Encodeprm (X0 )
+and IBLT1 ← Encodeprm (X1 ), where X0 , X1 ⊆ U. We define the function uPeel
+in the following way:
+                              
+                              
+                               sum0,i,j   if cnt0,i,j = 1 ∧ cnt1,i,j = 0
+                              
+                              sum
+                                   1,i,j   if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+uPeel(IBLT0 , IBLT1 , i, j) =
+                              
+                              
+                               sum0,i,j   if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j
+                                ⊥,
+                              
+                                           otherwise
+
+    Using uPeel together with Definition 1 of Peel, we formalize union peela-
+bility for the three IBLTs {IBLT0 , IBLT1 , IBLT∪ } in Definition 3.
+
+Definition 3. Let prm = (M, k, ℓ, H) where k, ℓ ∈ N, M ∈ N≥2 and H =
+{hi : U → [ℓ]}i∈[k] be a family of hash functions. Let X0 , X1 ⊆ U and define
+X∪ = X0 ∪ X1 . We say
+
+                   {IBLT0 , IBLT1 and IBLT∪ } are union peelable
+
+if the following holds:
+
+   IBLT0 ← Encodeprm (X0 ), IBLT1 ← Encodeprm (X1 ), IBLT∪ ← Encodeprm (X∪ ).
+
+
+                                              10
+   We present Theorem 2, which states that for union peelable IBLTs {IBLT0 , IBLT1 , IBLT∪ },
+the values of Peel(IBLT∪ , i, j) and uPeel(IBLT0 , IBLT1 , i, j) are the same. Thus,
+uPeel can be used to evaluate Peel(IBLT∪ , i, j), without constructing the union
+IBLT. We provide a formal proof of this theorem in Appendix E.1.
+
+Theorem 2. Let prm = (M, k, ℓ, H) where k, ℓ ∈ N, M ∈ N≥2 and H =
+{hi : U → [ℓ]}i∈[k] be a family of hash functions. If {IBLT0 , IBLT1 and IBLT∪ }
+are union peelable for IBLT parameters prm = (M, k, ℓ, H), then
+
+                       Peel(IBLT∪ , i, j) = uPeel(IBLT0 , IBLT1 , i, j)
+
+
+5      Union Peel Protocol
+5.1     Ideal Functionality
+
+                             Ideal Functionality FUnionPeel
+    Parameters:
+     – Two parties, P0 and P1 .
+     – The same public set Q ⊆ [k] × [ℓ].
+     – Let prm = (k, ℓ, M, H), where ℓ, k ∈ N and M ∈ N≥2 .
+     – Let H = {hi : ZM → [ℓ]}i∈[k] be a family of hash functions.
+    Behavior:
+     – Wait for each party Pb∈{0,1} to input an IBLT IBLTb with parameters prm.
+     – Compute vi,j ∈ (ZM ∪ ⊥) for each (i, j) ∈ Q, such that:
+
+                                  vi,j = uPeel(IBLT0 , IBLT1 , i, j)
+
+      – Output T = { (vi,j , i, j) | (i, j) ∈ Q } to both parties.
+
+
+Our PSU protocol closely follows the listing algorithm of the original IBLT.
+Therefore, in this section, we introduce a new functionality called Union Peel,
+which enables both parties to peel each union item in an oblivious and secure
+manner. This functionality, denoted as FUnionPeel , is defined as above. It specifies
+that each party Pb∈{0,1} learns the value vi,j for every (i, j) ∈ Q, where Q is a
+public parameter of the functionality, and each vi,j is computed as defined by
+uPeel in Definition 2, as detailed below.
+
+         vi,j = uPeel(IBLT0 , IBLT1 , i, j)
+                
+                
+                 sum0,i,j if cnt0,i,j = 1 ∧ cnt1,i,j = 0
+                
+                sum
+                      1,i,j if cnt0,i,j = 0 ∧ cnt1,i,j = 1                         (1)
+              =
+                
+                
+                 sum 0,i,j if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j
+                  ⊥,        otherwise
+                
+
+    At first glance, one might worry that this functionality leaks information.
+However, this is not the case in the context of our PSU protocol, which invokes
+this functionality, given that the union of the input sets is revealed at the end. To
+
+
+                                               11
+understand exactly what the values vi,j reveal about party P1−b ’s input IBLT1−b
+to party Pb , we examine the definition of uPeel under different conditions on
+Pb ’s input IBLTb . Specifically, for each (i, j) ∈ Q, we analyze what Pb learns
+about P1−b ’s input IBLT1−b in three cases based on the value of cntb,i,j : when
+cntb,i,j = 0, when cntb,i,j = 1, and when cntb,i,j > 1. We go through these
+cases in order of increasing complexity:
+
+ – Case 1: cntb,i,j > 1. This is the simplest case. According to Equation (1),
+   whenever cntb,i,j > 1, the value of vi,j is always ⊥ for every (i, j) ∈ Q,
+   regardless of the other party’s input. This means that Pb gains no information
+   about IBLT1−b from vi,j in this case.
+ – Case 2: cntb,i,j = 0. In this case, Equation (1) shows that vi,j can take
+   only two possible values: sum1−b,i,j or ⊥, where sum1−b,i,j is always a valid
+   message and therefore never ⊥. Given this characteristic, player Pb can learn
+   whether cnt1−b,i,j = 1 by checking if vi,j ̸= ⊥, if it is the case, then Pb can
+   be sure that cnt1−b,i,j = 1. Additionally, when vi,j ̸= ⊥, party Pb also learns
+   the value of sum1−b,i,j , which is an element of P1−b that is not elementof Pb .
+   Given the fact that sum1−b,i,j is an element that is not in the intersection of
+   the two parties’ input sets, the information learned by Pb does not constitute
+   leakage in the context of our PSU protocol.
+ – Case 3: cntb,i,j = 1. In this case, only three of the conditions in Equation (1)
+   are applicable, and the possible values for vi,j are limited to sumb,i,j and ⊥.
+   Since sumb,i,j is a known value to party Pb and distinct from ⊥, the only
+   information Pb learns from vi,j is whether cnt1−b,i,j > 1. Specifically, if
+   vi,j = ⊥, it indicates that cnt1−b,i,j > 1; otherwise, no new information is
+   revealed. In other words, when vi,j is not ⊥, party Pb cannot distinguish
+   between the cases where cnt1−b,i,j = 1 and cnt1−b,i,j = 0. This means that
+   Pb cannot determine whether the sum originates solely from its own input
+   IBLTb or if there is also a contribution from IBLT1−b with cnt1−b,i,j = 1.
+   This indistinguishability is essential for hiding the intersection items in our
+   PSU protocol.
+
+
+5.2   Technical Overview of the Protocol
+
+The functionality FUnionPeel specifies that both parties should receive the output
+(vi,j , i, j) for each (i, j) ∈ Q, where
+
+               vi,j = uPeel(IBLT0 , IBLT1 , i, j) for every (i, j) ∈ Q.
+
+To simplify the explanation, we will focus on computing vi,j for a single pair
+(i, j) ∈ Q. The same procedure can be executed in parallel for all other (i, j)
+pairs to realize the full functionality FUnionPeel . Throughout most of this overview,
+we focus on constructing the protocol from the perspective of party P1 , ensuring
+it correctly obtains vi,j as output. We defer the discussion of P0 ’s output until
+the end, as it is straightforward to handle in the semi-honest setting: P1 can
+simply send the result to P0 .
+
+
+                                         12
+                                          Protocol ΠUnionPeel
+Parameters:
+ – Two parties, P0 and P1 , with inputs from a universe U of possible elements.
+ – The same public set Q ⊆ [k] × [ℓ].
+ – Let IBLT be an Invertible Bloom Lookup Table with parameters (k, ℓ, M, H),
+   where ℓ, k ∈ N and M ∈ N≥2 is sufficiently large as defined in Section 7.
+ – Let H = {hi : U → [ℓ]}i∈[k] be a family of functions.
+ – An OPRF and OT functionalities described in Section 2.
+Input: Each Pb∈{0,1} provides an IBLTb with parameters prm = (k, ℓ, M, H).
+Protocol:
+
+ 1. For each (i, j) ∈ Q, run a 1-out-of-2 OT where P0 is the receiver and P1 is the
+                                                     ?
+    sender. P0 inputs the choice bit ci,j = [cnt0,i,j = 0] and P1 inputs the message
+    pair mi,j described below. As a result, P0 obtains an element fi,j ∈ (ZM ∪ ⊥).
+                                                (
+                                                  sum1,i,j , if cnt1,i,j = 1
+               mi,j,0 = ⊥    and       mi,j,1 =                                  (2)
+                                                  ⊥,         otherwise.
+
+ 2. For each (i, j) ∈ Q, execute an OPRF where the receiver P1 queries the point
+    zi,j = sum1,i,j if cnt1,i,j = 1, and zi,j = ⊥ otherwise. As a result, P0 obtains the
+    PRF key ki,j and P1 receives the PRF value yi,j = Fki,j (zi,j ).
+ 3. For each (i, j) ∈ Q, P0 locally samples a random ri,j and computes ui,j such
+    that                    
+                            Fki,j (sum0,i,j ), if cnt0,i,j = 1
+                            
+                     ui,j = Fki,j (fi,j ),      if cnt0,i,j = 0 ∧ fi,j ̸= ⊥          (3)
+                            
+                               ri,j ,           otherwise.
+                            
+
+ 4. For each (i, j) ∈ Q, execute a 1-out-of-3 OT with P0 as the sender and P1 as the
+    receiver, where P1 inputs the selection bit di,j and P0 inputs the message vector
+    wi,j , both described below. As a result, P1 obtains an element gi,j ∈ (ZM ∪ ⊥).
+                                  (
+                                    cnt1,i,j , if cnt1,i,j ∈ {0, 1}
+                           di,j =                                                 (4)
+                                    2,         otherwise
+                 (
+                     sum0,i,j ,    if cnt0,i,j = 1
+      wi,j,0 =                                            and   wi,j,1 = ui,j   and   wi,j,2 = ⊥ (5)
+                     ⊥,            otherwise.
+ 5. For each (i, j) ∈ Q, P1 computes locally vi,j as
+                              
+                              sum1,i,j , if di,j = 1 ∧ gi,j = yi,j
+                              
+                        vi,j = ⊥,         if di,j = 1 ∧ gi,j ̸= yi,j                             (6)
+                              
+                                gi,j ,    otherwise
+                              
+
+ 6. P1 sends V = { (vi,j , i, j) | (i, j) ∈ Q } to P0 .
+ 7. Both parties output V .
+
+
+                                  Fig. 4: Our UnionPeel Protocol.
+
+
+                                                     13
+    Let (i, j) ∈ Q. Our approach begins by developing simple protocols tailored
+to specific assumptions about the values of cnt0,i,j and cnt1,i,j . After address-
+ing these individual cases, we show how to combine them into a single, unified
+protocol that handles all relevant scenarios. Our approach proceeds as follows:
+
+1. Design a protocol for the case where cnt1,i,j = 0 ∨ cnt1,i,j > 1. This corre-
+   sponds to conditions 1 and 4 in Equation (1) for computing vi,j .
+2. Design a protocol for the case where cnt0,i,j ≥ 1 ∧ cnt1,i,j = 1. This corre-
+   sponds to conditions 3 and 4 in Equation (1) for computing vi,j .
+3. Merge the above two protocols into a single protocol that handles both cases.
+4. Extend the protocol to also support the case cnt0,i,j = 1 ∧ cnt1,i,j = 0,
+   corresponding to the second condition in Equation (1).
+5. Adapt the protocol so both parties receive the output.
+
+(Draft) Subprotocol 1. According to the definition of the uPeel function,
+when cnt1,i,j = 0, we have vi,j = sum0,i,j if cnt0,i,j = 1, and vi,j = ⊥ otherwise.
+In contrast, when cnt1,i,j > 1, the definition mandates that vi,j = ⊥, regardless
+of the value of cnt0,i,j . Both cases can be handled using a single 1-out-of-2 OT.
+    Specifically, we configure the OT with P0 as the sender and P1 as the receiver,
+since sum0,i,j is held by P0 and P1 is the intended recipient of vi,j . In this setup,
+P0 inputs a pair of messages (wi,j,0 , wi,j,1 ), and P1 inputs a choice bit di,j . The
+OT ensures that P1 receives wi,j,di,j = vi,j as output. We define the OT inputs
+as follows:
+                                   (
+                                      0, if cnt1,i,j = 0
+  – Receiver’s choice bit: di,j =
+                                      1, otherwise
+  – Sender’s OT messages:
+                           (
+                            sum0,i,j , if cnt0,i,j = 1
+                  wi,j,0 =                               and wi,j,1 = ⊥
+                            ⊥,          otherwise
+
+    Given these definitions, it is straightforward to verify that the OT output
+gi,j exhibits the desired behavior when cnt1,i,j = 0 ∨ cnt1,i,j > 1.
+
+(Draft) Subprotocol 2. Next, we address step 2 of our outline by designing
+a protocol for the case where cnt0,i,j ≥ 1 and cnt1,i,j = 1.
+    When cnt0,i,j > 1, the definition of uPeel dictates that, regardless of cnt1,i,j ,
+the output is always vi,j = ⊥. In the case where both cnt0,i,j = 1 and cnt1,i,j =
+1, the output of uPeel is sum0,i,j if and only if sum0,i,j = sum1,i,j ; otherwise, it
+is ⊥. Since this requires checking whether sum0,i,j equals sum1,i,j , we begin this
+step by employing an OPRF-based equality test protocol.
+    First, the two parties engage in an OPRF protocol, where the receiver P1
+obliviously queries the point sum1,i,j . As a result, P1 obtains yi,j = Fk (sum1,i,j ),
+while the sender P0 obtains the PRF key k. After receiving k, P0 computes
+ui,j = Fk (sum0,i,j ). The P0 then sends to P1 the value ui,j if cnt0,i,j = 1, or a
+random value ui,j if cnt0,i,j > 1. Finally, P1 outputs
+
+                                          14
+                                         (
+                                             sum1,i,j , if ui,j = yi,j
+                                vi,j =
+                                             ⊥,         otherwise
+   With overwhelming probability, we have ui,j = yi,j if and only if sum0,i,j =
+sum1,i,j , ensuring that the protocol exhibits the desired behavior. We note that
+P1 learns the result of the equality test directly. However, this does not pose a
+problem under our assumption that the conditions cnt0,i,j ≥ 1 and cnt1,i,j = 1
+are already known.
+
+(Main) Subprotocol 3. In this protocol, we aim to merge the two previously
+described protocols into a single protocol that correctly handles both cases si-
+multaneously. A naive approach—executing one of the two protocols based on
+the values of cnt0,i,j and cnt1,i,j —would leak information about cnt0 and cnt1 ,
+which we want to avoid. Similarly, running both protocols in parallel and allow-
+ing P1 to choose which output to use based on cnt1,i,j and the equality check
+would reveal more information to P1 than is allowed.
+   To avoid these issues, we proceed as follows: the parties execute the second
+protocol, but with a crucial modification—P0 does not directly send the PRF
+output ui,j to P1 . Instead, P0 embeds ui,j as one of the inputs in a 1-out-of-
+3 OT. The other two messages in this OT are constructed following the same
+approach as in the first protocol. This way, P1 learns only the correct output
+without gaining additional information about the underlying counts.
+   In more detail, this merged protocol begins with the two parties executing the
+OPRF primitive. Party P0 acts as the sender, while the receiver P1 queries the
+point sum1,i,j if cnt1,i,j = 1, and a random point otherwise. Querying a random
+point when cnt1,i,j ̸= 1 ensures that no meaningful information is leaked from
+the OPRF queries.
+   Once both parties receive their respective outputs from the OPRF, they
+proceed to execute a single 1-out-of-3 OT, with P0 as the sender and P1 as the
+receiver. The OT input is determined by the selection index di,j and a vector of
+message wi,j = (wi,j,0 , wi,j,1 , wi,j,2 ), defined as follows:
+                                          
+                                          0,
+                                                   if cnt1,i,j = 0
+                                    di,j = 1,       if cnt1,i,j = 1
+                                          
+                                           2,       othwerwise
+                                          
+
+
+           (                                              (
+            sum0,i,j ,   if cnt0,i,j = 1                      Fk (sum0,i,j ),   if cnt0,i,j = 1
+wi,j,0 =                                 ,     wi,j,1 =                                         ,   wi,j,2 = ⊥
+            ⊥,           otherwise                            r,                otherwise
+
+ Here, r is a uniformly random element sampled by P0 . Observe that when
+cnt1,i,j = 0∨cnt1,i,j > 1, the output of the 1-out-of-3 OT matches the value that
+P1 would receive when executing the first protocol under the same conditions.
+Similarly, when cnt1,i,j = 1 ∧ cnt0,i,j ≥ 1, the OT output gi,j = wi,j,1 received
+by P1 corresponds exactly to the PRF value ui,j that P1 would receive in the
+second protocol. This enables P1 to compare gi,j against yi,j = Fk (sum1,i,j ) and
+
+
+                                                   15
+output the same result as specified in the second protocol. In a later section,
+we will modify the protocol to ensure that revealing the result of the equality
+check to P1 does not leak any additional information, including whether sum1,i,j
+belongs to the intersection.
+
+(Main) Subprotocol 4. As we have shown, this third protocol correctly out-
+puts the intended value to P1 for all combinations of cnt0,i,j and cnt1,i,j , except
+in the case where cnt0,i,j = 0 ∧ cnt1,i,j = 1. This corresponds to the second
+condition in Equation (1). To extend the protocol to support this remaining
+case, we can modify how P0 computes wi,j,1 by replacing it with the following
+expression:                  
+                             Fk (sum1,i,j ), if cnt0,i,j = 0
+                             
+                    wi,j,1 = Fk (sum0,i,j ), if cnt0,i,j = 1                     (7)
+                             
+                               r,             otherwise
+                             
+
+    Now, consider the case where cnt0,i,j = 0 ∧ cnt1,i,j = 1. In this situation,
+P1 receives the OT output as gi,j = wi,j,1 = Fk (sum1,i,j ), which matches the
+evaluation of the point sum1,i,j it previously queried in the OPRF. Consequently,
+P1 correctly outputs sum1,i,j , as required.
+    The challenge with this approach is that P0 does not know the value of
+sum1,i,j , which it needs in order to compute Fk (sum1,i,j ) and set wi,j,1 correctly.
+Fortunately, this can be resolved with a single additional 1-out-of-2 OT. Accord-
+ing to the definition of uPeel, when cnt0,i,j = 0 ∧ cnt1,i,j = 1, both parties are
+supposed to learn sum1,i,j . This allows us to let P0 learn sum1,i,j before executing
+the 1-out-of-3 OT.
+    To achieve this, the two parties first execute a 1-out-of-2 OT where P0 acts
+as the receiver and P1 as the sender. In this OT, P0 provides a choice bit ci,j ,
+and P1 provides a message vector mi,j , such that:
+                                   (
+                                    0,    if cnt0,i,j = 0
+                            ci,j =
+                                    1,    otherwise
+                      (
+                       sum1,i,j , if cnt1,i,j = 1
+             mi,j,0 =                                 and    mi,j,1 = ⊥
+                       ⊥,         otherwise
+
+By inspecting these equations, it is straightforward to see that P0 receives sum1,i,j
+as the output of the 1-out-of-2 OT if cnt0,i,j = 0 ∧ cnt1,i,j = 1, and ⊥ otherwise.
+This allows P0 to compute the correct value of wi,j,1 as described previously. As
+a result, the protocol ensures that P1 receives the correct output vi,j for every
+possible combination of cnt0,i,j and cnt1,i,j .
+    At this point, we highlight an important note regarding the security impli-
+cations of P1 learning the result of the equality check. From Equation (1), we
+observe that the first condition corresponds to the case where only P0 possesses
+the item sum0,i,j . This fact is already revealed by the union output, so P1 learning
+this outcome does not result in additional leakage.
+
+                                         16
+    However, it is crucial to distinguish between the second and third conditions
+in Equation (1). The second condition indicates that only P1 holds the item
+sum1,i,j , while the third condition implies that both P0 and P1 hold the same
+item—i.e., it is an intersection item. Therefore, revealing whether sum0,i,j =
+sum1,i,j could leak intersection membership and must be handled with care.
+    Fortunately, after the 1-out-of-2 OT, P0 learns sum1,i,j in the case where
+cnt0,i,j = 0 ∧ cnt1,i,j = 1. Thus, if sum0,i,j = sum1,i,j , the two branches in
+Equation (7)—namely, when cnt0,i,j = 0 and cnt0,i,j = 1—yield the same
+value, Fk (sum1,i,j ). As a result, the equality check succeeds in both cases without
+revealing which of the two conditions in Equation (1) is satisfied, preserving
+privacy with respect to intersection membership.
+
+(Main) Subprotocol 5. Since the functionality FUnionPeel outputs (vi,j , i, j)
+to both parties and we are operating in the semi-honest setting, party P1 can
+simply send all (vi,j , i, j) values to P0 in the clear. In addition to these values, P0
+also learns the outputs of the 1-out-of-2 OTs. However, as previously noted in
+Section 5.1, the information revealed by the OT outputs is already captured by
+the corresponding (vi,j , i, j) values. At the same time, no additional information
+is leaked. Party P0 doesn’t learn anything new from the 1-out-of-3 OTs since it
+always plays the sender when executing this primitive. Regarding the zi,j values
+also output by FUnionPeel , we have already discussed in Section 5.1 that these can
+be computed locally using the vi,j values along with either party’s own inputs.
+Therefore, we do not revisit this aspect here.
+
+5.3   Protocol Description in Detail
+We now detail the protocol step by step, as shown in Figure 4. The two parties
+begin by executing |Q| instances of the 1-out-of-2 OT primitive, with one instance
+for each (i, j) ∈ Q. In every OT instance, party P1 acts as the sender, and party
+P0 as the receiver.
+                                                              ?
+    For each (i, j) ∈ Q, P0 provides the choice bit ci,j = [cnt0,i,j = 0] and and
+P1 provides the message vector mi,j . As a result of the OT, P0 obtains the
+value fi,j ∈ ZM ∪ {⊥}. By referring to Equation (2), which defines how mi,j is
+computed for each (i, j) ∈ Q, we can see that the value of fi,j is determined by
+              (
+                sum1,i,j , if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+       fi,j =                                             , for every (i, j) ∈ Q.
+                ⊥,         otherwise.
+
+    Note that when P0 has cnt0,i,j = 0, the value of fi,j will be equal to vi,j .
+Specifically, if cnt1,i,j = 1, then fi,j = sum1,i,j , and if cnt1,i,j = 0, we have
+fi,j = ⊥. This implies that P0 learns no more information than what it would
+learn from vi,j when executing FUnionPeel with the same inputs as in this protocol.
+    In the second step of the protocol, the two parties run |Q| instances of a
+single-point OPRF protocol. The receiver P1 queries the points {zi,j }(i,j)∈Q ,
+where each zi,j is defined in Equation (8). As a result, P0 obtains the corre-
+sponding PRF keys {ki,j }(i,j)∈Q , while P1 receives the PRF evaluations {yi,j =
+
+
+                                          17
+Fki,j (zi,j )}(i,j)∈Q . These outputs will enable the parties to efficiently perform
+bit-string equality checks in the subsequent steps.
+                            (
+                             sum1,i,j , if cnt1,i,j = 1
+                     zi,j =                             , for (i, j) ∈ Q          (8)
+                             ⊥,         otherwise
+    In Step 3 of the protocol, party P0 locally samples a random element ri,j and
+computes ui,j for each (i, j) ∈ Q, where ui,j is originally defined in Equation (3).
+However, by considering the equation that defines the fi,j values derived ear-
+lier, we can reformulate this equation to provide clearer intuition about how the
+protocol realizes the functionality FUnionPeel . Specifically, we can rewrite Equa-
+tion (3) as follows:
+                      
+                      Fk (sum0,i,j ), if cnt0,i,j = 1
+                      
+                ui,j = Fk (sum1,i,j ), if cnt0,i,j = 0 ∧ cnt1,i,j = 1            (9)
+                      
+                        ri,j ,         otherwise.
+                      
+
+    In other words, if P0 learned a new set element sum1,i,j in Step 1—specifi-
+cally when cnt0,i,j = 0 and cnt1,i,j = 1—it will compute ui,j = Fk (sum1,i,j ). In
+the case where cnt0,i,j = 1, meaning that P0 did not learn any new element in
+Step 1, it will compute ui,j = Fk (sum0,i,j ). If neither of these conditions holds,
+P0 sets ui,j to the randomly sampled ri,j , making ui,j uniformly distributed.
+Importantly, without knowledge of Fk (sum0,i,j ), it is impossible to distinguish
+between the case where cnt0,i,j = 1 and the case where ui,j is simply a random
+element. Finally, since this step involves only local computations and no com-
+munication between the parties, no additional information is revealed to either
+party.
+    In Step 4, the two parties execute |Q| instances of 1-out-of-3 OT, with the
+roles reversed compared to the OTs in the first step: P1 now acts as the receiver,
+and P0 as the sender. For each (i, j) ∈ Q, P1 provides the choice index di,j ,
+and P0 supplies the message vector wi,j . The values of di,j and wi,j are com-
+puted according to Equations (4) and (5), respectively. As a result of these OT
+instances, P1 obtains the values gi,j for every (i, j) ∈ Q, which serve as the out-
+puts of this step. To give a more intuitive understanding of how the di,j values
+are determined, we now rewrite Equation (4) in the following form:
+                                  
+                                  0, if cnt1,i,j = 0
+                                  
+                           di,j = 1, if cnt1,i,j = 1
+                                  
+                                    2, if cnt1,i,j > 1
+                                  
+
+Based on this reformulation and Equation (5), which defines the values of wi,j ,
+we can see that the outputs of the 1-out-of-3 OT instances, gi,j , are determined
+by the following equation:
+                      
+                      sum0,i,j , if cnt1,i,j = 0 ∧ cnt0,i,j = 1
+                      
+                gi,j = ui,j ,       if cnt1,i,j = 1
+                      
+                        ⊥,          otherwise
+                      
+
+
+                                         18
+Now, let us analyze what additional information P1 learns from the values gi,j .
+In the cases where cnt1,i,j = 0 or cnt1,i,j > 1, it is straightforward that gi,j =
+vi,j , where vi,j corresponds to the uPeel output of FUnionPeel . However, for the
+remaining case where cnt1,i,j = 1, a more careful analysis is required.
+     As per Equation 9, we know that ui,j is either equal to Fki,j (x) or ri,j ,
+where x depends on the values of cnt0,i,j and cnt1,i,j . Recall that we queried
+PRF Fki,j during the second protocol step, using the OPRF primitive, where P1
+queried point zi,j = sum1,i,j . Based on this, we can see that a value ui,j isn’t
+pseudorandom to P1 if and only if x = sum1,i,j . In the case where cnt0,i,j = 0,
+we have x = sum1,i,j , so it must be that ui,j isn’t pseudorandom. On the other
+hand, when cnt0,i,j = 1, we have x = sum0,i,j , which means x = sum1,i,j if and
+only if sum0,i,j = sum1,i,j . This means that if cnt0,i,j = 1 ∧ cnt1,i,j = 1, the
+value of ui,j won’t be pseudorandom if and only if sum0,i,j = sum1,i,j . Finally,
+when cnt0,i,j > 1, Equation 9 tells us that ui,j is uniformly random. Based on
+the analysis of these three separate cases, we can conclude that the following is
+true with overwhelming probability when cnt1,i,j = 1:
+
+  cnt0,i,j = 0 ∨ (cnt0,i,j = 1 ∧ sum0,i,j = sum1,i,j ) ⇐⇒ ui,j = Fki,j (sum1,i,j )
+
+  cnt0,i,j > 1 ∨ (cnt0,i,j = 1 ∧ sum0,i,j ̸= sum1,i,j ) ⇐⇒ ui,j is pseudorandom
+which means that learning ui,j only lets P1 distinguish between these two cases,
+which are also distinguishable from the uPeel evaluations outputted by the
+FUnionPeel functionality.
+     As the next protocol step, party P1 locally computes variables vi,j for every
+(i, j) ∈ Q based on Equation 6. Using our previous analysis of the gi,j values,
+we can conclude that the all the vi,j values are dictated by
+              
+              sum1,i,j , if di,j = 1 ∧ gi,j = yi,j
+              
+       vi,j = ⊥,              if di,j = 1 ∧ gi,j ̸= yi,j
+              
+                gi,j ,        otherwise
+              
+              
+              
+               sum1,i,j , if di,j = 1 ∧ gi,j = yi,j
+              
+              ⊥,             if di,j = 1 ∧ gi,j ̸= yi,j
+            =
+              
+              
+               sum   0,i,j , cnt0,i,j = 1 ∧ cnt1,i,j = 0
+                ⊥,            otherwise
+              
+              
+              
+               sum1,i,j , if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+              
+                      1,i,j , if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ (sum0,i,j = sum1,i,j )
+              sum
+            =
+              
+              
+               sum0,i,j , cnt0,i,j = 1 ∧ cnt1,i,j = 0
+                ⊥,            otherwise
+              
+
+, except with negligible probability. Based on this equation, please note that
+
+                          vi,j = uPeel(IBLT0 , IBLT1 , i, j).
+
+, with overwhelming probability.
+
+
+                                          19
+   Following the local computation of the vi,j values, party P1 sends the set
+V = { (vi,j , i, j) | (i, j) ∈ Q }, which is then output by both parties. The set
+V can be seen as the set that contains all the uPeel evaluations computed by
+the functionality FUnionPeel together with the associated bin indexes. A security
+proof for the theorem below is given in Appendix E.2.
+Theorem 3. Protocol ΠUnionPeel securely realizes the Union Peel functionality
+FUnionPeel against a PPT semi-honest adversary in the {FOPRF , FOT }-hybrid model.
+
+6     PSU Protocol
+This section combines the original IBLT construction, union peelability (Sec-
+tion 4), and FUnionPeel to construct our PSU protocol.
+
+
+
+                                              Protocol ΠPSU
+ Parameters:
+
+    – Two parties P0 and P1 .
+    – The input set sizes n0 , n1 ∈ N.
+    – The input set elements universe ZM , such that M ∈ N≥2 .
+    – The IBLT parameters: A family of k functions H = {hi : ZM → [ℓ]}i∈[k] , and the
+      subtables’ length ℓ.
+    – Let prm = (M, k, ℓ, H), which is determined by n0 + n1 .
+
+ Input: Each party Pb∈{0,1} inputs a set Xb ⊆ ZM of size nb .
+ Protocol:
+                                  (0)
+    1. Pb∈{0,1} computes IBLTb ← Encodeprm (Xb ).
+                                 (0)
+    2. Pb∈{0,1} sets t ← 0 and Qπ ← [k] × [ℓ].
+                       (t)
+    3. Repeat until Qπ = ∅:
+                                                                       (t)      (t)
+        – P0 and P1 run FUnionPeel with P0 and P1 providing IBLT0 and IBLT1 as
+                                                          (t)
+           private inputs, respectively, the public set Qπ and IBLT parameters prm =
+           (M, k, ℓ, H). Both parties receive the set T (t) as output.
+                          (t)
+        – Pb∈{0,1} sets Vπ      ← { v | (v, i, j) ∈ T (t) } \ ⊥.
+                          (t)           (t)
+        – Pb∈{0,1} sets Db ← Vπ ∩ Xb .
+                                         (t+1)                     (t)     (t)
+        – Pb∈{0,1} computes IBLTb                ← DeleteSet(IBLTb , Db ).
+                          (t+1)                                          (t)
+        – Pb∈{0,1} sets Qπ        ← { (i, hi (v)) | i ∈ [k] ∧ v ∈ Vπ           }.
+        – Pb∈{0,1} set t ← t + 1.
+                              (0)         (t−1)
+    4. Pb∈{0,1} output Vπ = Vπ ∪ · · · ∪ Vπ     .
+
+
+                                 Fig. 5: Our PSU Protocol
+
+
+
+
+                                                   20
+Protocol Description. We find that the most intuitive way to conceptualize
+our ΠPSU protocol is to view it as a collaborative effort between the two parties,
+P0 and P1 , who work together in a distributed and privacy-preserving manner
+to jointly execute the List algorithm on an IBLT, denoted IBLT∪ . This IBLT
+IBLT∪ is constructed to encode the union of their respective input sets, that is,
+X∪ = X0 ∪ X1 , and it is sized such that its parameters guarantee that the failure
+probability of the List algorithm is negligible. In particular, the dimensions of
+IBLT∪ are chosen carefully to ensure that, with overwhelming probability, the
+List procedure succeeds in recovering the full contents of the union. The size is
+determined by n0 + n1 .
+    Similar to the List algorithm (Algorithm 3), at each iteration t, our ΠPSU
+                          (t)                                         (t)
+protocol looks at IBLT∪ ’s bins specified by the indexes in Qπ searching for
+                                                                                      (t)
+bins with cnti,j = 1. Once one is found, we store the value of sumi,j in Vπ .
+                                (t)                                                    (t)
+After all bins specified by Qπ are looked through, we delete all elements in Vπ
+             (t)                                     (t+1)
+from IBLT∪ , receiving the updated IBLT IBLT∪              as output. Additionally, we
+store the indices of bins that have been updated as a result of these deletions
+      (t+1)           (t)
+in Qπ       . When Qπ = ∅, as a result of no bins with cnti,j = 1 being found
+in the last iteration, the loop stops and the protocol outputs the union of all
+  (t)
+Vπ sets computed. Of course, the parties do not have access to IBLT∪ , so both
+                                                 (t)
+this search through the bins specified by Qπ and the deletions are done in a
+distributed and private fashion.
+                                                                                   (t)
+    We use the FUnionPeel functionality to look through each bin (i, j) ∈ Qπ of
+                                                                                       (t)
+IBLT∪ and check if they satisfy the cnti,j = 1 condition. For each (i, j) ∈ Qπ
+bin that satisfies the condition, the functionality adds (sumi,j , i, j) to the output
+set T (t) , and for every (i, j) that does not, it adds (⊥, i, j) to T (t) . However, by
+its definition, the FUnionPeel functionality outputs the set
+                                          (t)        (t)
+                 T (t) = {uPeel(IBLT0 , IBLT1 , i, j) | (i, j) ∈ Q(t)
+                                                                  π }
+
+which, at first glance, seems not to match the behaviour we just described. But,
+                                     (t)    (t)        (t)
+as it turns out, it is the case {IBLT0 ,IBLT1 and IBLT∪ } are union peelable
+for every iteration t, which by Theorem 2, means
+                              (t)                          (t)   (t)
+                   Peel(IBLT∪ , i, j) = uPeel(IBLT0 , IBLT1 , i, j)
+                                          (t)
+for every iteration t and (i, j) ∈ Qπ . In turn, implying that
+                                          (t)        (t)
+                 T (t) = {uPeel(IBLT0 , IBLT1 , i, j) | (i, j) ∈ Q(t)
+                                                                  π }
+                                     (t)
+                                                                                     (10)
+                      = {Peel(IBLT∪ , i, j) | (i, j) ∈ Q(t)
+                                                        π }
+
+and showing that T (t) behaves as desired, given the way we define Peel. The
+               (t)    (t)        (t)
+fact that {IBLT0 ,IBLT1 and IBLT∪ } are union peelable at every iteration t,
+                 (0)      (0)        (0)
+comes from IBLT0 , IBLT1 and IBLT∪ being defined as
+      (0)                           (0)                                (0)
+IBLT0 ← Encodeprm (X0 ), IBLT1 ← Encodeprm (X1 ), IBLT∪ ← Encodeprm (X∪ )
+
+
+                                                21
+and the way we perform the deletion operation at the end of every iteration of
+ΠPSU . We focus on this deletion step next.
+                                                                             (t)
+    At the end of each iteration t, protocol ΠPSU has each party Pb delete Vπ ∩Xb
+                      (t)               (t+1)
+from their own IBLTb , getting IBLTb          as the result. As shown in our proof
+                                                                           (t+1)
+for Theorem 4 (presented in Appendix E.3), the resulting IBLTs IBLTb             are
+such that
+                       (t+1)
+                 IBLTb       = Encodeprm (Xb \ (Vπ(0) ∪ · · · ∪ Vπ(t) ))
+            (t+1)
+while IBLT∪         is
+                         (t+1)
+                    IBLT∪        = Encodeprm (X∪ \ (Vπ(0) ∪ · · · ∪ Vπ(t) ))
+                                   (t)      (t)            (t)
+directly implying that {IBLT0 ,IBLT1 and IBLT∪ } are union peelable, since
+
+(X0 \ (Vπ(0) ∪ · · · ∪ Vπ(t) )) ∪ (X1 \ (Vπ(0) ∪ · · · ∪ Vπ(t) )) = X∪ \ (Vπ(0) ∪ · · · ∪ Vπ(t) )
+
+and maintaining the desired union peelability invariant.
+    About the privacy of property of ΠPSU , it hinges on whether we can simu-
+late all the T (t) values output by the FUnionPeel functionality during the ΠPSU
+protocol execution, since these sets are the only information learned by the
+parties when running ΠPSU . Considering Equation 10, it is clear that given
+  (t)           (t)
+Qπ and IBLT∪ for each iteration t, we are able to simulate each T (t) . In
+              (t)           (t)                                            (t−1)
+turn, each Qπ and IBLT∪ values are completely defined by IBLT∪ , with
+      (0)
+IBLT∪ = IBLT∪ = Encodeprm (X∪ ). So, if a simulator can acquire IBLT∪ , it
+can simulate each iteration t’s set T (t) . Interestingly, it is actually trivial for a
+simulator to acquire IBLT∪ , because the IBLT parameters prm are public pa-
+rameters provided to ΠPSU , X∪ = X0 ∪ X1 is the output of functionality FPSU ,
+and the Encode algorithm is deterministic. So, a simulator can simply execute
+Encodeprm (X∪ ) and obtain the desired IBLT∪ . A security proof for the following
+theorem is given in Appendix E.3.
+
+Theorem 4. Let n0 , n1 be the two set sizes provided to ΠPSU and prm = (M, k, ℓ, H)
+be the IBLT parameters provided to ΠPSU . If prm are such that List (Algorithm 3)
+fails with negligible probability for a threshold n0 +n1 , then protocol ΠPSU securely
+realizes the Union Peel functionality FPSU against a PPT semi-honest adversary
+in the {FOPRF , FOT }-hybrid model.
+
+Optimization. At each iteration t, the functionality FUnionPeel is invoked with
+  (t)
+Qπ as an input parameter, resulting in the protocol ΠUnionPeel having to execute
+                                        (t)
+an OPRF instance for every (i, j) ∈ Qπ . We observe that whenever a party Pb
+queries the PRF F , it does so at the point sumb,i,j only when cntb,i,j = 1,
+otherwise it queries the point ⊥. Please note that having multiple ⊥-queries is
+not an issue since each query is sent to a different OPRF instance. As discussed
+in Section 4, if IBLTb is union peelable—which is the case for the IBLTs provided
+as input—then it is guaranteed that whenever cntb,i,j = 1, the corresponding
+sumb,i,j is indeed one of the items encoded in the IBLT. This observation allows
+
+
+                                                  22
+us to optimize the protocol by using a single multi-point OPRF during a setup
+phase. Specifically, party P1 can query the OPRF on all elements in its PSU
+input set X1 in advance, ensuring that all required PRF evaluations are already
+available during the main execution of the protocol. This indirectly implies that
+no ⊥-queries need to be made to the OPRF in the optimized version of the
+protocol.
+    However, we can no longer use the PRF evaluations as before, since different
+sum bins may contain the same value—potentially leaking information about
+the items mapped to those bins. To address this, we have to modify how the
+ui,j values are computed by ΠUnionPeel : we concatenate the PRF point with the
+bin index (i, j) and the current ΠPSU iteration index t. This ensures that each
+evaluation remains unique and unlinkable, even if the underlying sum values
+repeat across bins and across invocations of ΠUnionPeel . Specifically, we define:
+                   
+                   H(Fk (sum1,i,j ), t, i, j), if cnt0,i,j = 0 ∧ fi,j ̸= ⊥
+                   
+            ui,j = H(Fk (sum0,i,j ), t, i, j), if cnt0,i,j = 1
+                   
+                     r,                         otherwise
+                   
+
+Here, H denotes a random oracle. Note that the OT receiver P1 must now
+compare wi,j,1 against H(Fk (sum1,i,j ), t, i, j), rather than Fk (sum1,i,j ) as in the
+non-optimized version of the protocol.
+
+
+7    IBLT Parameters
+
+As previously discussed, the security of our protocol depends on the IBLT item
+listing algorithm List failing only with negligible probability in the statistical
+security parameter λ, given the IBLT parameters prm = (M, k, ℓ, H) used in our
+PSU protocol ΠPSU . It is therefore critical to ensure that our chosen parame-
+ters meet this requirement. Fortunately, the original work introducing IBLT [11]
+proves Theorem 1 (presented in Section 3), which characterizes the asymptotic
+probability that List fails to recover all encoded items.
+     However, Theorem 1 provides only an asymptotic bound on the failure prob-
+ability of the List algorithm. In practice, the actual failure probability can be
+higher than the idealized bound of τ −k+2 —where τ is the maximum number
+of elements in the IBLT and k is the number of hash functions—underscoring
+the need for a concrete analysis specific to the IBLT variant used in our work.
+For our protocol, we set τ = n0 + n1 . Although numerous studies have investi-
+gated IBLTs [7, 11, 18], to the best of our knowledge, none have provided simple,
+efficiently computable expressions for the failure probability in the parameter
+regimes relevant to our setting—neither for the standard IBLT nor for the vari-
+ant used in this work. For instance, the failure probability formula in [7] is com-
+putationally expensive and thus impractical for evaluating the failure probability
+within the parameter regime considered in this paper.
+     To bridge the gap between the asymptotic failure guarantees of the List al-
+gorithm and its practical performance, we designed and conducted an extensive
+
+
+                                          23
+set of experiments. These experiments provide empirical support for our choice
+of concrete IBLT parameters. Using experimental evaluation to determine reli-
+able security parameters has precedent in related contexts, such as PSI, where
+they aimed to determine parameters ensuring overwhelming success in encoding
+Cuckoo Hash Tables [19,20]. While some prior works [7,17,18] reported empirical
+estimates of failure probabilities for full or partial element listing in IBLTs, their
+experiments were not extensive enough and did not target scenarios requiring
+negligible failure probabilities, limiting their applicability to our setting.
+
+Experimental Setup. All our experiments follow the same procedure, varying
+only the number of hash functions k ∈ {4, 5}, the maximum number of elements
+to be inserted into the IBLT, that is, the threshold τ , and the IBLT-length
+multiplicative factor e. In our experiments, we focus on the failure behavior
+when inserting n items into an IBLT of length m = ⌈en⌉ using k hash functions.
+Accordingly, we set τ = n in our analysis. Concretely, for each parameter pair
+(n, e), we perform the following process 230 times: instantiate a new IBLT with
+k randomly chosen hash functions and m = ⌈en⌉ bins, encode the item set
+[n] into the IBLT2 , and check whether the resulting structure is peelable—that
+is, whether the List algorithm successfully recovers all items. We record the
+number of peelability failures and compute the failure ratio by dividing the total
+failures by the total executions (e.g., 230 ). Ratios close to the failure probability
+predicted by Theorem 1 indicate a small gap between concrete and asymptotic
+failure probabilities. The ratios calculated as the result of our experiments have
+been plotted as graphs and can be found in Figures 6a and 6b.
+    For our experiments where we fix k = 4, we run the experiment as previ-
+ously described for n ∈ {27 , 28 , 29 , 210 } and vary the value of e between 1.3
+and 4.5, with the same set of 36 different values for e chosen for every single
+value of n. Meanwhile, for k = 5 hash functions, we run the experiments for
+n ∈ {28 , 29 , 210 , 212 , 214 } and and vary the value of e between 1.43 and 4.5,
+with the same set of 25 different values for e chosen for every single value of
+n ∈ {28 , 29 , 210 }. A smaller set of values of e is chosen for k = 5 due to the
+higher runtime to execute the experiments compared to the case where k = 4.
+For n ∈ {212 , 214 } and k = 5, fewer datapoints were collected compared to
+smaller values of n due to how the experiment’s runtime grows as n grows. The
+specific data points collected for n ∈ {212 , 214 } are marked in Figure 6b. In all
+experiments, the hash functions are instantiated using the AES block cipher
+with a 128-bit key.
+
+Experimental Results. As we can see by inspecting Figure 6a, all curves
+follow a similar shape, where they start with a steep decrease in failure rate and
+then the failure rate tapers off into a curve with a significantly smaller degree
+2
+    Note that the item selection in the experiment is optimized for efficiency, as we need
+    to repeat the process 230 times. This choice does not affect the correctness of the
+    experiment, since the hash functions ensure a random assignment to the table. We
+    have also tested a single case with n randomly chosen items and observed the same
+    outcome.
+
+
+                                            24
+of inclination. The same shape appears in graphs presented in [7], where the
+authors study the failure probability of the IBLT data structure for different
+parameters. It is also possible to note that as n increases, so does the steepness
+at the beginning of the curve before it tapers off. Additionally, we can see that all
+curves match or surpass the value dictated by the asymptotic failure probability
+τ −k+2 when e ≥ 3.4. At the same time, if we fix a failure probability f , let’s say
+f = 2−16 , we can see that the curve for n = 210 reaches this failure value before
+all other curves, and as the value of n decreases, the value of e has to increase
+significantly to compensate. For example, while our graph suggests that a failure
+probability of 2−16 can be achieved with n = 210 and e = 1.6, it also suggests
+that the same failure probability can only be achieved with n = 28 when e ≥ 3.4.
+    For k = 5, the respective graph presented in Figure 6b seems to follow the
+same patterns as the graph for k = 4, with all the curves achieving the failure
+probabilities given by the asymptotic equation when e = 4.5. However, the graph
+for k = 5 seems to show some sharp ondulations in some of its curves, which does
+not happen in the graph for k = 4. We believe this to be an artifact that comes
+from the fact that we have to cap our experiments at a total of 230 executions
+for each parameter setting, causing the curves not to have enough executions
+to converge into a stable ratio when such a ratio is close to 230 . Note that such
+sharp ondulations are not present in the graph in Figure 6a, and only happen
+for the curves in Figure 6b when such a curve has its ratio value close to 230 .
+    Based on the experimental data collected, we extrapolate the failure rates
+for larger values of τ ∈ {214 , 216 , 218 , 220 , 222 }, targeting negligible failure rates
+below 2−40 , with the results summarized in Table 1. We are required to rely
+on such extrapolations as our application works with this range of parameters,
+and the time it would take to run experiments for such parameter settings is
+prohibitively high. Note that all extrapolations calculated in this section are
+done with a fixed value of k = 5, as preliminary performance evaluations of
+our PSU protocol suggest that using k = 5 leads to better performance while
+achieving statistical security equal to or below 2−40 .
+
+Extrapolated Results. We rely on the observed trend that, for two thresholds
+τ0 < τ1 with corresponding failure rates f0 and f1 , the inequality logτ1 (f1 ) ≤
+logτ0 (f0 ) holds for the same multiplicative factor e. This monotonic behavior
+is evident in Figure 6b. For example, during our experiments, we measured a
+failure rate of f0 = 2−27.67 for τ0 = 210 , when k = 5 and e = 3.5. Assuming the
+same trend continues for larger thresholds τ1 and k = 5, we have:
+
+                  logτ1 (f1 ) ≤ logτ0 (f0 ) = log210 (2−27.67 ) = −2.76
+which implies:
+                   logτ1 (f1 ) ≤ −2.76 ⇔ f1 ≤ τ1−2.76
+                                              = (216 )−2.76 = 2−44.16
+when e = 3.5. We apply the same idea to compute all the extrapolated failure
+rates presented in Table 1. To be more precise, for every threshold τ in Table 1,
+
+
+                                            25
+we search the failure probability data f0 collected during our experiments for the
+threshold τ0 = 210 , k = 5, and every multiplicative factor e, using the previous
+method to extrapolate the failure probability for τ and the same value of e. Once
+we find the minimum value of e for which we have a failure probability better
+than 2−40 , we stop our search and add the extrapolated failure probability to
+Table 1.
+
+
+
+
+         (a) k = 4 hash functions.                   (b) k = 5 hash functions.
+
+Fig. 6: Comparison of Listing Failure Rates (− log2 ) over multiplication factor e.
+
+
+
+
+    Threshold (τ )       Multiplication Factor (e)         List Failure Probability
+          214                        4.5                            ≤ 2−42
+          216                        3.5                           ≤ 2−44.16
+          218                        2.0                            ≤ 2−44.1
+          220                        1.5                            ≤ 2−46
+          222                        1.5                            ≤ 2−50.6
+
+    Table 1: Extrapolated List Failure Probabilities for k = 5 and Selected τ and e.
+
+
+
+8     Performance Evaluation
+
+In this section, we provide experimental details and compare the performance of
+our PSU protocol with prior works [13,28,29]. Our end-to-end implementation is
+written in C++ and utilizes several libraries: the libOTe library [26] for perform-
+ing OT extension, the volePSI [24] library for implementing the OPRF primitive,
+and the cryptoTools library [25] for implementing symmetric cryptographic prim-
+itives, e.g., PRNG and AES. Additionally, we use the Catch2 framework [8] for
+
+
+                                           26
+implementing tests and performance benchmarks. The complete implementation
+is publicly available at https://github.com/asu-crypto/IBLT-based-PSU.
+    For benchmarking, each party runs in its own thread, reflecting realistic de-
+ployments and enabling fair comparison with prior works. For security, we set
+the computational security parameter to κ = 128 and the statistical security
+parameter to λ = 40. Accordingly, the IBLT parameters used in our ΠPSU were
+selected based on the analysis presented in Table 1. Specifically, we chose the
+k = 5 hash functions as early performance experiments showed it to be the most
+performant choice while still fulfilling the statistical security parameter choice.
+
+Environment. All benchmarks were conducted on our laboratory server, equipped
+with an AMD EPYC 74F3 processor (3.2 GHz base clock, up to 4.0 GHz boost)
+and 256 GB of RAM. To emulate different network environments, we used the
+Linux tc command to control the communication bandwidth and latency be-
+tween two local sockets. Specifically, we configured the settings to reflect typical
+LAN and WAN conditions. For the LAN setup, we set the bandwidth to 10
+Gbps and latency to 0.2 ms. For WAN simulations, we evaluated two scenarios:
+(i) 200 Mbps bandwidth with 80 ms latency, (ii) 50 Mbps bandwidth with 80
+ms latency, and (iii) 1 Mbps bandwidth with 80 ms latency.
+
+
+  Set Size   Protocol   Communication (MB)                             Runtime (secs)
+                                               LAN       WAN (200 Mbps)      WAN (50 Mbps)   WAN (1 Mbps)
+               [29]            2.726           24.15          40.99               42.15         125.72
+               [13]            32.92           1.26           13.97               17.53         285.89
+    214
+               [28]            4.760           2.04           5.63                5.93          43.19
+               Ours         11.86 / 9.30       0.08           2.42                3.85           79.2
+               [29]            11.14           87.32         101.08              106.45         389.32
+               [13]            137.41          2.44           22.29               38.49         1175.29
+    216
+               [28]            17.95           6.93            11                 13.10         147.43
+               Ours         39.09 / 29.74      0.17           4.05                7.79          250.80
+               [29]            44.71          296.16         324.52              344.95         1434.59
+               [13]            577.73          8.51           55.69              129.08         4376.68
+    218
+               [28]            69.03           25.56          34.00               39.97         574.95
+               Ours        130.07 / 99.87      0.65           8.33               20.76           841.2
+               [29]           179.06          1129.05        1186.23             1236.01        5268.40
+               [13]           2430.47          30.76         214.93              505.43         20953
+    220
+               [28]            277.40         101.60         120.65              149.49          2310
+               Ours        520.18 / 409.04     2.95          24.79                 72            3252
+               [29]           716.87          4241.58        4472.87             4843.23       20906.30
+               [13]              –              –              –                   –              –
+    222
+               [28]           1121.58         409.65         479.21              597.36          9365
+               Ours       2078.78 / 1633.55   15.49          85.20               275.4          12985
+
+
+Table 2: Comparisons of Communication and Runtime between our protocol and the
+most recent semi-honest PSU constructions [13, 28, 29]: The “–" indicates an execution
+error. The best results are marked in bold letters.
+
+Concrete Performance and Comparison. We evaluate the performance of our
+PSU protocol against prior works [13, 28, 29] using their open-source implemen-
+tations, considering both communication cost and runtime. We do not compare
+
+
+                                                    27
+our work to [1], as the authors do not provide a public implementation of their
+PSU protocol. Furthermore, their performance is comparable to that of [29].
+    The results for various set sizes are in Table 2, and a detailed analysis of the
+communication cost per peeling round is provided in Appendix B. To ensure a
+fair comparison, we use input set sizes similar to prior evaluations, with greater
+focus on larger sets: n ∈ {214 , 216 , 218 , 220 , 222 }, where each item is a 64-bit string.
+Although our protocol supports arbitrary bit lengths, we chose 64 bits to match
+prior works. While our runtime remains stable as bit length increases, existing
+approaches incur significant overhead from MPC equality checks or oblivious
+shuffling.
+    Note that one of the measurement rows for [13] in Table 2 contains “–”. This
+is due to a known bug, previously reported in [28], which causes the program to
+crash for input sets larger than 220 elements. Additionally, unlike the single com-
+munication cost values shown for other protocols, we report two communication
+cost values for ΠPSU at each input size. This distinction arises from using differ-
+ent parameters to instantiate the SoftSpokenOT protocol [27] for OT extension,
+with different choices made to optimize for either LAN or WAN environments.
+    Based on our evaluation, our protocol consistently outperforms all prior works
+in terms of runtime across all input set sizes and network settings, except for the
+1 Mbps setting when n ∈ {216 , 218 } and some of the WAN settings when n = 214 .
+At the same time, in terms of communication cost, our construction ranks third
+out of the four protocols evaluated, regardless of input size or network condition.
+In the LAN setting, we observed runtime improvements ranging from 10× to
+15×. For the WAN setting with 200 Mbps bandwidth, improvements ranged
+from 2.32× to 4.86×, and in the 50 Mbps WAN setting, the gains ranged from
+1.54× to 2.07×. In Appendix A, we present a detailed discussion of the round
+complexity of our protocol in comparison to others, highlighting that a slight
+increase in the multiplication factor (approximately 0.5)—which may increase
+the runtime by 50%—can reduce the number of rounds to as few as 10–18.
+
+
+Acknowledgments.
+This work was partially supported by NSF award #2451972, and ARPA-H
+SP4701-23-C-0074.
+
+
+References
+ 1. Bienstock, A., Patel, S., Seo, J.Y., Yeo, K.: Near-optimal oblivious key-value
+    stores for efficient psi, PSU and volume-hiding multi-maps. In: Calandrino,
+    J.A., Troncoso, C. (eds.) 32nd USENIX Security Symposium, USENIX Se-
+    curity 2023, Anaheim, CA, USA, August 9-11, 2023. pp. 301–318. USENIX
+    Association (2023), https://www.usenix.org/conference/usenixsecurity23/
+    presentation/bienstock
+ 2. Bloom, B.H.: Space/time trade-offs in hash coding with allowable errors. Com-
+    mun. ACM 13(7), 422–426 (Jul 1970). https://doi.org/10.1145/362686.362692,
+    https://doi.org/10.1145/362686.362692
+
+
+                                             28
+ 3. Brassard, G., Crépeau, C., Robert, J.M.: All-or-nothing disclosure of secrets. In:
+    Conference on the Theory and Application of Cryptographic Techniques. pp. 234–
+    238. Springer (1986)
+ 4. Brickell, J., Shmatikov, V.: Privacy-preserving graph algorithms in the semi-honest
+    model. In: Roy, B.K. (ed.) ASIACRYPT 2005. LNCS, vol. 3788, pp. 236–252.
+    Springer, Heidelberg (Dec 2005). https://doi.org/10.1007/11593447_13
+ 5. Buddhavarapu, P., Knox, A., Mohassel, P., Sengupta, S., Taubeneck, E., Vlaskin,
+    V.: Private matching for compute. Cryptology ePrint Archive, Paper 2020/599
+    (2020), https://eprint.iacr.org/2020/599, https://eprint.iacr.org/2020/
+    599
+ 6. Chen, Y., Zhang, M., Zhang, C., Dong, M., Liu, W.: Private set operations from
+    multi-query reverse private membership test. pp. 387–416. LNCS, Springer, Hei-
+    delberg (May 2024). https://doi.org/10.1007/978-3-031-57725-3_13
+ 7. Daichi YUGAWA, T.W.: Finite length analysis on listing failure probability of
+    invertible bloom lookup tables. IEICE TRANSACTIONS on Fundamentals E97-
+    A(12), 2309–2316 (December 2014). https://doi.org/10.1587/transfun.E97.A.
+    2309
+ 8. Developers, C.: Catch2: A modern, c++-native, test framework for unit-tests, tdd
+    and bdd. https://github.com/catchorg/Catch2 (2025), accessed: July 10, 2025
+ 9. Garimella, G., Mohassel, P., Rosulek, M., Sadeghian, S., Singh, J.: Private set
+    operations from oblivious switching. In: Garay, J. (ed.) PKC 2021, Part II. LNCS,
+    vol. 12711, pp. 591–617. Springer, Heidelberg (May 2021). https://doi.org/10.
+    1007/978-3-030-75248-4_21
+10. Garimella, G., Pinkas, B., Rosulek, M., Trieu, N., Yanai, A.: Oblivious key-value
+    stores and amplification for private set intersection. pp. 395–425. LNCS, Springer,
+    Heidelberg (2021). https://doi.org/10.1007/978-3-030-84245-1_14
+11. Goodrich, M.T., Mitzenmacher, M.: Invertible bloom lookup tables. In: 2011 49th
+    Annual Allerton Conference on Communication, Control, and Computing (Aller-
+    ton). pp. 792–799. IEEE (2011)
+12. Hogan, K., Luther, N., Schear, N., Shen, E., Stott, D., Yakoubov, S., Yerukhi-
+    movich, A.: Secure multiparty computation for cooperative cyber risk assess-
+    ment. In: 2016 IEEE Cybersecurity Development (SecDev). pp. 75–76 (2016).
+    https://doi.org/10.1109/SecDev.2016.028
+13. Jia, Y., Sun, S.F., Zhou, H.S., Gu, D.: Scalable private set union, with stronger
+    security. In: 33rd USENIX Security Symposium (USENIX Security 24). pp. 6471–
+    6488. USENIX Association, Philadelphia, PA (Aug 2024), https://www.usenix.
+    org/conference/usenixsecurity24/presentation/jia-yanxue
+14. Jia, Y., Sun, S., Zhou, H.S., Du, J., Gu, D.: Shuffle-based private set union: Faster
+    and more secure. pp. 2947–2964. USENIX Association (2022)
+15. Kantarcioglu, M., Clifton, C.: Privacy-preserving distributed mining of association
+    rules on horizontally partitioned data. IEEE Transactions on Knowledge and Data
+    Engineering 16(9), 1026–1037 (2004). https://doi.org/10.1109/TKDE.2004.45
+16. Kolesnikov, V., Rosulek, M., Trieu, N., Wang, X.: Scalable private set union from
+    symmetric-key techniques. In: Galbraith, S.D., Moriai, S. (eds.) ASIACRYPT 2019,
+    Part II. LNCS, vol. 11922, pp. 636–666. Springer, Heidelberg (Dec 2019). https:
+    //doi.org/10.1007/978-3-030-34621-8_23
+17. Kubjas, I., Skachek, V.: Partial extraction from invertible bloom filters. In: 2022
+    IEEE International Symposium on Information Theory (ISIT). pp. 2415–2420
+    (2022). https://doi.org/10.1109/ISIT50566.2022.9834808
+
+
+                                           29
+18. Mizrahi, A., Bar-Lev, D., Yaakobi, E., Rottenstreich, O.: Invertible bloom lookup
+    tables with listing guarantees. SIGMETRICS Perform. Eval. Rev. 52(1), 19–20
+    (Jun 2024). https://doi.org/10.1145/3673660.3655060, https://doi.org/10.
+    1145/3673660.3655060
+19. Pinkas, B., Schneider, T., Segev, G., Zohner, M.: Phasing: Private set intersection
+    using permutation-based hashing. In: Jung, J., Holz, T. (eds.) USENIX Security
+    2015. pp. 515–530. USENIX Association (Aug 2015)
+20. Pinkas, B., Schneider, T., Zohner, M.: Scalable private set intersection based on
+    ot extension. ACM Trans. Priv. Secur. 21(2) (Jan 2018). https://doi.org/10.
+    1145/3154794, https://doi.org/10.1145/3154794
+21. Pu, S., Gao, J., Trieu, N.: Malicious private set union with two-sided output.
+    Cryptology ePrint Archive, Paper 2026/204 (2026), https://eprint.iacr.org/
+    2026/204
+22. Rabin, M.: How to exchange secrets by oblivious transfer (1981)
+23. Raghuraman, S., Rindal, P.: Blazing fast PSI from improved OKVS and subfield
+    VOLE. pp. 2505–2517. ACM Press (2022). https://doi.org/10.1145/3548606.
+    3560658
+24. Research, V.: volepsi: A protocol for private set intersection. https://github.com/
+    Visa-Research/volepsi/blob/main/volePSI/ (2023), accessed: 2025-01-07
+25. Rindal, P., et al.: cryptotools: A cryptographic library for secure computation.
+    https://github.com/ladnir/cryptoTools (2023), accessed: 2025-01-07
+26. Rindal, P., et al.: libote: A fast and portable oblivious transfer library. https:
+    //github.com/osu-crypto/libOTe (2023), accessed: 2025-01-07
+27. Roy, L.: SoftSpokenOT: Quieter OT extension from small-field silent VOLE in
+    the minicrypt model. pp. 657–687. LNCS, Springer, Heidelberg (2022). https:
+    //doi.org/10.1007/978-3-031-15802-5_23
+28. Tu, B., Bai, Y., Zhang, C., Cao, Y., Chen, Y.: Fast enhanced private set union
+    in the balanced and unbalanced scenarios. In: Proceedings of the 34th USENIX
+    Conference on Security Symposium. SEC ’25, USENIX Association, USA (2025)
+29. Zhang, C., Chen, Y., Liu, W., Zhang, M., Lin, D.: Linear private set union
+    from Multi-Query reverse private membership test. In: 32nd USENIX Security
+    Symposium (USENIX Security 23). pp. 337–354. USENIX Association, Ana-
+    heim, CA (Aug 2023), https://www.usenix.org/conference/usenixsecurity23/
+    presentation/zhang-cong
+
+
+A    Peeling Rounds
+
+As explained in Section 3, the probability of the List algorithm successfully enu-
+merating all elements inserted into an IBLT depends on the threshold parameter
+τ and multiplicative factor e used to instantiate the algorithm, along with the
+number of elements n inserted into IBLT, with Theorem 1 dictating the asymp-
+totics of this probability. Interestingly, these variables also influence the number
+of iterations (i.e., the number of peeling rounds) that the List algorithm (as
+described in Algorithm 3) takes to list all the elements contained in the IBLT.
+    As a result, these variables used when instantiating our proposed PSU proto-
+col also influence the number of communication rounds our protocol requires, as
+our protocol must run the FUnionPeel at the beginning of each peeling round. More
+concretely, the number of communication rounds our protocol takes is roughly
+
+
+                                          30
+equal to 2× the number of peeling rounds it takes to list the elements of IBLT∪ .
+Thus, to obtain estimates for the number of rounds of our protocol, we conduct
+a set of relatively simple experiments to determine the average number of peel-
+ing rounds the List algorithm takes under various settings. The results of these
+experiments can be found in Table 3.
+    To estimate the average number of peeling rounds for threshold τ , multipli-
+cation factor e, and number of elements n = τ , we execute the List algorithm
+100 times, counting the number of peeling rounds in each execution, and then
+compute the average over all 100 executions. For each experiment, we provide
+an IBLT populated with the set of items [n]. An explanation for why this choice
+of population method is sound is given in Section 7.
+    Surprisingly, our results, shown in Table 3, indicate that for large threshold
+values (e.g, τ ∈ {220 , 222 }) increasing the multiplication factor e even by a small
+amount, such as 0.5, can reduce the number of peeling rounds by roughly 64%.
+Thus, in some scenarios where the protocol is being executed over a network
+with high enough latency and high bandwidth, it might be a better choice to
+slightly increase e to achieve a better communication round number.
+    As previously stated, our protocol the number of communication rounds our
+protocol takes is roughly equal to 2× the number of peeling rounds it takes to
+list the elements of IBLT∪ , so, based on Table 3, for τ ∈ {220 , 222 } and e = 2.0,
+our protocol can be configured to take around 18 rounds to execute on average.
+   In comparison with existing work, for example the protocol in [28], the round
+complexity is 4 + roundOP RF + roundssP EQT . Here, the number 4 comes from
+the protocol description, while the latter two terms correspond to the rounds
+required for OPRF and the secret-shared private equality test (ssPEQT), each
+of which needs at least 2 rounds. Hence, [28] requires a minimum of 8 rounds,
+which is not significantly different from our protocol.
+
+
+
+   Threshold (τ )       Multiplication Factor (e)         Number of Rounds
+         214                      4.5 − 5.0                      5 − 3.99
+             16
+         2                        3.5 − 4.0                         5.4
+             18
+         2                        2.0 − 2.5                       9 − 7.2
+             20
+         2                        1.5 − 2.0                      25.2 − 9
+             22
+         2                        1.5 − 2.0                      25.2 − 9
+
+Table 3: Average number of peeling rounds required by List to peel off all encoded
+elements. The number of rounds is averaged out over 100 List executions.
+
+
+
+
+                                         31
+B      Communication Cost per Peeling Round
+
+In Section 8, we report the total communication cost of ΠPSU . In contrast, Table 4
+provides a breakdown of the communication cost per peeling round. We define a
+peeling round as a single invocation of the Union Peel functionality FUnionPeel by
+the two parties during the execution of an instance of the PSU protocol ΠPSU .
+Since the number of times FUnionPeel is invoked varies across different executions
+of ΠPSU , the reported measurements are averaged over 20 protocol runs.
+
+
+    Set Size   Multiplication Factor (e)   Avg. Peeling Round Count   Comm. Cost Per Peeling Round (MB)
+      214                 4.5                         3                              2.1
+      216                 3.5                         4                             5.49
+      218                 2.0                         6                             12.6
+      220                 1.5                         16                            20.02
+      222                 1.5                         16                            80.09
+
+
+Table 4: The average communication cost per peeling round of the ΠPSU protocol.
+The measurements are averaged out over 20 protocol executions.
+
+
+
+
+C      Related Work
+
+In this section, we review the body of work that addresses the two-party PSU
+problem under the semi-honest adversary model, focusing on scenarios where
+both parties possess input sets of equal size.
+    The first in the lineage of relevant works is [16], in which Kolesnikov et al. pro-
+pose and implement the Reverse Private Membership Test (r-PMT) functionality
+and combine it with a hash-to-bins technique to obtain a protocol with O(n log n)
+communication cost and O(n log n log log n) computational cost. In [9], the au-
+thors provide a framework for multiple private set operations, including private
+set union, with Oblivious Switching as its main ingredient, a form of oblivious
+shuffling where one party chooses a vector and the other a permutation, and
+the parties receive additive shares of the permuted vector as output. The PSU
+protocol presented in [9] achieves a computational cost of O(n log n), improving
+on [16] while maintaining the communication cost of O(n log n).
+    Combining and enhancing previous frameworks, the authors of [14] lever-
+age oblivious shuffling to implement a more efficient protocol for a generalized
+version of the r-PMT functionality, and combine it with the Cuckoo hashing
+techniques previously proposed in [9], to implement a more efficient protocol
+than the ones previously discussed by avoiding the use of more expensive prim-
+itives such as additive homomorphic encryption. However, note that [14] does
+not asymptotically improve on previous works, as it still has a communication
+and computational cost of O(n log n). Subsequently, Zhang et. al. [29] adopt the
+model [16] but extend the r-PMT functionality to support multiple input points,
+
+
+                                                      32
+and implement it using OKVS [10], OT [22], and probabilistic secret/public-key
+encryption. By building this extended r-PMT functionality using the listed build-
+ing blocks, the authors achieve both linear communication and computational
+cost, which, when applied accordingly to the framework of [16], lets Zhang et al.
+build PSU protocols with linear performance costs as well.
+    In the same year, [1] proposes an incremental improvement to [29] by using
+the same framework proposed by [29] while replacing the 3H-GCT OKVS [10]
+with a new OKVS construction proposed in this work. Following [29], Chen et
+al. [6] leverage the framework presented in [29] and propose two different ways
+to build the multipoint r-PMT functionality, one using a commutative weak
+pseudorandom function (cwPRF), and the other based on a permuted oblivious
+pseudorandom function (pOPRF), but both based on decisional Diffie-Hellman
+(DDH)-like assumptions in the random oracle model. Both of these modifica-
+tions [1, 6] of the framework proposed by [29] maintain the same asymptotic
+costs as the original framework.
+    More recently, in [13], the authors motivate and define a PSU functionality,
+referred to by the authors as PSU with enhanced security (we discuss this new
+definition in more detail at the end of this section). Naturally, they also provide a
+protocol that realizes this new PSU variant, which they implement using as build-
+ing blocks: oblivious programmable PRF, batched equality conditional random
+generation, and permuted + share. It is important to note here that to fulfill this
+new enhanced security, the proposed protocol suffers a performance degradation
+compared to the previous semi-honest PSU protocols, achieving a communica-
+tion and computational cost of O(n log n). Following in the footsteps of [13], Tu
+et al. propose in [28] a new protocol for PSU with enhanced security that im-
+proves on the efficiency of the previous work by achieving linear performance in
+both communication and computation metrics. The authors of [28] accomplish
+this by combining a standard hash-to-bin technique (cuckoo/simple hashing)
+with a new functionality named by the authors as permuted non-membership
+conditional randomness generation (pnMCRG).
+
+
+Enhanced Security. In [13], the authors coin the term during-execution leak-
+age and define it as any partial information learned during the execution of a
+PSU protocol about the output X ∪ Y of the standard PSU functionality, rather
+than after the two parties are done executing the protocol. Furthermore, they
+list issues that can be caused by running a protocol PSU protocol that expe-
+riences during-execution leakage. For example, the authors argue that such a
+type of leakage may allow the receiver to drop out of the protocol once it has
+learned sufficient partial information about X ∪ Y , which is undesirable in a
+scenario where the sender charges the receiver a monetary fee per complete pro-
+tocol execution. In this same work, Jia et al. propose a new variant of the PSU
+functionality, which they call PSU with enhanced security, that addresses the
+new security requirement that during-execution leakage must not occur. Note
+that this new requirement does not require security against arbitrary malicious
+behaviour, as does the actively malicious security model.
+
+                                         33
+    In a standard two-party PSU protocol secure against semi-honest adversaries,
+however, it is irrelevant whether one of the parties learns any partial information
+about the output X ∪ Y of the PSU functionality, since this security model
+guarantees that the two parties need to complete the protocol as described.
+For this reason, we do not address during-execution leakage in this work. We
+do, however, include the works that address during-execution leakage as related
+works and also include them as part of our performance comparison done in
+Section 8, given that all PSU protocols that provide enhanced security must also
+be secure against semi-honest adversaries.
+
+
+       Prot.           Communication              Computation             Enhanced Sec.
+         [16]                 O(n log n)         O(n log n log log n)            ×
+         [9]                  O(n log n)             O(n log n)                  ×
+         [14]                 O(n log n)             O(n log n)                  ×
+         [29]                   O(n)                    O(n)                     ×
+         [1]                    O(n)                    O(n)                     ×
+         [6]                    O(n)                    O(n)                     ×
+         [13]                 O(n log n)             O(n log n)                  ✓
+         [28]                   O(n)                    O(n)                     ✓
+    Our Protocol                O(n)                    O(n)                     ×
+Table 5: Comparison of Computational and Communication Complexity in Two-Party
+Semi-honest PSU Protocols
+
+
+
+
+D     Peeling The Union Of Two IBLTs: Example
+To illustrate the properties listed in Section 4, we provide a concrete example
+supported by a clear, and easy-to-follow diagram. For clarity, we use small subta-
+bles and assume k = 2 and ℓ = 4, where k denotes the number of hash functions
+(and equivalently, the number of subtables in the IBLT), and ℓ is the length
+of each subtable. We also assume that M = 14, which is sufficiently large to
+represent all positive integer elements that will be inserted into the IBLTs.
+    Let X0 = {7, 8, 11, 13}, X1 = {8, 9}, and X∪ = X0 ∪ X1 = {7, 8, 9, 11, 13}.
+We define IBLT0 ← Encodeprm (X0 ), IBLT1 ← Encodeprm (X1 ), and IBLT∪ ←
+Encodeprm (X∪ ). Suppose the two hash functions h0 and h1 that constitute H
+map the elements {7, 8, 9, 11, 13} as follows:
+    h0 (7) = 1; h1 (7) = 0;       h0 (8) = 3; h1 (8) = 2;       h0 (9) = 0; h1 (9) = 0
+                h0 (11) = 2; h1 (11) = 1;        h0 (13) = 1; h1 (13) = 1
+
+
+                                            34
+The resulting IBLTs are shown in Figure 7. Please, recall that all arithmetic
+done to calculate the components of sum0 and sum1 is done modulo M , while
+the arithmetic done to compute the components of cnt0 and cnt1 is done over
+the integers. We now examine various bins in our example IBLTs that display
+distinct characteristics and intuitively explain the above properties that follow
+from them.
+
+
+
+
+              Fig. 7: Peeling The Union Of Two IBLTs: Example.
+
+
+
+ Case 1. We begin with bins that fall under Case 1, where exactly one IBLT
+has a single element in a given bin and the other has none. Consider bin (0, 0) ,
+which is an example of this case with b = 1. Here, only the element 9 ∈ X1 maps
+to this bin via h0 . Consequently, this bin has:
+ – cnt1,0,1 = 1 and sum1,0,1 = 9 in IBLT1 ,
+ – cnt0,0,1 = 0 in IBLT0 ,
+ – and therefore cnt∪,0,1 = 1 and sum∪,0,1 = 9 in IBLT∪ .
+    This behavior arises because no element from X0 maps to this bin, so the
+only contribution in the merged IBLT comes from X1 . More formally, we can
+state the following implication:
+        cnt0,i,j = 0 ∧ cnt1,i,j = 1 =⇒ cnt∪,i,j = 1 ∧ sum∪,i,j = sum1,i,j
+A symmetric situation occurs in bin (0, 2), where cnt0,i,j = 1 and cnt1,i,j = 0
+for b = 0. By similar reasoning, the merged bin also satisfies cnt∪,i,j = 1 and
+holds the element from IBLT0 . Thus, the general rule for this case is given by (1).
+Intuitively, this means that when only one dataset contributes a single element
+to a bin, and the other contributes nothing, the merged IBLT preserves that
+element exactly. Moreover, the bin is peelable in IBLT∪ , and we can recover
+sumb,i,j directly.
+
+
+                                        35
+ Case 2. Consider bin (1, 0) , where exactly one element is mapped in both
+IBLT0 and IBLT1 : element 7 in IBLT0 and element 9 in IBLT1 . In the merged
+IBLT, IBLT∪ , bin (1, 0) contains both elements 7 and 9. This occurs because
+there is exactly one distinct element from each set X0 and X1 that hashes to this
+bin, and since the elements differ, the union set X∪ maps two distinct elements
+to (1, 0) . Formally, this implies the property stated in (2).
+    Intuitively, when both IBLTs have exactly one (but distinct) element mapped
+to the same bin, the combined bin in IBLT∪ contains multiple elements, making
+it not peelable.
+
+ Case 3. Consider bin (1, 2) . In this bin, exactly one element is mapped in
+each of the three IBLTs, and this element is 8. Unlike Case 2, where the elements
+differed, here the element mapped to bin (1, 2) in both IBLT0 and IBLT1 is the
+same.
+    Because the sets X0 and X1 both contain the same element mapping to
+bin (1, 2) , the union X∪ = X0 ∪ X1 also has exactly one element mapped
+there. Therefore, we have (3). Intuitively, when both IBLTs map the same single
+element to a bin, the merged bin remains peelable with that element preserved.
+
+ Case 4. Consider bin (0, 1) . In this bin, exactly two elements—7 and 13—are
+mapped in both IBLT0 and the merged IBLT IBLT∪ , while no elements map to
+it in IBLT1 . Since at least two elements from X0 map to bin (0, 1) , it follows
+that at least two elements from the union set X∪ = X0 ∪ X1 also map there.
+    By a symmetric argument, if IBLT1 has two or more elements mapped to a
+bin, so will the merged IBLT. Formally, this gives us the property listed in (4).
+Intuitively, when either IBLT0 or IBLT1 maps multiple elements to the same bin,
+the merged bin will also contain multiple elements, making it not peelable.
+
+ Case 5. Finally, consider bin (1, 3) , where no element is mapped in any of
+the three IBLTs. Since neither X0 nor X1 contains elements that map to this
+bin, it follows that no element from the union X∪ = X0 ∪ X1 maps there either.
+Consequently, bin (i, j) is empty in IBLT∪ . Formally, we have (5). This also
+implies that such a bin (i, j) in IBLT∪ is not peelable.
+
+
+E     Security Proofs
+E.1    Proof for Theorem 2: Peeling The Union Of Two IBLTs
+Let IBLT0 , IBLT1 and IBLT∪ parse to (sum0 , cnt0 , M, k, ℓ, H), (sum1 , cnt1 , M, k, ℓ, H),
+and (sum∪ , cnt∪ , M, k, ℓ, H), respectively. Let (i, j) ∈ [k]×[ℓ]. We begin by prov-
+ing the following five claims individually:
+
+(1) ∀b ∈ {0, 1}, cntb,i,j = 1 ∧ cnt1−b,i,j = 0 =⇒ cnt∪,i,j = 1 ∧ sum∪,i,j = sumb,i,j
+(2) cnt0,i,j = cnt1,i,j = 1 ∧ sum0,i,j ̸= sum1,i,j =⇒ cnt∪,i,j > 1
+
+
+                                          36
+(3) cnt0,i,j = cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j =⇒ cnt∪,i,j = 1 ∧ sum∪,i,j = sum0,i,j
+(4) cnt0,i,j > 1 ∨ cnt1,i,j > 1 =⇒ cnt∪,i,j > 1
+(5) cnt0,i,j = cnt1,i,j = 0 =⇒ cnt∪,i,j = 0
+
+
+Case 1. Let b ∈ {0, 1}. Assume that cntb,i,j = 1 and cnt1−b,i,j = 0. By
+the definitions of IBLTb and IBLT1−b , and according to the Encode algorithm
+described in Algorithm 1, we know that there exists exactly one element xb ∈ Xb
+such that hi (xb ) = j. Additionally, there is no element x1−b ∈ X1−b such that
+hi (x1−b ) = j. Therefore, in the union X∪ = X0 ∪X1 , there is exactly one element
+x∪ such that hi (x∪ ) = j, and specifically, x∪ = xb . Following the definition of
+IBLT∪ and the behavior of the Encode algorithm, we conclude that cnt∪,i,j = 1
+and sum∪,i,j = sumb,i,j . Furthermore, in this case, we can immediately deduce
+that
+                    Peel(IBLT∪ , i, j) = uPeel(IBLT0 , IBLT1 , i, j)                (11)
+
+by the definitions of Peel and uPeel, together with the truth of statement (1).
+
+Case 2. Now suppose that cnt0,i,j = 1, cnt1,i,j = 1, and sum0,i,j ̸= sum1,i,j .
+By the definition of IBLTb and the Encode algorithm (Algorithm 1), for each
+b ∈ {0, 1}, there exists exactly one element xb ∈ Xb such that hi (xb ) = j. This
+directly implies that sumb,i,j = xb . Since we are assuming that sum0,i,j ̸= sum1,i,j ,
+it follows that x0 ̸= x1 . Because both x0 and x1 belong to X∪ = X0 ∪ X1 and
+both map to the same hash bucket j, it follows from the definition of IBLT∪ and
+the description of Encode that cnt∪,i,j > 1. Moreover, given that statement (2)
+holds in this case, we can conclude that Equation (11) is satisfied here as well.
+
+Case 3. Consider the case where cnt0,i,j = 1, cnt1,i,j = 1, and sum0,i,j =
+sum1,i,j . Following the same reasoning from case (2), we know that for each
+b ∈ {0, 1}, there exists exactly one element xb ∈ Xb such that hi (xb ) = j, and
+we have sumb,i,j = xb . However, unlike case (2), we now have sum0,i,j = sum1,i,j ,
+which implies that x0 = x1 . Therefore, in the union X∪ = X0 ∪ X1 , there is
+exactly one element x∪ such that hi (x∪ ) = j, and this element is x∪ = x0 = x1 .
+According to the definition of IBLT∪ and the workings of the Encode algorithm,
+it follows that cnt∪,i,j = 1 and sum∪,i,j = x∪ = x0 = sum0,i,j . Additionally, since
+statement (3) holds in this case, we have that Equation (11) is satisfied here as
+well.
+
+Case 4. Now consider the case where either cnt0,i,j > 1 or cnt1,i,j > 1. Let
+b ∈ {0, 1} be such that cntb,i,j > 1. According to the definition of IBLTb and the
+description of the Encode algorithm (Algorithm 1), there must exist at least two
+distinct elements x, x′ ∈ Xb such that hi (x) = hi (x′ ) = j. Since X∪ = X0 ∪ X1 ,
+these elements x and x′ are contained in X∪ . Consequently, by the definition of
+IBLT∪ and the algorithm Encode, we know that cnt∪,i,j > 1. Furthermore, since
+statement (4) holds in this case, we have that Equation 11 also holds.
+
+                                           37
+Case 5. Lastly, suppose cnt0,i,j = cnt1,i,j = 0. By our assumption, and
+according to the definitions of IBLTb and the description of the Encode algorithm
+(Algorithm 1), there is no element x ∈ Xb such that hi (x) = j for either b = 0 or
+b = 1. Therefore, in the union X∪ = X0 ∪ X1 , it follows that there is no element
+x ∈ X∪ such that hi (x) = j. Based on this, the definition of IBLT∪ , and the
+behavior of Encode, we conclude that cnt∪,i,j = 0. Similar to the previous cases,
+the correctness of statement (5) confirms that Equation 11 holds in this case as
+well.
+   Finally, observe that the five cases above exhaustively cover all possible com-
+binations of the values of cnt0,i,j and cnt1,i,j . In each of these cases, we have
+shown that Equation (11) holds. Therefore, we can infer that
+                     Peel(IBLT∪ , i, j) = uPeel(IBLT0 , IBLT1 , i, j)
+concluding our proof.
+
+E.2    Proof for Theorem 3: Union Peel FUnionPeel
+We begin by establishing the correctness of ΠUnionPeel , followed by a proof of its
+privacy property.
+
+Correctness. We prove correctness by proceeding in reverse order, starting
+from the final equations of the protocol and moving backward toward the initial
+ones.
+    Based on the definition of the functionality FOT (Step 4 of the protocol),
+along with Equations (4) and (5), which determine the values of di,j and wi,j
+for each (i, j) ∈ Q, we have gi,j for every (i, j) ∈ Q as follows:
+                    
+                    wi,j,0 , if cnt1,i,j = 0
+                    
+              gi,j = wi,j,1 , if cnt1,i,j = 1                  (ref. Eq. 5)
+                    
+                      wi,j,2 , if cnt1,i,j > 1
+                    
+                    
+                    wi,j,0 , if cnt1,i,j = 0
+                    
+                   = ui,j ,    if cnt1,i,j = 1                 (ref. Eq. 5)          (12)
+                    
+                      ⊥,       if cnt1,i,j > 1
+                    
+
+    Moreover, based on the definition of uPeel (Definition 2), we know that re-
+gardless of the value of cnt0,i,j , if cnt1,i,j > 1, then uPeel(IBLT0 , IBLT1 , i, j) = ⊥,
+for (i, j) ∈ [k] × [ℓ]. Thus, we can rewrite Equation 12 as
+               
+               wi,j,0 , if cnt1,i,j = 0
+               
+        gi,j = ui,j ,     if cnt1,i,j = 1                           (ref. Eq. 12)
+               
+                 ⊥,       if cnt1,i,j > 1
+               
+               
+               wi,j,0 ,
+                                               if cnt1,i,j = 0
+             = ui,j ,                           if cnt1,i,j = 1                       (13)
+               
+                 uPeel(IBLT0 , IBLT1 , i, j), if cnt1,i,j > 1
+               
+
+
+                                           38
+   Furthermore, note that wi,j,0 = sum0,i,j if cnt0,i,j = 1, and wi,j,0 = ⊥ other-
+wise. This means that if cnt1,i,j = 0, we have wi,j,0 = uPeel(IBLT0 , IBLT1 , i, j),
+implying that we can rewrite Equation 13 as
+
+             
+             wi,j,0 ,
+                                                if cnt1,i,j = 0
+       gi,j = ui,j ,                             if cnt1,i,j = 1       (ref. Eq. 13)
+             
+               uPeel(IBLT0 , IBLT1 , i, j),      if cnt1,i,j > 1
+             
+             
+             uPeel(IBLT0 , IBLT1 , i, j),
+                                                if cnt1,i,j = 0
+            = ui,j ,                             if cnt1,i,j = 1                       (14)
+             
+               uPeel(IBLT0 , IBLT1 , i, j),      if cnt1,i,j > 1
+             
+
+     Now, using Equations (4) and (14), we can express the value of vi,j for each
+(i, j) ∈ Q defined in Step 5 in the following form:
+        
+        sum1,i,j , if di,j = 1 ∧ gi,j = Fki,j (sum1,i,j )
+        
+vi,j = ⊥,           if di,j = 1 ∧ gi,j ̸= Fki,j (sum1,i,j )
+        
+         gi,j ,     otherwise
+        
+        
+        sum1,i,j , if cnt1,i,j = 1 ∧ gi,j = Fki,j (sum1,i,j )
+        
+     = ⊥,           if cnt1,i,j = 1 ∧ gi,j ̸= Fki,j (sum1,i,j )                                  (ref. Eq. 4)
+        
+         gi,j ,     otherwise
+        
+        
+        sum1,i,j ,
+                                                 if cnt1,i,j = 1 ∧ ui,j = Fki,j (sum1,i,j )
+     = ⊥,                                         if cnt1,i,j = 1 ∧ ui,j ̸= Fki,j (sum1,i,j )   (ref. Eq. 14)
+        
+         uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j), otherwise
+        
+                                                                                      (15)
+
+    Next, we analyze the equation that defines how the values ui,j are computed
+for every (i, j) ∈ Q, specifically identifying the conditions under which ui,j =
+                                                                          ?
+Fki,j (sum1,i,j ) holds. Based on Equation (2) and the fact that ci,j = [cnt0,i,j = 0],
+we obtain:
+                        
+                        Fki,j (sum0,i,j ), if cnt0,i,j = 1
+                        
+                 ui,j = Fki,j (fi,j ),      if cnt0,i,j = 0 ∧ fi,j ̸= ⊥
+                        
+                          ri,j ,            otherwise.
+                        
+                        
+                        Fki,j (sum0,i,j ), if cnt0,i,j = 1
+                        
+                      = Fki,j (sum1,i,j ), if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+                        
+                          ri,j ,            otherwise.
+                        
+
+                                                                                       (16)
+
+   Thus, based on Equation 16, the definition of FOPRF (Figure. 2), and the fact
+that ri,j is uniformly distributed, we know that the following holds for every
+
+
+                                            39
+(i, j) ∈ Q with overwhelming probability, assuming the range of the PRF value
+Fki,j and the support of ri,j are sufficiently large for each (i, j) ∈ Q:
+       
+       sum1,i,j ,
+                                                     if cnt1,i,j = 1 ∧ ui,j = Fki,j (sum1,i,j )
+vi,j = ⊥,                                             if cnt1,i,j = 1 ∧ ui,j ̸= Fki,j (sum1,i,j )
+       
+        uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j),      otherwise
+       
+       
+       
+       sum1,i,j ,                                    if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+       
+       sum
+           1,i,j ,                                    if cnt1,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j
+     =
+       
+       
+       ⊥,                                            if cnt1,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j ̸= sum1,i,j
+       
+        uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j),      otherwise
+       
+       
+       uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j),      if cnt1,i,j = 0 ∧ cnt1,i,j = 1
+       
+       uPeel(sum , cnt , sum , cnt , i, j),
+                   0      0      1      1             if cnt1,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j
+     =                                                                                                        (ref. Def. 2)
+       
+       
+       uPeel(sum  0 , cnt0 , sum1 , cnt1 , i, j),    if cnt1,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j ̸= sum1,i,j
+       
+        uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j),      otherwise
+    = uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j)                                                       (17)
+
+    Finally, based on the definition of FUnionPeel and the fact that the descrip-
+tion of ΠUnionPeel specifies that both parties output V = vi,j | (i, j) ∈ Q, we can
+conclude that ΠUnionPeel satisfies the correctness property.
+
+Security. We now proceed to prove that our protocol satisfies the privacy
+property as defined in our security model, beginning with the simulation for a
+corrupt party P0 .
+
+Corrupt P0 . In order to show that a simulator S0 can simulate party P0 ’s proto-
+col transcript, we begin by observing that P0 ’s view consists of three components:
+(1) the values {fi,j }(i,j)∈Q received from the OTs executed during Step 1 of the
+protocol; (2) the PRF keys {ki,j }(i,j)∈Q obtained from the OPRF executions in
+Step 2; and (3) the set V sent by P1 in Step 6.
+    As established in the correctness proof of ΠUnionPeel , the set V sent by P1
+corresponds to the output of the ideal functionality FUnionPeel . Therefore, S0 can
+trivially simulate this component using the output from the ideal functionality.
+    To simulate the PRF key component {ki,j }(i,j)∈Q , S0 can independently sam-
+ple each ki,j using the KeyGen algorithm associated with the PRF F used in the
+OPRF protocol. This is valid because the remaining components of the tran-
+script are independent of these PRF keys. The only remaining component to
+simulate is the set of values fi,j (i,j)∈Q received from the OTs. We now show that
+S0 can simulate this part of the transcript as well.
+                                                           ?
+    Given the definition of FOT , the condition ci,j = [cnt0,i,j = 0] and Equa-
+tion (2), we can derive the following equation that determines each value fi,j in
+the set {fi,j }(i,j)∈Q :
+                           (
+                             sum1,i,j , if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+                    fi,j =                                                     (18)
+                             ⊥,         otherwise
+
+                                                     40
+   Given the definition of FUnionPeel , we can leverage its output set V = {(vi,j , i, j) | (i, j) ∈
+                                          ′
+Q} to compute each simulated value fi,j      corresponding to fi,j as follows:
+                                  (
+                            ′       vi,j , if cnt0,i,j = 0
+                           fi,j =
+                                    ⊥,      otherwise
+                                                     ′
+, given that S0 also holds cnt0 . To see that fi,j       = fi,j for every (i, j) ∈ Q note
+that from the definition of FUnionPeel and the definition of the function uPeel, we
+have
+       (
+  ′      vi,j , if cnt0,i,j = 0
+fi,j =
+         ⊥,     otherwise
+       (
+         uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j), if cnt0,i,j = 0
+     =                                                                (ref. Def. of FUnionPeel )
+         ⊥,                                       otherwise
+       (
+         sum1,i,j , if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+     =                                                 (ref. Def. 2)
+         ⊥,          otherwise
+    = fi,j (ref. Eq. 18)
+
+Therefore, we conclude that a simulator S0 can successfully simulate the protocol
+transcript of party P0 . We now proceed to construct a simulator S1 for the case
+where party P1 is corrupt.
+
+Corrupt P1 . We begin this part of the proof by describing a simulator S1 and
+then demonstrating that it correctly simulates party P1 ’s protocol transcript.
+Referring to the protocol description in Figure 4 for ΠUnionPeel , we observe that
+the view of party P1 consists of two components: the values {Fki,j (zi,j )}(i,j)∈Q
+obtained from the OPRF executions, and the values {gi,j }(i,j)∈Q received from
+the OTs. Therefore, the simulator S1 must produce outputs that accurately
+simulate these two parts of the transcript.
+                     ′
+    Let yi,j and gi,j    denote the values generated by S1 to simulate S1 to simulate
+Fki,j (zi,j ) and gi,j , respectively, for each (i, j) ∈ Q. Let V = {(vi,j , i, j) | (i, j) ∈
+Q} be the output set produced by the ideal functionality FUnionPeel . To simulate
+the OPRF outputs, S1 samples each yi,j independently and uniformly at random
+from the output range of the PRF F . Then, using the values in V , the simulator
+                    ′
+computes each gi,j       such that:
+                  
+                  vi,j , if cnt1,i,j = 0 ∨ cnt1,i,j > 1
+                  
+             ′
+            gi,j = yi,j , if cnt1,i,j = 1 ∧ vi,j ̸= ⊥       for every (i, j) ∈ Q         (19)
+                  
+                     si,j , otherwise
+                  
+
+where si,j is sampled uniformly at random for each (i, j) ∈ Q. From Equation 14,
+                                                                ′
+we know that gi,j = uPeel(IBLT0 , IBLT1 , i, j), thus we have gi,j  = vi,j . At the
+same time, we have that gi,j is an OPRF evaluation or a randomly sampled item
+when cnt1,i,j = 1, hence we have the values for the other cases as in Equation 19.
+
+
+                                             41
+    From the FOPRF definition (Figure. 2), it follows straightforwardly that the set
+{yi,j }(i,j)∈Q is computationally indistinguishable from {Fki,j (zi,j )}(i,j)∈Q . There-
+                                                        ′
+fore, we focus our analysis on the simulated values {gi,j }(i,j)∈Q . To facilitate this,
+we rewrite Equation (14) as follows:
+
+       
+       uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j), if cnt1,i,j = 0
+       
+gi,j = ui,j ,                                     if cnt1,i,j = 1
+       
+         uPeel(sum0 , cnt0 , sum1 , cnt1 , i, j), if cnt1,i,j > 1
+       
+       
+       vi,j , if cnt1,i,j = 0
+       
+     = ui,j , if cnt1,i,j = 1                                                          (Def. of vi,j )
+       
+         vi,j , if cnt1,i,j > 1
+       
+       (
+         vi,j , if cnt1,i,j = 0 ∨ cnt1,i,j > 1
+     =
+         ui,j , otherwise
+       
+       
+       
+        vi,j ,             if cnt1,i,j = 0 ∨ cnt1,i,j > 1
+       Fki,j (sum1,i,j ), if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+       
+       
+       
+     = Fki,j (sum1,i,j ), if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j         (ref. Eq. 16)
+       
+         Fki,j (sum0,i,j ), if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j ̸= sum1,i,j
+       
+       
+       
+       
+       
+       r ,
+          i,j               otherwise.
+                                                                                       (20)
+
+
+Additionally, note that to party P1 , for every (i, j) where sum0,i,j ̸= sum1,i,j ,
+the value Fki,j (sum0,i,j ) is computationally indistinguishable from a uniformly
+sampled element from the range of F . Based on this observation, together with
+the fact that S1 samples each si,j uniformly at random from the range of F for
+every (i, j) ∈ Q, we have:
+
+        
+        
+        
+         vi,j ,               if cnt1,i,j = 0 ∨ cnt1,i,j > 1
+        Fki,j (sum1,i,j ),    if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+        
+        
+        
+ gi,j = Fki,j (sum1,i,j ),     if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j
+        
+          Fki,j (sum0,i,j ),   if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j ̸= sum1,i,j
+        
+        
+        
+        
+        
+        r ,
+           i,j                 otherwise.
+        
+        
+         vi,j ,               if cnt1,i,j = 0 ∨ cnt1,i,j > 1
+        
+      c
+         Fki,j (sum1,i,j ),   if cnt0,i,j = 0 ∧ cnt1,i,j = 1
+      ≡                                                                             (21)
+        
+        
+         Fki,j (sum1,i,j ),   if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j
+          si,j ,               otherwise.
+        
+
+
+
+   Furthermore, we rewrite Equation (19) as
+
+
+                                            42
+       
+       vi,j ,
+                 if cnt1,i,j = 0 ∨ cnt1,i,j > 1
+ ′
+gi,j = yi,j ,     if cnt1,i,j = 1 ∧ vi,j ̸= ⊥
+       
+        si,j ,    otherwise
+       
+       
+       
+       vi,j ,    if cnt1,i,j = 0 ∨ cnt1,i,j > 1
+       
+       y ,
+          i,j     if cnt1,i,j = 1 ∧ cnt0,i,j = 0
+     =                                                                   (ref. Def. of vi,j and Def. 2)
+       
+       
+       y i,j ,   if cnt0,i,j = 1 ∧ cnt1,i,j = 1 ∧ sum0,i,j = sum1,i,j
+        si,j ,    otherwise
+       
+
+                                                                                     (22)
+
+    Finally, based on Equations (21) and (22), we conclude that the two tran-
+                                                   ′
+scripts {Fki,j (zi,j ), gi,j }(i,j)∈Q and {yi,j , gi,j }(i,j)∈Q are computationally indis-
+tinguishable.
+
+E.3    Security Proof for PSU Protocol
+We first establish the correctness of ΠPSU , and then prove its privacy guarantees.
+Throughout this proof, we assume that the IBLT parameters prm = (M, k, ℓ, H)
+used by ΠPSU are chosen so that the List algorithm fails with negligible proba-
+bility when applied to a threshold of n0 + n1 , as stated in Theorem 1.
+
+E.3.1 Correctness. Let X0 and X1 denote the input sets of parties P0 and
+P1 , respectively, as defined in our PSU protocol (Figure 5). Define X∪ = X0 ∪X1
+and let IBLT∪ ← Encodeprm (X∪ ). By our assumption on the IBLT parameters
+prm, the algorithm List(IBLT∪ ) correctly outputs X∪ with overwhelming prob-
+ability. Since the ideal functionality FPSU (Figure 3) specifies that both parties
+receive X∪ as output, it suffices to show that ΠPSU outputs the same value as
+List(IBLT∪ ) to both parties. To establish this, we analyze the steps of the List
+algorithm alongside the operations of the ΠPSU protocol. By examining both
+descriptions, we observe that they follow the same structural flow.
+ – The List algorithm consists of a single loop that continues as long as the
+   set Q(t) is non-empty at iteration t; otherwise, the loop terminates. In each
+   iteration, the algorithm computes the sets V (t) and Q(t+1) , then increments
+   t. After the loop concludes, the algorithm outputs the union V = V (0) ∪ · · · ∪
+   V (r−1) , where r is the final value of t upon termination. Note that List is
+   guaranteed to terminate, so r is well-defined.
+ – The protocol ΠPSU follows an identical flow, differing only in notation: it
+           (t)       (t)
+   uses Qπ and Vπ instead of Q(t) and V (t) , and outputs Vπ instead of V .
+   Here, the subscript π refers to the interactive protocol execution. Similarly,
+   we denote the final iteration count by rπ for ΠPSU .
+   Given this structural correspondence, to prove that List and ΠPSU produce
+                                                                          (t)
+the same output, it suffices to show that for every iteration t, we have Qπ = Q(t)
+
+                                            43
+      (t)
+and Vπ = V (t) . The remainder of this correctness proof proceeds by induction
+on t, establishing that these equalities hold at each step of the computation.
+
+Analyzing List. We observe that the sets Q(t) and V (t) evolve according to
+the following recurrence relations:
+ 1. Initialization and update of Q(t) :
+
+
+    Q(0) = {[k]×[ℓ]} and             Q(t) = {(i, hi (v)) | i ∈ [k]∧v ∈ V (t−1) }, for t ∈ [1, r]
+                                                                                           (23)
+ 2. Computation of V (t) :
+
+
+        V (t) = { Peel(IBLT(t) , i, j) | (i, j) ∈ Q(t) } \ {⊥}, for t ∈ [0, r − 1]                 (24)
+                         (t)
+ 3. Update of IBLT :
+
+
+    IBLT(0) = IBLT∪            IBLT(t) = DeleteSet(IBLT(t−1) , V (t−1) ), for t ∈ [1, r]
+                               and
+                                                                                 (25)
+    where IBLT(t) consists of (sum(t) , cnt(t) , M, k, ℓ, H).
+                                                                         (t)            (t)
+Analyzing ΠPSU .           Similarly, in ΠPSU , the variables Qπ and Vπ                       evolve as
+follows:
+                                           (t)
+ 1. Initialization and update of Qπ :
+
+
+    Q(0)
+     π = {[k]×[ℓ]}       Q(t)                              (t−1)
+                          π = { (i, hi (v)) | i ∈ [k]∧v ∈ Vπ
+                               and                               }, for t ∈ [1, rπ ]
+                                                                            (26)
+                    (t)
+ 2. Computation of Vπ from the tuples T (t) :
+                        Vπ(t) = { v | (v, i, j) ∈ T (t) } \ {⊥}, for t ∈ [rπ ].                    (27)
+ 3. Computation of T (t) using the interactive peel operation uPeel:
+                                                                   (t)     (t)
+    T (t) = { (v, i, j) | (i, j) ∈ Q(t)
+                                    π ∧ v = uPeel(IBLT0 , IBLT1 , i, j)}, for t ∈ [rπ ]
+                                                                                 (28)
+ 4. Initialization and update of each party’s IBLT:
+            (0)
+      IBLTb = Encodeprm (Xb )
+            (t)                        (t−1)
+                                                                                                   (29)
+      IBLTb = DeleteSet(IBLTb                  , Vπ(t−1) ∩ Xb ), for b ∈ {0, 1}, t ∈ [1, rπ ]
+                  (t)                    (t)       (t)
+    where IBLTb parses to (sumb , cntb , M, k, ℓ, H) for b ∈ {0, 1}.
+                                                             (t)                  (t)
+    Using these equations, we first show that Qπ = Q(t) and Vπ = V (t) hold
+for the base case t = 0. We then proceed to prove the inductive step for all
+t ∈ [1, rmin ], where rmin = min{r, rπ }. Finally, we show that r = rπ . Recall that
+there are three IBLTs involved: IBLT0 encoding X0 , IBLT1 encoding X1 , and
+IBLT∪ encoding the union X0 ∪ X1 .
+
+                                                  44
+Base Case. Based on Equations (23) and (26), it is straightforward to see that
+  (0)                              (0)
+Qπ = Q(0) = {[k] × [ℓ]}. Since Qπ = Q(0) and these sets are non-empty, both
+                                                 (0)
+List and ΠPSU proceed to compute V (0) and Vπ , respectively.
+                   (0)      (0)
+     To show that Vπ = V , we rewrite Equation (27) using the definition of
+T (t) from Equation (28), as follows: For t ∈ [rπ ],
+
+      Vπ(t) = { v | (v, i, j) ∈ T (t) } \ {⊥}
+                                                                   (t)          (t)
+           = { v | (i, j) ∈ Q(t)
+                             π ∧ v = uPeel(IBLT0 , IBLT1 , i, j)} \ {⊥}                                 (30)
+                         (t)     (t)
+           = { uPeel(IBLT0 , IBLT1 , i, j) | (i, j) ∈ Q(t)
+                                                       π } \ {⊥}
+                                                                          (0)         (0)
+    Moreover, note that given the definitions of IBLT0 , IBLT1 , IBLT(0) in Equa-
+                                                                              (0)
+tions (25) and (29), together with Definition 3, we know that the set {IBLT0 ,
+     (0)
+IBLT1 , and IBLT(0) } are union peelable, and that all three IBLTs share the
+same parameters prm. Thus, combining this fact with Equations (30) and (24),
+and applying Theorem 2, we obtain:
+
+                            (0)           (0)
+   Vπ(0) = { uPeel(IBLT0 , IBLT1 , i, j) | (i, j) ∈ Q(0)
+                                                     π } \ {⊥}
+
+        = { Peel(IBLT(0) , i, j) | (i, j) ∈ Q(0)
+                                             π } \ {⊥}                                      (ref. Thm. 2)
+                           (0)                            (0)
+        = { Peel(IBLT            , i, j) | (i, j) ∈ Q           } \ {⊥}                     (Q(0)
+                                                                                              π =Q
+                                                                                                  (0)
+                                                                                                      )
+        = V (0)                                                                             (ref. Eq. 24)
+                                                                                                        (31)
+                     (t)                          (t)
+This proves that Qπ = Q(t) and Vπ                       = V (t) , for t = 0.
+
+Inductive Hypothesis & Step. Before proceeding to prove the inductive
+step, we first introduce an additional base case corresponding to an “inductive”
+                                                                               (t)
+assumption – see Equation (35). This assumption will help us prove that Vπ =
+  (t)
+V     during the inductive step. Specifically, we establish the following base case:
+                   IBLT(0) = Encodeprm (X∪ \ Z (0) )
+                           (0)
+                                                                                                        (32)
+                   IBLTb = Encodeprm (Xb \ Zπ(0) ), for b ∈ {0, 1}
+                                    (t)
+where we define Z (t) and Zπ as
+                                [
+                        Z (t) =   V (j) , for t ∈ [r + 1]
+                                          j∈[t]
+                                          [                                                             (33)
+                             Zπ(t) =              Vπ(j) , for t ∈ [rπ + 1]
+                                          j∈[t]
+
+                                                                                              (0)
+This auxiliary base case holds trivially because both Z (0) and Zπ are empty
+                     (0)
+sets, i.e., Z (0) = Zπ = ∅.
+    We now proceed with the inductive step, where t ∈ [1, rmin ] and rmin =
+min{r, rπ }. For simplicity, we restrict our proof to the range t ≤ rmin . Later, we
+will show that r = rπ , completing the full argument.
+
+
+                                                        45
+Inductive Hypothesis. Let u ∈ [1, rmin ]. Suppose that the following hold for all
+t ∈ [u]
+                       Q(t)
+                        π =Q
+                                (t)
+                                     and Vπ(t) = V (t)                      (34)
+We refer to these as Statement 1 and Statement 4, respectively. Additionally,
+suppose that
+                  IBLT(t) = Encodeprm (X∪ \ Z (t) )
+                       (t)
+                                                                        (35)
+                  IBLTb = Encodeprm (Xb \ Zπ(t) ), for b ∈ {0, 1}
+We refer to these as Statement 2 and Statement 3, respectively. The corre-
+sponding base cases for these statements have already been established.
+
+Inductive Step. Assume the inductive hypothesis holds for some u ∈ [1, rmin ],
+as stated in Statements 1–4. We now prove that these statements also hold for
+the next iteration, t = u.
+    We first prove Statement 1, as follows. We have:
+
+    Q(t)                                (t−1)
+     π = { (i, hi (v)) | i ∈ [k] ∧ v ∈ Vπ     }                                 (ref. Eq. 26)
+                                                   (t−1)
+         = { (i, hi (v)) | i ∈ [k] ∧ v ∈ V                 }     (since Vπ(t−1) = V (t−1) )       (36)
+              (t)
+         =Q                                                                     (ref. Eq. 23)
+
+We now proceed to prove Statement 2:
+
+                               IBLT(t) = Encodeprm (X∪ \ Z (t) )                                  (37)
+
+To this end, note that from Equations (24), (35) and Theorem 5, it follows that
+
+                                    V (t−1) ⊆ X∪ \ Z (t−1)                                        (38)
+
+which directly implies that
+
+                                     V (t−1) ∩ Z (t−1) = ∅                                        (39)
+
+Using these facts, we get
+
+IBLT(t) = DeleteSet(IBLT(t−1) , V (t−1) ))                                               (ref. Eq. 25)
+                                                  (t−1)          (t−1)
+        = DeleteSet(Encodeprm (X∪ \ Z                     ), V           )               (ref. Eq. 35)
+        = Encodeprm ((X∪ \ Z (t−1) ) \ V (t−1) )                             (ref. Thm. 6 and Eq. 38)
+                                    (t−1)         (t−1)
+        = Encodeprm (X∪ \ (Z                 ∪V           ))
+                                   (t)
+        = Encodeprm (X∪ \ Z              )                                               (ref. Eq. 33)
+
+This concludes the proof of Statement 2, corresponding to the first equation
+in (35). Next, we proceed to prove Statement 3, which corresponds to the
+second relation in Equation (35).
+                         (t)
+                    IBLTb = Encodeprm (Xb \ Zπ(t) ), for b ∈ {0, 1}                               (40)
+
+
+                                                  46
+   We first observe that:
+                                               [
+                                  Zπ(t) =              Vπ(j)     (ref. Eq. 33)
+                                               j∈[t]
+                                               [
+                                       =               V (j)     (ref. Eq. 34)                     (41)
+                                               j∈[t]
+
+                                       = Z (t)                   (ref. Eq. 33)
+
+Based on this, we have
+            (t)                      (t−1)
+  IBLTb = DeleteSet(IBLTb                      , Vπ(t−1) ∩ Xb )                    (ref. Eq. 29)
+                  = DeleteSet(Encodeprm (Xb \ Zπ(t−1) ), Vπ(t−1) ∩ Xb )            (ref. Eq. 35)
+                                                                                                   (42)
+                  = DeleteSet(Encodeprm (Xb \ Zπ(t−1) ), V (t−1) ∩ Xb )            (ref. Eq. 34)
+                  = DeleteSet(Encodeprm (Xb \ Z (t−1) ), V (t−1) ∩ Xb )            (ref. Eq. 41)
+
+Moreover, since V (t−1) ∩ Xb ⊆ Xb and V (t−1) ∩ Z (t−1) = ∅, it follows that
+
+                                   V (t−1) ∩ Xb ⊆ Xb \ Z (t−1)                                     (43)
+
+and
+
+                    (Xb \ Z (t−1) ) \ (V (t−1) ∩ Xb ) = (Xb \ Z (t−1) ) \ V (t−1)                  (44)
+This allows us to further rewrite Equation (42) as
+      (t)
+IBLTb = DeleteSet(Encodeprm (Xb \ Z (t−1) ), V (t−1) ∩ Xb )                                   (ref. Eq. 42)
+             = Encodeprm ((Xb \ Z (t−1) ) \ (V (t−1) ∩ Xb ))                     (ref. Thm. 6 and Eq. 43)
+                                      (t−1)              (t−1)
+             = Encodeprm ((Xb \ Z               )\V              )                            (ref. Eq. 44)
+                                      (t−1)             (t−1)
+             = Encodeprm (Xb \ (Z               ∪V              ))
+                                     (t)
+             = Encodeprm (Xb \ Z           )                                                  (ref. Eq. 33)
+             = Encodeprm (Xb \ Zπ(t) )
+                                                                               (45)
+for b ∈ {0, 1}, showing that Statement 3 holds true.
+    Next, we move to the final part of this induction step proof, where we show
+                                   (t)
+that Statement 4 holds; that is, Vπ = V (t) . To prove this equality, first observe
+that Equations (37), (40), and (41) imply
+                                       (t)
+                                  IBLT0 = Encodeprm (X0 \ Z (t) )
+                                       (t)
+                                  IBLT1 = Encodeprm (X1 \ Z (t) )
+                                  IBLT(t) = Encodeprm (X∪ \ Z (t) )
+
+Given this fact, along with the equality (X0 \ Z (t) ) ∪ (X1 \ Z (t) ) = X∪ \ Z (t) , and
+                                   (t)     (t)
+Definition 3, it follows that {IBLT0 , IBLT1 and IBLT(t) } are union peelable.
+
+
+                                                          47
+Thus, we have
+                       (t)       (t)
+  Vπ(t) = { uPeel(IBLT0 , IBLT1 , i, j) | (i, j) ∈ Q(t)
+                                                    π } \ {⊥}              (ref. Eq. 30)
+                      (t)    (t)
+       = { uPeel(IBLT0 , IBLT1 , i, j) | (i, j) ∈ Q(t) } \ {⊥}             (ref. Eq. 36)
+                                                                                           (46)
+                    (t)                  (t)
+       = { Peel(IBLT , i, j) | (i, j) ∈ Q          } \ {⊥}                     (Thm. 2)
+       = V (t)                                                             (ref. Eq. 24)
+                 (t)
+showing that Vπ = V (t) , and thus concluding our inductive step proof.
+   However, note that so far we have proven the following:
+
+          Q(t)
+           π =Q
+               (t)
+                   for t ∈ [rmin + 1]           and      Vπ(t) = V (t) for t ∈ [rmin ]     (47)
+
+where rmin = min{r, rπ }. We have yet to prove that r = rπ = rmin , which we will
+now establish. We proceed by analyzing the following two cases:
+
+ – Case 1: Assume r < rπ , which implies rmin = r. Since the List algorithm
+   always terminates and r is the final value of t after exiting the loop, it must
+   be that Q(r) = ∅, as this is the condition that causes the loop to stop.
+                                             (r)
+   Therefore, by Equation (47), we have Qπ = Q(r) = ∅.
+                  (r)                                            (r)
+   Given that Qπ = ∅ and r < rπ , the loop condition Qπ = ∅ is checked
+   in ΠPSU , causing that loop to exit and the protocol to output, resulting in
+   the final value of t for ΠPSU also being r, which contradicts the assumption
+   r < rπ .
+ – Case 2: Assume rπ < r, implying rmin = rπ . Since rmin = rπ , the loop in ΠPSU
+                                                                   (r )
+   stopped with the final value of t equal to rπ , which means Qπ π = Q(rπ ) = ∅.
+                                                          (rπ )
+   By the description of the List algorithm, having Q           = ∅ also causes the
+   loop there to stop, which means rπ is the final value of t in List after exiting
+   the loop. This implies r = rπ , contradicting the assumption rπ < r.
+
+   Hence, we conclude that r = rπ = rmin completing our proof.
+
+E.3.2 Privacy. We now turn to proving that our protocol satisfies the privacy
+property as defined in our security model. We begin by describing the simulator
+for the case where party P0 is corrupted.
+
+Corrupt P0 . From the protocol description of ΠPSU (Figure 5), we observe that
+all steps consist of local computations, except for the invocation of the FUnionPeel
+functionality. Furthermore, per FUnionPeel ’s description, when FUnionPeel is called
+within ΠPSU , it outputs the set T (t) , which is defined as follows:
+                                                                     (t)     (t)
+   T (t) = { (vi,j , i, j) | (i, j) ∈ Q(t)
+                                       π ∧ vi,j = uPeel(IBLT0 , IBLT1 , i, j) }            (48)
+
+This implies that party P0 ’s view of the protocol consists of the sequence:
+
+                              (T (0) , T (1) , . . . , T (rπ −1) )
+
+
+                                              48
+where rπ denotes the final value of the variable t when the loop terminates in the
+ΠPSU protocol. We now describe a simulator S0 that generates this transcript,
+and then explain why this simulation is correct.
+    Let X0 and X1 denote the input sets of parties P0 and P1 , respectively.
+First, observe that the simulator S0 has access to the IBLT parameters prm =
+                                                          (t)      (t)
+(M, k, ℓ, H), which are shared across all IBLTs {IBLT0 , IBLT1 }i∈[rπ ] . Second,
+S0 also has access to the union X∪ = X0 ∪ X1 , as it receives the output of FPSU
+on inputs X0 and X1 .
+    With this information, S0 begins by executing two steps: it first computes
+IBLT∪ ← Encodeprm (X∪ ), and then simulates the internal execution of List(IBLT∪ ).
+During this simulated execution, S0 records all intermediate values of the inter-
+nal variables Q(t) and IBLT(t) for each t ∈ [r], where r is the final value of t
+after the loop in List terminates. Once these variables are obtained, S0 proceeds
+to simulate the outputs of the FUnionPeel functionality. Each time FUnionPeel is
+invoked, S0 returns the simulated set T ′(t) , where T ′(t) is defined as follows:
+
+   T ′(t) = { (vi,j , i, j) | (i, j) ∈ Q(t) ∧ vi,j = Peel(IBLT(t) , i, j) }, for t ∈ [r]   (49)
+
+    We now show that the simulator S0 correctly reproduces the protocol tran-
+script of party P0 . First, recall from the correctness proof that we established
+r = rπ for the executions of List and ΠPSU under consideration. Additionally, we
+               (t)                           (t)
+proved that Qπ = Q(t) and {IBLT(t) ,IBLT1 and IBLT(t) } are union peelable
+for every t ∈ [rπ ]. With these facts, we can rewrite Equation (49) as follows:
+
+T ′(t) = { (vi,j , i, j) | (i, j) ∈ Q(t) ∧ vi,j = Peel(IBLT(t) , i, j) }
+                                                        (t)
+      = { (vi,j , i, j) | (i, j) ∈ Q(t)
+                                    π ∧ vi,j = Peel(IBLT , i, j) }                   (since Q(t) (t)
+                                                                                             π =Q )
+                                                              (t)          (t)
+      = { (vi,j , i, j) | (i, j) ∈ Q(t)
+                                    π ∧ vi,j = uPeel(IBLT0 , IBLT1 , i, j) }                (ref. Thm 2)
+           (t)
+      =T                                                                                    (ref. Eq. 48)
+
+for every t ∈ [rπ ]. Therefore, the simulated outputs T ′(t) match the actual out-
+puts T (t) in the protocol execution, meaning that S0 correctly simulates the
+transcript of party P0 .
+
+Corrupt P1 . The same approach used to simulate the transcript of party P0
+applies to party P1 , since both parties observe the same transcript. Moreover,
+the simulator has access to the same information in the case of P1 as it does for
+P0 .
+
+E.4    Auxiliary Theorems
+Theorem 5. Let prm = (M, k, ℓ, H) where k, ℓ ∈ N, M ∈ N≥2 and H =
+{hi : U → [ℓ]}i∈[k] be a family of hash functions. Let IBLT ← Encodeprm (X).
+For every (i, j) ∈ [k] × [ℓ],
+
+                       x = Peel(IBLT, i, j) ∧ x ̸= ⊥ =⇒ x ∈ X
+
+
+                                              49
+Theorem 6. Let prm = (M, k, ℓ, H) where k, ℓ ∈ N, M ∈ N≥2 and H =
+{hi : U → [ℓ]}i∈[k] be a family of hash functions. Let IBLT ← Encodeprm (X).
+If X ′ ⊆ X, then
+
+        IBLT′ = DeleteSet(IBLT, X ′ ) ⇐⇒ IBLT′ = Encodeprm (X \ X ′ )
+
+
+
+
+                                     50
+

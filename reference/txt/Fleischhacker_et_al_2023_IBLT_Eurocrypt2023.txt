@@ -1,0 +1,1634 @@
+                             Invertible Bloom Lookup Tables
+                           with Less Memory and Randomness
+
+       Nils Fleischhacker1⋆ , Kasper Green Larsen2⋆⋆ , Maciej Obremski3⋆ ⋆ ⋆ , and Mark Simkin4†
+                                              1
+                                               Ruhr University Bochum
+                                                 2
+                                                   Aarhus University
+                                          3
+                                            National University of Singapore
+                                             4
+                                                Independent Researcher
+
+
+
+        Abstract. In this work we study Invertible Bloom Lookup Tables (IBLTs) with small failure prob-
+        abilities. IBLTs are highly versatile data structures that have found applications in set reconciliation
+        protocols, error-correcting codes, and even the design of advanced cryptographic primitives. For storing
+        n elements and ensuring correctness with probability at least 1 − δ, existing IBLT constructions require
+        Ω(n( log(1/δ)
+               log(n)
+                      + 1)) space and they crucially rely on fully random hash functions.
+        We present new constructions of IBLTs that are simultaneously more space efficient and require less
+        randomness. For storing n elements with a failure probability of at most δ, our data structure only
+        requires O (n + log(1/δ) log log(1/δ)) space and O (log(log(n)/δ))-wise independent hash functions.
+        As a key technical ingredient we show that hashing n keys with any k-wise independent hash function
+        h : U → [Cn] for some sufficiently large constant C guarantees with probability 1 − 2−Ω(k) that at least
+        n/2 keys will have a unique hash value. Proving this is non-trivial as k approaches n. We believe that
+        the techniques used to prove this statement may be of independent interest.
+        We apply our new IBLTs to the encrypted compression problem, recently studied by Fleischhacker,
+        Larsen, Simkin (Eurocrypt 2023). We extend their approach to work for a more general class of en-
+        cryption schemes and using our new IBLT we achieve an asymptotically better compression rate.
+
+
+
+
+  ⋆
+    mail@nilsfleischhacker.de. Funded by the Deutsche Forschungsgemeinschaft (DFG, German Research Founda-
+    tion) under Germany’s Excellence Strategy - EXC 2092 CASA - 390781972.
+ ⋆⋆
+    larsen@cs.au.dk. Supported by a DFF Sapere Aude Research Leader grant No 9064-00068B.
+⋆⋆⋆
+    obremski.math@gmail.com. Funded by MOE2019-T2-1-145 Foundations of quantum-safe cryptography.
+  †
+    mark@univariate.org
+1   Introduction
+The Invertible Bloom Lookup Table (IBLT) is a very elegant data structure by Goodrich and Mitzen-
+macher [GM11]. It functions much like a dictionary data structure, supporting insertions, deletions and the
+retrieval of key-value pairs. What is special about the IBLT, is that upon initialization, one decides on a
+threshold n. Now, regardless of how many key-value pairs are present in the IBLT, the space usage will
+always remain proportional to n. Of course this comes at a cost, namely that the retrieval operations will
+temporarily stop functioning, when the number of pairs stored in the IBLT exceeds n. When the number of
+stored pairs falls below n again, the IBLT will resume supporting retrieval queries.
+     The above functionality is extremely useful in many applications. Consider for instance the set reconcil-
+iation problem [MTZ03, EGUV11]. Here two parties Alice and Bob hold sets SA and SB of key-value pairs.
+Think of these sets as two replicas of a database storing key-value pairs. In applications where insertions and
+deletions into the database must be supported quickly, we may allow the two sets SA and SB to be slightly
+inconsistent, such that a client performing an operation on the database will not have to wait for synchro-
+nization among the two replicas. Instead, Alice and Bob will every now and then synchronize their two sets
+SA and SB . For this purpose, Alice maintains an IBLT for her set SA , which she may send to Bob. Upon re-
+ceiving the IBLT, Bob then deletes every element from his set SB from Alice’s IBLT. If |(SA \SB )∪(SB \SA )|
+is less than the threshold n, Bob can retrieve the key-value pairs in SA \ SB . Since the space usage of IBLTs
+is only proportional to the threshold n, this allows for the communication between Alice and Bob to be
+proportional to |(SA \ SB ) ∪ (SB \ SA )| and not |SA | or |SB |. This may result in significant savings, when
+the sets SA and SB are large, but very similar. IBLTs have also seen uses in numerous other applications,
+ranging from distributed systems applications [OAB+ 17, MP17] over fast error-correcting codes [MV12] to
+cryptography [AGL+ 17, FLS22, FLS23].
+     The surprising functionality of IBLTs is supported via hashing. In more detail, the original IBLT construc-
+tion by Goodrich and Mitzenmacher consists of an array A of m cells along with a hash function h mapping
+keys to k distinct entries in A for a tuneable parameter k. Each cell of A has three fields, a count, a keySum
+and a valueSum. When inserting a key-value pair (x, y), we compute the k positions h(x) = (i1 , . . . , ik ),
+increment the count field in A[ij ], add x to the keySum of A[ij ] and add y to the valueSum of A[ij ] for
+each j = 1, . . . , k. A deletion of a key-value pair is simply supported by reversing these operations, i.e.
+decrementing count and subtracting x from keySum and y from valueSum. To support the retrieval of the
+value associated with a query key x, we again compute h(x) = (i1 , . . . , ik ) and examine the entries A[ij ]. If
+we find such an entry where the count field is one, then we know that only one key-value pair hashed there.
+We can thus compare the keySum to x, and if they are equal, we can return the valueSum. If the keySum is
+different from x, or we find a cell with a count of zero, we may return that x is not in the IBLT. Finally, if
+all k count fields are at least two, we return “Don’t know”. If the number of cells m is 2nk, then the chance
+that a key-value pair hashes to at least one unique entry (no collisions) is around 1 − 2−Ω(k) whenever the
+number of key-value pairs stored in the IBLT does not exceed the threshold n.
+
+Peeling. The simple functionality above supports Insertions, Deletions and Get operations, where a Get
+operation retrieves the value associated with a query key x. Using space O(nk), the Get operation succeeds
+with probability 1−2−Ω(k) . However, in several applications, such as set reconciliation, one is more interested
+in outputting the list of all key-value pairs present in the IBLT. For this purpose, a ListEntries operation is
+also supported. To list all key-value pairs in the IBLT, we repeatedly look for a cell in A with a count of one.
+When we find such a cell A[i], we output (x, y) =(A[i].keySum, A[i].valueSum) and then delete (x, y) from
+the IBLT. This process of peeling the key-value pairs reduces the count of other fields and thus increases the
+chance that we can continue peeling key-value pairs. Concretely, the ListEntries operation can be shown to
+succeed with probability 1 − Ω(n−k+2 ) when the number of key-value pairs present in the IBLT does not
+exceed the threshold n. The peeling success probability thus far exceeds that of the simple Get operation
+when hashing to at least k = 3 entries.
+
+Supporting False Deletions. The attentive reader may have observed that the simple version of the IBLT
+described above critically assumes that no deletions are performed on key-value pairs that are not already
+
+
+                                                        1
+present in the IBLT. In the set reconciliation example, this is insufficient as there may be key-value pairs in
+SB that are not in SA , which will cause false deletions. A simple extension to the IBLT ensures that it also
+functions if the total number of present key-value pairs plus the number of false deletions does not exceed
+the threshold n. For set reconciliation, this is equivalent to |SA \ SB | + |SB \ SA | ≤ n. To support such
+false deletions, we add a hashSum field to every cell and include another hash function g mapping keys to a
+sufficiently large output domain [R]. When inserting key-value pairs, g(x) is added to the hashSum field of
+A[ij ] and subtracted during deletions. To retrieve the value associated with a key x, we proceed as before,
+but whenever the count is either −1 or 1, we also perform a check that the hashSum is equal to g applied
+to the keySum. If not, we treat the cell as if the count was at least 2. For ListEntries, a peeling operation
+also includes such checks and furthermore, when a count is −1, we may instead insert (x, y) =(-keySum,-
+valueSum) if g applied to -keySum equals -hashSum. A second source of error is when the same key has been
+inserted with multiple different values. We ignore this issue here, and remark that the ListEntries in the
+original IBLT also fails in recovering keys with multiple associated values.
+
+Memory Usage and Randomness. In this paper, we focus on the more interesting ListEntries operation and
+ignore the Get operation. Requiring that ListEntries succeeds with probability 1 − δ, the classic IBLT uses
+space O(n(lg(1/δ)/ lg n + 1)), since we must set k = O(1 + lgn (1/δ)) to make n−k+1 ≤ δ, and the space
+usage is m = O(nk) cells. Notice here, and throughout the paper, that space is measured in number of cells
+of the IBLT. In terms of bit complexity, the count field needs O(lg n) bits, the keySum and valueSum fields
+need O(lg |U | + lg n) bits when keys and values come from a universe U . Finally, in both previous IBLTs
+and our new construction, the hashSum field needs O(lg(1/δ) + lg n) bits. Thus each cell of the table costs
+O(lg(|U |n/δ)) bits.
+    The analysis of the classic IBLT critically assumes that the hash function h is truly fully random. This
+is of course unrealistic in practice. But where many typical data structures can make due with O(lg(1/δ))
+or O(lg n)-wise independent hash functions, this is not known to be the case for the IBLT. Concretely, the
+standard analysis of the peeling process of the IBLT requires a union bound over exponentially many events
+(for every set of 2 ≤ j ≤ n keys S, for every set T of jk/2 entries of A, we have a failure event saying that
+h(x) ∈ T for all x ∈ S). With exponentially many events in the union bound, each of them must occur with
+probability at most exp(−Ω(n)) for the union bound to be useful. This requires a seed length of Ω(n) bits
+for a hash function and thus cannot be implemented with k-wise independence for k significantly less than
+n. It could be the case that a more refined analysis could show that less randomness suffices, but this has
+not yet been demonstrated.
+    We remark that it is possible to show that tabulation hashing [DKRT15, Tho17] may be used to support
+peeling, but this also requires a random seed of length proportional to n, since it requires a character size of
+at least (1 + Ω(1))n, and the space usage is at least the number of characters. Finally, we mention that it
+may also be possible to use the splitting trick of Dietzfelbinger and Rink [DR09], but as far as we are aware
+of, it would be not more efficient than tabulation hashing in this context.
+
+1.1   Our Contributions
+Our main contribution is a new version of the IBLT that is both more space efficient and that can be
+implemented with much less randomness. We call our new data structure a Stacked IBLT and show the
+following:
+Theorem 1. Let δ be less than a sufficiently small constant. Given a threshold n, the Stacked IBLT supports
+Insertions, Deletions and ListEntries operations, where ListEntries succeeds with probability 1 − δ when the
+number of key-value pairs is no more than n. Furthermore, it uses space O(n + lg(1/δ) lglg(1/δ)) cells and
+requires only O(lg(lg(n)/δ))-wise independent hashing.
+Comparing this to the classic IBLT, our construction outperforms it for any δ = n−ω(1) and more importantly,
+it can be implemented with a small random seed. Our Stacked IBLT also supports false deletions like the
+classic IBLT and ListEntries succeeds with the claimed probability if the number of key-value pairs plus the
+number of false deletions does not exceed n.
+
+
+                                                       2
+    We note that such small failure probabilities are important in cryptographic applications, like the ones
+that rely on encrypted compression [CDG+ 21, LT22]. A data-dependent failure of a data structure leaks
+information about its contents, even if one can not see the contents of the data structure itself. In cryp-
+tographic applications, where security should commonly break with at most a negligible probability, using
+a (encrypted) data structure, which fails with an inverse polynomial probability is insufficient. An adver-
+sary could deduce information about encrypted data by just observing, whether a cryptographic protocol
+successfully terminates or not.
+    The overall idea in the Stacked IBLT is to construct arrays A1 , . . . , Alg n where Ai has Cn/2i entries. Each
+of the arrays has its own hash function hi mapping keys to a single entry in Ai . To support the ListEntries
+operation, we start by peeling all elements in A1 that hash uniquely. We then proceed to A2 and so forth.
+The critical property we require is that each time we peel, we successfully peel at least half of all remaining
+key-value pairs. In this way, the number of entries in the next Ai to peel from, is always a constant factor
+larger than the number of remaining key-value pairs. When we reach Alg n , we finally peel the last key-value
+pair. In this way, all we need from the hash functions hi , is that at least half the key-value pairs hash
+uniquely with probability 1 − δ/ lg n. We prove that this is the case if the hi ’s are just O(lg(lg(n)/δ))-wise
+independent:
+Theorem 2. Let x1 , . . . , xn ∈ U be a set of n distinct keys from a universe U and let h : U → [Cn] be a
+hash function drawn from a 2k-wise independent family of hash functions. If C ≥ 8e, then with probability
+at least 1 − 4 · (8e/C)min{k,n/C} it holds that there are no more than n/2 indices i such that there exists a
+j ̸= i with h(xi ) = h(xj ).
+In addition to allowing implementations with limited independence, the geometrically decreasing sizes of the
+arrays Ai also result in the improved space usage compared to classic IBLTs.
+    While Theorem 2 might at first sight appear to follow from standard approaches for analyzing hash
+functions with limited independence, there are in fact several difficult obstacles that we need to overcome to
+prove it. In particular, as k approaches n, the obvious approaches fail miserably. Furthermore, our Stacked
+IBLTs critically needs Theorem 2 to hold for k all the way up to n. We believe the ideas we use to overcome
+this barrier are interesting in their own right and may prove useful in future work. We thus discuss these
+ideas and the barriers we overcome in Section 1.3.
+    Let us also comment on the constant 8e. It is not as small as one could hope, but it is small enough that
+we have chosen to state it explicitly rather than hide it in O-notation. Presumably our analysis could be
+tightened further to reduce it by a constant factor, but we have focused on a clean exposition of the proof.
+    Finally, let us also comment that when the number of remaining key-value pairs drop below lg(1/δ),
+Theorem 2 is insufficient to guarantee a success probability of 1 − δ/ lg n due to the min{k, n/c} in the
+exponent. For this reason, we change strategy and replace some of the arrays Ai by matrices with multiple
+rows. We leave the details to later sections and mention here that this is what causes the O(lg(1/δ) lglg(1/δ))
+term in the space usage of the Stacked IBLT.
+    In terms of computational efficiency our construction is slightly worse than that of Goodrich and Mitzen-
+macher. Retrieving all key-value pairs from their IBLT has a computational cost of O(n · (1 + lg(1/δ)/ lg(n)),
+while our construction requires O(n · lg(n/δ)). In our opinion, however, this is a small price to pay for achiev-
+ing smaller IBLTs that require less randomness.
+
+Encrypted Compression. We apply our new data structure to the encrypted compression problem, studied
+by Fleischhacker, Larsen, and Simkin [FLS23]. Here one is given an array of ciphertexts of a homomorphic
+encryption scheme, where at most t are encryptions of non-zero values. The goal of an encrypted compres-
+sion scheme is to compress this vector as much as possible, without knowing what is inside the ciphertexts,
+i.e. without knowing which entries in the vector are encryptions of zero and which are not. Apart from
+being theoretically interesting, this problem also naturally appears as part of larger cryptographic proto-
+cols [CDG+ 21, LT22]. We show that following the approach of Fleischhacker, Larsen, and Simkin one can use
+our stacked IBLT data structure to obtain better encrypted compression schemes. Additionally, we show how
+their approach can be generalized to work for arbitrary homomorphic encryption schemes. Note that their
+work, required the encryption schemes to have plaintext spaces that grow at least linearly with the desired
+
+
+                                                        3
+upper bound on the error rate of their data structure. We provide a detailed description of the improved
+compression scheme in Section A.
+
+Rateless IBLTs. In a work subsequent to ours, Yang, Gilad, Alizadeh [YGA24] consider the setting of rateless
+IBLTs. Here an encoder has a fixed set of source symbols and would like to encode them into an infinite
+sequence of coded symbols. Without going into detail, these coded symbols should have several high-level
+properties: The computation of the coded symbols should not depend on a fixed a-priori threshold of how
+many source symbols will be in the data structure. The sequence of generated coded symbols should be linear
+in the sense that two sequences of coded symbols can be subtracted to obtain a sequence of coded symbols
+that represents the set difference of the corresponding sets. For any number of source symbols, one should
+be able to decode them back from a sufficiently long prefix of the sequence of coded symbols.
+    As noted by Yang, Gilad, Alizadeh, the IBLT of Goodrich and Mitzenmacher [GM11] does not satisfy
+these properties as the size of the data structure needs to be fixed at the start and there is no clear way of
+viewing it as a infinite sequence of coded symbols. We will not prove this formally in our work, but note that
+our stacked IBLTs naturally have these properties, as they can be constructed starting from the smallest
+array and repeatedly building the larger arrays on top of it, viewing the array cells as coded symbols.
+
+1.2   Some More Related Works.
+A variant of IBLTs that may appear similar to ours are irregular IBLTs, as originally already suggested by
+Goodrich and Mitzenmacher [GM11] and also studied by Lázaro and Balázs Matuz [LM21], where different
+set elements are encoded using a different amount of hash functions. We note that our construction is regular,
+since it is oblivious to the specific value of any one set element and all elements get treated equally. We believe
+this to be helpful for applications, like encrypted compression, where the set elements are not visible to the
+encoder generating the data structure.
+    In a recent work, that appeared subsequent to ours, by Belazzougui, Kucherov, Walzer [BKW24], the
+authors consider IBLTs with very small failure probabilities as we do here. The idea behind their construction
+is to augment the original IBLT of Goodrich and Mitzenmacher with a smaller backup stash data structure.
+When decoding of the main IBLT fails, their peeling resorts to recovering the missing elements from the
+stash. In comparison, our stacked IBLTs can conceptually be seen as an iterative version of this idea, as
+we have a sequence of smaller and smaller “stashes”, moving on to peeling the smaller ones, when peeling
+the bigger ones fails repeatedly. Furthermore, their work considers fully random hash functions, whereas our
+work gets away with using hash functions with limited independence. Their construction results in a sketch
+that is asymptotically comparable in size and has a better expected, but worse worst-case decoding time.
+
+1.3   Technical Contributions
+When analysing events involving hash functions of limited independence, one typically considers higher
+moments of a sum of random variables that each depends only on a constant number of hash values. For our
+Theorem 2, the natural random variables to consider would be the random variables Xi,j taking the value 1
+if h(x
+   P i ) = h(xj ). Clearly there are no more Pthan n/2 indices i such that there exists j ̸= i with h(xi ) = h(xj )
+if   i̸=j Xi,j ≤  n/2. To   upper  bound  Pr[   i̸=j Xi,j > P
+                                                            n/2], we raise both sides of the inequality to the
+k’th power and use that Pr[ i̸=j Xi,j > n/2] = Pr[( i̸=j Xi,j )k > (n/2)k ]. Using Markov’s inequality,
+                                P
+
+this probability is at most E[( i̸=j Xi,j )k ]/(n/2)k . Expanding the k’th power of the sum into a sum of
+                                  P
+
+monomials and using linearity of expectation, we have E[( i̸=j Xi,j )k ] = T ∈{(i,j):i̸=j}k E[ (i,j)∈T Xi,j ].
+                                                               P                P                  Q
+Since each product depends on at most 2k hash values, and h is 2k-wise independent, we can analyse each
+monomial as if h was truly random.
+    For
+     √ the purpose of proving our theorem, this approach actually suffices to establish the theorem for
+k < n. However, for our applicationPin IBLTs we need the theorem to hold for k up to Ω(n). The problem
+is that as k approaches n, using that i̸=j Xi,j is small as a proxy for having many elements hash to a unique
+position is lossy. In essence, this is because ℓ elements hashing to the same value contributes around ℓ2 to
+
+
+                                                        4
+P
+     =j Xi,j whereas it actually only corresponds to ℓ elements not hashing to a unique value. For this reason,
+   i̸P
+                                                                                                           √
+E[( i̸=j Xi,j )k ] is simply too large to give a meaningful bound from Markov’s inequality when k = Ω( n).
+In fact,
+     P it is not only the higher-moments method that is doomed, but any approach based on arguing that
+Pr[ i̸=j Xi,j > n/2] is small will fail. Consider for instance the case where k is Θ(n). Our  PTheorem 2 shows
+that the probability that less than n/2 keys hash uniquely is exp(−Ω(n)). If we consider i̸=j Xi,j and even
+assume that h is truly random, then the probability that the first n/ lg n keys all hash to the first n/ lg3 n
+entries is (C lg3 n)−n/ lg n ≥ exp(−O(n lglg n/ lg n)) for constant C > 0. But when this happens, we have
+                      3      lg2 n
+P                                                        P
+   i̸=j Xi,j ≥ (n/ lg n)2      2    ≈ n lg n. That is, Pr[ i̸=j Xi,j > n/2] ≥ exp(−O(n lglg n/ lg n)).
+     In light of this, it is not a priori clear which random variables are sensible to analyse, keeping in mind
+that they should depend on only few hash values (for the sake of limited independence) and yet accurately
+capture the event that at least n/2 elements hash to a unique value. We present two alternative proofs
+circumventing this barrier.
+     In the first, and completely self-contained proof, we carefully define random variables Yi,j that actually
+depend on all hash values. We then consider the k’th moment of a sum involving these Yi,j ’s and argue that
+most monomials are 0 due to the special definition of the Yi,j ’s. Now that there are only very few non-zero
+monomials left, we upper bound our Yi,j ’s by the Xi,j ’s above, bringing us back into a setup with monomials
+depending on at most 2k hash values. Compared to going directly from the Xi,j ’s, what we win is that there
+are much fewer monomials left in the sum. The initial pruning of monomials using the more involved Yi,j ’s
+is a key technical innovation that we have not seen before and believe may be an inspiration in future work
+analysing random variables of limited independence.
+     In the second proof, we invoke a previous theorem on k-wise independence fooling combinatorial rectan-
+gles [EGL+ 98, GY20]. This proof is shorter than the first, but relies on the heavy lifting done in previous
+works and does not yield the explicit small constant in our theorem.
+
+
+2   Preliminaries
+
+Let X, Y be sets, we denote by |X| the size of X and by X △ Y the symmetric set difference of X and Y ,
+i.e., X △ Y = (X ∪ Y ) \ (X ∩ Y ) = (X \ Y ) ∪ (Y \ X). We write x ← X to denote the process of sampling
+a uniformly random element x ∈ X. Let v ∈ X n be a vector. We write vi to denote its i-th component. Let
+M ∈ X n×m be a matrix. We write M [i, j] to denote the cell in the i-th row and j-th column. We write [n]
+to denote the set {1, . . . , n}. We write lg without a specified base to denote the logarithm to base two.
+
+
+3   Hashing Uniquely with Limited Independence
+
+In this section, we prove our main technical result, Theorem 2, which we restate here for convenience.
+
+Theorem 2 (restated). Let x1 , . . . , xn ∈ U be a set of n distinct keys from a universe U and let h : U →
+[Cn] be a hash function drawn from a 2k-wise independent family of hash functions. If C ≥ 8e, then with
+probability at least 1 − 4 · (8e/C)min{k,n/C} it holds that there are no more than n/2 indices i such that there
+exists a j ̸= i with h(xi ) = h(xj ).
+                                                                                                P
+As discussed in Section 1.3, the straight forward approach of analysing moments of a sum i<j Xi,j with
+Xi,j being an indicator for h(xi ) = h(xj ), does not give the desired result. In essence, this is because a
+collision of ℓ elements contributes roughly ℓ2 to the sum.
+    In this section, we present two alternative proofs circumventing this barrier. We start by giving the self-
+contained proof that introduces an elegant new trick to analysing k-wise independent random variables. We
+then give a proof invoking results on k-wise independence fooling combinatorial rectangles. The remark that
+the second proof does not yield the explicit constants in Theorem 2.
+
+
+                                                       5
+3.1    Proof via Moments
+
+Our first step in the proof of Theorem 2 is thus to make a far less obvious definition of random variables.
+
+Proof. Define random variables Yi,j with i ̸= j taking the value 1 if h(xi ) = h(xj ) and furthermore, for
+all a with min{i, j} < a < max{i, j} we have h(xi ) ̸= h(xa ). Otherwise, Yi,j takes the value 0. Observe
+that if elements xi1 , . . . , xiℓ are all those that hash to a concrete value v, and i1 < i2 < · · · < iℓ , then
+Yi1 ,i2 = Yi2 ,i1 = Yi2 ,i3 = · · · = Yiℓ ,iℓ −1 = 1 and all other Yi,j ’s with i or j in {i1 , . . . , iℓ } are zero. The random
+variable Yi,j is thus 1 if xi and xj hash to the same v, and furthermore, i and j are consecutive in the                 P sorted
+order of all elements hashing to v. Critically, a collision of ℓ elements contribute only 2ℓ − 2 to i̸=j Yi,j .
+On the negative side, these random variables Yi,j clearly depend on more than two hash values unlike the
+Xi,j ’s.
+     Letting S = {x1 , . . . ,P
+                              xn }, observe that if there more than n/2 keys x ∈ S such that there is a y ∈ S \ {x}
+with h(x) = h(y), then i̸=j Yi,j > n/2. Let r = min{k, n/C}. Using Markov’s, we get
+                                                 r              hP           r i
+                        X                     X                     E    i̸ =j Yi,j
+                    Pr   Yi,j > n/2 = Pr    Yi,j  > (n/2)r  <                      .                                   (1)
+                                                                        (n/2)r
+                          i̸=j                          i̸=j
+
+
+We thus focus on bounding E[( i̸=j Yi,j )r ]. Expand it into its monomials
+                             P
+
+                                            r                                            " r         #
+                                       X                                 X                    Y
+                                   E   Yi,j   =                                      E         Yih ,jh .
+                                          i̸=j                 (i1 ,j1 ),...,(ir ,jr )       h=1
+
+
+Here the sum ranges over all lists of r pairs (ih , jhQ ) with ih ̸= jh . Notice that the product is 1 if and only if
+                                                          r
+all the indicators involved are 1. For a monomial h=1 Yih ,jh , think of the pairs (ih , jh ) as edges of a graph
+with the elements x1 , . . . , xn asQnodes. The critical observation is that if any node in this graph has at least
+                                      r
+three distinct neighbors, then h=1 Yih ,jh = 0. To see this, assume the node xi has at least three distinct
+neighbors. If xi has two neighbors xj1 , xj2 with j1 < j2 < i, then we cannot have both Yj1 ,i = Yi,j1 = 1
+and Yj2 ,i = Yi,j2 = 1. This is because, by definition, Yj1 ,i can only be 1 if there are no elements xa with
+h(xa ) = h(xj1 ) and j1 < a < i. But a = j2 is an example of such an element when we also require
+Yj2 ,i = Yi,j2 = 1. A similar argument applies to the case that xi has two neighbors xj1 , xj2 with i < j1 < j2 .
+Notice that this also implies that the monomial is 0 if the corresponding graph has a cycle since the node of
+largest index on the cycle has an edge to two distinct neighbors of lower index. In combination, the monomial
+can only be non-zero if the corresponding edges form connected components corresponding to paths (possibly
+with duplicate edges).
+     Let G r denote the set of all ordered lists L of r pairs L := (i1 , j1 ), . . . , (ir , jr ) (with ih ̸= jh for all h) such
+that every connected component in the corresponding graph G(L) forms a path. Then
+                                                  r                             
+                                            X               X         Y
+                                      E      Yi,j   =        E           Yi,j  .
+                                                 i̸=j                L∈G r          (i,j)∈L
+
+
+Now consider a monomial (i,j)∈L Yi,j for an L ∈ G r . Define Xi,j as the random variable taking the value
+                           Q
+                                                                             Q              Q
+1 if h(xi ) = h(xj ) and 0 otherwise. Here we use that Yi,j ≤ Xi,j and thus (i,j)∈L Yi,j ≤ (i,j)∈L Xi,j .
+Therefore                                    r                     
+                                      X              X        Y
+                                 E      Yi,j   ≤     E        Xi,j  .
+                                                 i̸=j                L∈G r         (i,j)∈L
+
+What we have achieved is to upper bound E[( i<j Yi,j )r ] by the contribution from monomials corresponding
+                                             P
+to graphs consisting of paths. Furthermore, for these monomials, we have replaced the Yi,j variables by the
+
+
+                                                                     6
+simpler Xi,j variables that each only depend on two hash values. This allows us to handle the limited
+independence of h.
+   Next, we bound E[ (i,j)∈L Xi,j ] for an L ∈ G r . With the graph interpretation G(L) of L in mind,
+                       Q
+
+we observe that the product is 1 if and only if, for every connected component in G(L), all nodes in the
+component hash to the same value. Furthermore, the monomial depends on at most 2r ≤ 2k hash values
+and thus the random variables behave as if h was truly random. For a connected component with qi nodes,
+the probability all nodes hash to the same is precisely (Cn)−(qi −1) . If the total number of nodes in G(L)
+having at least one neighbor is q and the total number of connected components in G(L) formed by these
+nodes and their edges is c, then                     
+                                            Y
+                                       E        Xi,j  = (Cn)−q+c .
+                                                  (i,j)∈L
+                                         r
+For every q ≤ 2r and every c ≤ q/2, let Gq,c ⊆ G r be the subset of lists L for which the corresponding graph
+G(L) has c non-singleton connected components and those connected components together have q nodes.
+Then                       r                          
+                                    2r q/2                      2r q/2
+                    X               XX     X      Y            XX
+               E      Yi,j    ≤           E       Xi,j =
+                                                                        r
+                                                                       |Gq,c |(Cn)−q+c .
+                       i̸=j                         r
+                                         q=2 c=1 L∈Gq,c            (i,j)∈L             q=2 c=1
+
+                        r
+We thus need to bound |Gq,c |. Here we show the following
+Lemma 3. For all q ≤ 2r, c ≤ q/2 it holds that
+                                                   q−c
+                                                4er
+                                      r
+                                    |Gq,c | ≤            2r q r nq q −c .
+                                                 q
+Before we prove the lemma, let us use to finish our proof of Theorem 2. Continuing our calculations above
+using Lemma 3, we have that
+                                                        q−c
+                                                     4er
+                                  r
+                                |Gq,c |(Cn)−q+c ≤             2r q r nq q −c
+                                                    qCn
+                                                       q      −c
+                                                    4er      4er
+                                                =                       2r q r .
+                                                     qC      Cn
+Since we set r = min{k, n/C} and require C ≥ 8e, we have (4er/(Cn)) ≤ 1/4 and thus exploiting that the
+sum over c is a geometric series we get
+                    q/2                                    q          −q/2                      q/2
+                    X                                 4er          4er                        4ern
+                              r
+                            |Gq,c |(Cn)−q+c ≤ 2                                  r r
+                                                                                 2 q =2                     2r q r
+                    c=1
+                                                      qC           Cn                         Cq 2
+
+Using again that n/C ≥ r and r ≥ q/2, we have 4ern/(Cq 2 ) ≥ 4er2 /q 2 ≥ e and thus we may again use a
+geometric series to conclude
+                           r 
+                                     2r q/2                             r               r
+                     X              XX
+                                              r         −q+c       4ern         r      4en
+               E      Yi,j    ≤         |Gq,c |(Cn)      ≤4             (4r) = 4          .
+                                    q=2 c=1
+                                                                  C(2r)2                C
+                     i̸=j
+
+Plugging this back into the bound (1) we got from Markov’s inequality, we finally conclude
+                                                     
+                                                              r
+                                        X                     8e
+                                    Pr     Yi,j > n/2 ≤ 4 ·
+                                                                   .
+                                                              C
+                                              i̸=j
+
+Recalling that r = min{k, n/C} completes the proof.
+
+
+                                                                   7
+                                                               r                                          r
+Counting Graphs (Proof of Lemma 3). To bound |Gq,c                |, we first recall that every L ∈ Gq,c     correspondsPto a
+graph consisting of c non-singleton connected components, each forming a path of qi nodes with q = i qi .
+                                                                                                                       r
+The set of (undirected) edges in G(L) thus has cardinality q − c ≤ r. We now argue that any L ∈ Gq,c                      can
+be uniquely described by an element in
+                                                                                 
+                            r                             r−(q−c)          2(q − c)
+                  U :=              × ({0, 1} × [q − c])              ×               × [n]q × [q]2(q−c)−q .
+                          q−c                                                  q
+         r
+           
+Here q−c     is the set of all (q − c)-sized subsets of a universe of cardinality r. Notice that this indirectly
+                                                  r
+specifies a surjective function from U to Gq,c       and thus
+                                                                                  
+                                  r           r                  r−(q−c) 2(q − c)
+                               |Gq,c | ≤            (2(q − c))                        nq q q−2c .
+                                           q−c                                   q
+                                                                                       r
+                        r
+                                                                                         
+To describe an L ∈ Gq,c     with an element from U, use an element in q−c                   to specify the first occurence of
+each edge in L (where an edge (i, j) is first if neither (i, j) or (j, i) occurs earlier in L). For each of the
+r − (q − c) remaining edges in order, use an element in {0, 1} × [q − c] to specify it as a copy of one of the
+q − c first edges, where {0, 1} indicates whether to reverse the order of the end points. Next observe that
+the q − c first edges have 2(q − c) end points of which precisely q are unique. Specify the first occurence of
+each unique node on these edges using an element in 2(q−c)
+                                                                        
+                                                                     q    . Next use an element in [n] for each such node
+in order to specify it among the nodes x1 , . . . , xn . Finally, for the remaining 2(q − c) − q end points, specify
+them as an index into the q first occurrences of unique nodes. This           information q−c   uniquely describes L.
+    Using that 2(q−c)
+                    q     ≤ 2 2(q−c)
+                                       and  the  general  inequality        r
+                                                                          q−c    ≤ (er/(q  −  c))    , we conclude
+                                                   q−c
+                                              er
+                                   r
+                                |Gq,c |≤                 (2(q − c))r−(q−c) 22(q−c) nq q q−2c
+                                             q−c
+                                                q−c
+                                             2er
+                                        ≤              (2q)r−(q−c) 22(q−c) nq q q−2c
+                                              q
+                                                q−c
+                                             4er
+                                        =              2r q r nq q −c .
+                                              q
+
+                                                           P                     P                       ⊔
+                                                                                                         ⊓
+   Let us finish by commenting on our choice of bounding i̸=j Yi,j rather than i<j Yi,j . This choice was
+made for simplicity, but one may wonder whether focusing on the latter might result in tighter constants.
+This does not seem to be the case, as then the assumption that
+                                                             P there are more thanP  n/2 keys x ∈ S such
+that there
+     P     is a y ∈ S \ {x} with h(x) = h(y), does not imply  i<j Yi,j > n/2 (we use  i̸=j Yi,j > n/2), but
+only i<j Yi,j > n/4. We would thus lose a constant factor in Markov’s.
+
+4    Proof via k-Wise Independence Fools Combinatorial Rectangles
+We now give a second proof based on k-wise independence fooling combinatorial rectangles. This proof was
+communicated to us by an anonymous reviewer.
+    We first introduce the notion of a combinatorial rectangle. A combinatorial rectangle is a Q      function f :
+[m]n → {0, 1} which is specified by n coordinate functions fi : [m] → {0, 1} as f (x1 , . . . , xn ) = i∈m fi (xi ).
+We now use the following result, typically attributed to [EGL+ 98], although we cannot directly find this
+statement in the version available online. A clean introduction to combinatorial rectangles and bounded
+independence can, for instance, be found in [GY20].
+Theorem 4. Let X1 , . . . , Xn be k-wise independent random variables with uniform marginal distributions
+over [m]. Then there is a constant a > 0 such that
+                                 EX1 ,...,Xn [f (X1 , . . . , Xn )] − Ex∈[m]n [f (x)] ≤ e−ak ,
+where Ex∈[m]n denotes a uniform random x ∈ [m]n .
+
+
+                                                              8
+With this tool in place, we now prove Theorem 2.
+Proof. Recall that we are hashing into Cn bins. Let x1 , . . . , xn ∈ U denote the n keys and let h : U → [Cn]
+denote a hash function drawn randomly from a 2k-wise independent family of hash functions. Let Xi be the
+random variable taking the value h(xi ).
+    Let J ⊆ [Cn] be the indices of a subset of the bins, with |J| = t for a parameter t to be determined.
+Define random variables Zj taking the value 1 if noQelement hashes to the value j and 0 otherwise. The
+probability that all bins indexed by J are empty is E[ j∈J Zj ]. If we now define functions fi : [Cn] → {0, 1}
+                                                                        Q          Qn                Q
+taking the value 1 on x ∈ / J and the value 0 for x ∈ J, we have that j∈J Zj = i=1 fi (Xi ), i.e. j∈J Zj is
+in effect a combinatorial rectangle. By Theorem 4, we have
+                                              
+                                         Y
+                                     E     Zj  ≤ Ex∈[Cn]n [f (x)] + e−ak .
+                                       j∈J
+
+
+But Ex∈[Cn]n [f (x)] = (1 − t/Cn)n ≤ e−t/C . We now require t < aCk and conclude E[ j∈J Zj ] ≤ 2e−t/C .
+                                                                                     Q
+   Next, observe that if there are less than n/2 elements that hash to a unique value, then the number of
+occupied bins is at most 3n/4. Vice versa, the number of unoccupied bins is at least Cn − 3n/4. If we also
+have t < Cn − 3n/4, thenQ we may bound the expected number of t-sized subsets of bins that are empty.
+That is, if we let YJ = j∈J Zj , then we have just shown
+                                                  
+                                                        
+                                         X              Cn
+                                                YJ  ≤     2e−t/C .
+                                                  
+                                      E
+                                                         t
+                                        J∈(Cn
+                                            t )
+
+
+On the other hand, we may also lower bound the expectation by
+                                                           
+                                                                           
+                           X                X                     Cn − 3n/4
+                                 YJ  ≥ Pr    Zj > Cn − 3n/4               .
+                                   
+                       E
+                             Cn              j
+                                                                      t
+                         J∈( n )
+
+
+Combining the two yields
+                                      
+                                                              Cn
+                                                                 
+                       X
+                  Pr    Zj > Cn − 3n/4 ≤ 2e−t/C ·            t
+                                                            Cn−3n/4
+                                                                   
+                          j                                    t
+                                                     −1/C           t
+                                                      e    (Cn − t)
+                                               ≤2·
+                                                      Cn − 3n/4 − t
+                                                                                 t
+                                                                         3
+                                               = 2 · e−1/C 1 +
+                                                                  4(C − 3/4 − t/n)
+                                                                              t
+                                               ≤ 2 · e−1/C+(3/4)·1/(C−3/4−t/n)
+
+If we require t < n and C at least a sufficiently large constant, then this is exp(−Ω(t/C)). Setting t =
+min{aCk, n} completes the proof.
+
+
+5   Smaller IBLTs with Limited Independence
+In this section, we present a new construction of IBLTs, which we call stacked IBLTs, that is both asymp-
+totically smaller and requires less randomness (in Section 6 we also argue that the analysis of the original
+IBLT cannot be strengthened to give bounds comparable to our stacked IBLT).
+
+
+                                                      9
+                       Init(h)                                        ListEntries((T0 , . . . , T⌈lg n⌉−1 ), h)
+                       for 0 ≤ i < lg(n) − lg(τ )                     S ′ := ∅
+                          Ti := BasicInit(1, ⌈Cn2−i ⌉, hi )           for 0 ≤ i < ⌈lg n⌉
+                       for 0 ≤ i < lg(τ )                               Ti := BasicDelete(Ti , S ′ )
+                          i′ := ⌊lg(n) − lg(τ )⌋ + i                    S ′ := S ′ ∪ BasicListEntries(Ti )
+                          Ti′ := BasicInit(2i , ⌈Cτ 2−i ⌉, hi′ )      return S ′
+                       return (T0 , . . . , T⌈lg n⌉−1 )
+
+                       Insert((T0 , . . . , T⌈lg n⌉−1 ), S, h)        Delete((T0 , . . . , T⌈lg n⌉−1 ), S̃, h)
+
+                       for 0 ≤ i < ⌈lg n⌉                             for 0 ≤ i < ⌈lg n⌉
+                          Ti := BasicInsert(S, hi )                     Ti := BasicDelete(S̃, hi )
+                       return (T0 , . . . , T⌈lg n⌉−1 )               return (T0 , . . . , T⌈lg n⌉−1 )
+
+Fig. 1. Our stacked IBLT construction using basic IBLTs as specified in Figure 2 as a building block. We have that
+τ = C0 lg(1/δ) for a sufficiently large constant C0 > 0
+
+
+5.1   Stacked IBLTs
+
+In this section we introduce our new Stacked IBLTs that are more space efficient and allow for a lower
+randomness complexity. Essentially the construction consists of lg n stacked smaller IBLTs. These IBLTs
+will be decoded in order and each is sized, such that we will be able to prove that it allows decoding at least
+half the remaining entries. This means that after decoding all lg n IBLTs, at most a single element is left to
+decode which can then be trivially decoded.
+    Let n be the threshold for an IBLT and δ > 0 a desired failure probability. We can think of our Stacked
+IBLT as consisting of multiple rows, with a k-wise independent hash function associated with each row for
+k = Θ(lg(lg(n)/δ)). An element is hashed into one position in each row and stored there, like in the classic
+IBLT. The key novelty of our solution is that the number of entries per row varies. Moreover, while a classic
+IBLT focuses on peeling all elements, our analysis is based on peeling a constant fraction of the elements
+from each row.
+    More formally, let τ = C0 lg(1/δ) for a sufficiently large constant C0 > 0 and assume first that n ≥ τ .
+For i = 0, . . . , lg(n/τ ), our IBLT has one row Ri with Cn2−i entries. Here C > 0 is a sufficiently large
+constant, where C = 8e is provably sufficient. Finally, for i = 0, . . . , lg(τ ), it has a group Gi consisting of
+2i rows all with Cτ 2−i entries. In case n < C0 lg(1/δ), our structure has a group Gi of 2i rows for every
+                                                                                                  Plg(n/τ )
+i = lg(τ /n), . . . , lg(τ ). In the group Gi , every row has Cτ 2−i entries. The IBLT uses         i=0     Cn2−i +
+Plg(τ )
+   i=0 Cτ = O(n + lg(1/δ) lglg(1/δ)) space. In the formal description of our Stacked IBLT construction,
+shown in Figure 1, we do not explicitly distinguish between the rows Ri and groups Gi , but rather view
+them as smaller IBLTs that we call T1 , . . . , Tlg n . For the analysis, however, distinguishing the smaller IBLTs
+with one row and those with multiple rows is helpful.
+
+Theorem 1 (restated). Given a threshold n, the Stacked IBLT supports Insert, Delete, and ListEntries
+operations, where ListEntries succeeds with probability 1 − δ if the number of key-value pairs is no more than
+n. Furthermore, it uses space O(n + lg(1/δ) lglg(1/δ)) and requires only O(lg(lg(n)/δ))-wise independent
+hashing.
+
+Remark 1. We note that a k-wise independent hash function from a universe U to a universe of size γ
+requires O(k lg(U )) bits. Since we require O(lg(n/δ) such functions, we observe that the total number of
+random bits we need is O(lg(n/δ)(lg(1/δ) + lg lg(n)) lg(U )) bits. Regarding running times, the Insert and
+Delete operations both require O(lg(n/δ)) evaluations of a O(lg(lg(n)/δ))-wise independent hash function,
+
+
+                                                                 10
+                            BasicInit(ρ, γ, h)                        BasicListEntries((K, V , C), h)
+                            K := 0   ρ×γ
+                                                                      S ′ := ∅
+                            V := 0ρ×γ                                 for (i, j) ∈ [ρ] × [γ]
+                            C := 0   ρ×γ                                 if C[i, j] = 1
+                            return (K, V , C)                               (k, v) := (K[i, j], V [i, j])
+                                                                            S ′ := S ′ ∪ {(k, v)}
+                                                                      return S ′
+
+                            BasicInsert((K, V , C), S, h)             BasicDelete((K, V , C), S̃, h)
+
+                            foreach (k, v) ∈ S                        foreach (k, v) ∈ S̃
+                                foreach i ∈ [ρ]                          foreach i ∈ [ρ]
+                                  j := hi (k)                               j := hi (k)
+                                  K[i, j] := K[i, j] + k                    K[i, j] := K[i, j] − k
+                                  V [i, j] := V [i, j] + v                  V [i, j] := V [i, j] − v
+                                  C[i, j] := C[i, j] + 1                    C[i, j] := C[i, j] − 1
+                            return (K, V , C)                         return (K, V , C, h)
+
+
+Fig. 2. A simplified version of a basic IBLT for key space K and universe U. Both ⟨K, +⟩ and ⟨U, +⟩ need to
+form groups. The basic IBLT requires a number of rows ρ, a number of columns γ and a vector of hash functions
+h ∈ {h : K → [γ]}ρ to initialize.
+
+
+plus insertions in the table entries. The running time is dominated by the evaluations of the hash functions,
+for a total time of O(k lg(n/δ)) per element.
+
+Proof (Proof of Theorem 1). To analyse the probability that peeling succeeds, we focus on the case of n ≥ τ .
+The other case is just a special case.
+    To argue that peeling succeeds with high probability, we consider a very restrictive form of peeling and
+argue that even this process succeeds. Concretely, for i = 0, . . . , lg(n/τ ), consider peeling all elements that
+land alone in Ri (after having peeled elements landing alone in Rj with j < i). Then, for i = 0, . . . , lg(τ )
+in turn, select the row of Gi where most elements hash alone and peel those elements. To prove that this
+process succeeds in peeling all elements with probability at least 1 − δ, we define the events Ei occuring if
+there are more than n2−(i+1) elements left after peeling from R0 , . . . , Ri . Similarly, define Fi as the event
+that more than τ 2−(i+1) elements remain after peeling from R0 , . . . , Rlg(τ ) , G0 , . . . , Gi . We observe that if
+Flg(τ ) does not occur, then there are no more than 1/2 elements left, i.e. peeling succeeded.
+    The key step in our proof is to argue that the following two inequalities hold:
+
+                                                  i−1                        δ
+                                         Pr[Ei | ∩j=0 Ej ] ≤                             .                                (2)
+                                                                    4(lg(n/τ ) − i + 1)2
+
+and
+                                                        lg(n/τ )
+                                            Pr[Fi | ∩j=0           Ej ∩i−1         2
+                                                                       j=0 Fj ] ≤ δ /2.                                   (3)
+
+Observe that these two are sufficient as
+                                        lg(n/τ )       lg(τ )
+                 Pr[Flg(τ ) ] ≥ Pr[∩j=0            Ej ∩j=0 Fj ]
+                                lg(n/τ )                                 lg(τ )
+                                                                                               lg(n/τ )
+                                  Y                                      Y
+                                                         i−1
+                            =              (1 − Pr[Ei | ∩j=0 Ej ])                (1 − Pr[Fi | ∩j=0       Ej ∩i−1
+                                                                                                              j=0 Fj ])
+                                  i=0                                    i=0
+
+
+                                                                    11
+                                   lg(n/τ )                                
+                                    Y                         δ                              lg(τ )+1
+                               ≥                1−                              1 − δ 2 /2
+                                    i=0
+                                                     4(lg(n/τ ) − i + 1)2
+                                       lg(n/τ )
+                                          X           δ        (lg(τ ) + 1)δ 2
+                               ≥1−                         2
+                                                             −
+                                          i=0
+                                                  4(i + 1)            2
+                                           2
+                                     δπ    δ
+                               ≥1−       −
+                                      24   2
+                               ≥ 1 − δ.
+We start by showing (2). Observe that conditioned on ∩i−1                 j=0 Ej , we know that no more than n2
+                                                                                                                      −i
+                                                                                                                         elements re-
+main after peeling from R0 , . . . , Ri−1 . We may condition on an arbitrary such set as the hash functions across
+the rows are independent. So let S be a set of at most n2−i elements. The probability that there are more
+than n2−(i+1) elements that do no hash alone in Ri is clearly maximized when |S| is n2−i . Theorem 2 gives
+                                                                     −i                                                       −i
+us that this probability is at most 4(8e/C)min{k/2,n2 /C} . For C ≥ 16e, this is at most 4 · 2− min{k/2,n2 /C} .
+                                                                   2
+Since k = Θ(lg(lg(n)/δ)), we have 2−k/2 < δ/(4 lg2 n) ≤ δ/(4(lg(n/τ ) − i + 1)2 ) for a big enough constant
+in the Θ-notation. We also have n2−i /C = τ 2lg(n/τ )−i /C. For big enough constant C0 (in the definition of
+τ ), this is at least 2 lg(1/δ)(lg(n/τ ) − i + 1) + 2 ≥ lg(1/δ) + 2 lg(lg(n/τ ) − i + 1)) + 2 (and this is by a large
+                                      −i
+margin) and we conclude 2−n2 /C ≤ (δ/4)/(lg(n/τ ) − i + 1))2 .
+                                                                 lg(n/τ )      i−1
+     To show (3), note again that conditioned on ∩j=0 Ej ∩j=0                      Fj , there are at most τ 2−i elements left after
+peeling from R0 , . . . , Rlg(n/τ ) , G0 , . . . , Gi−1 . Again, condition on an arbitrary set S of remaining elements.
+The probability of Fi is clearly maximized if |S| = τ 2−i . We split the proof in two cases. First, assume
+τ 2−i ≥ 4C. Since each of the 2i rows of Gi have Cτ 2−i entries, and the rows have independent hash
+functions, it follows by Theorem 2 and C ≥ 16e, that
+                                                                                  2i                            2i
+                          lg(n/τ )                              − min{k,τ 2−i /C}           − min{k/2,τ 2−i /(2C)}
+                Pr[Fi | ∩j=0 Ej ∩i−1     j=0 j  F   ] ≤   4 · 2                        ≤   2                           .
+
+Here the last inequality assumes k = Θ(lg(lg(n)/δ)) is at least a sufficiently large constant. We also use
+τ 2−i /C − 2 ≥ τ 2−i /C − τ 2−i /(2C). We clearly have 2−k/2 ≤ δ 2 /2 for a big enough constant in the Θ-
+                             −i       i
+notation. We also have (2−τ 2 /(2C) )2 = 2−τ /(2C) . This is again smaller than δ 2 /2 for big enough constant
+C0 in the definition of τ = C0 lg(1/δ). Finally, for the case where |S| = τ 2−i < 4C, we note that one row
+of Gi has C|S| entries and thus the expected number of elements that collide with another is no more than
+|S|2 /(C|S|) = |S|/C. By Markov’s inequality, the probability that more than |S|/2 collide is no more than
+                                                                                         i
+2/C < 1/2. By independence of the rows, the chance that peeling fails is at most 2−2 . Since τ 2−i < 4C, we
+                                                                                        i
+have 2i ≥ τ /(4C) = C0 lg(1/δ)/(4C). For C0 a big enough constant, this implies 2−2 < δ 2 /2.
+
+6    Lower Bound on the Size of IBLTs
+The original IBLT analysis by Goodrich and Mitzenmacher [GM11] shows that                     using truly random hash
+functions and space O(nk) one can achieve a failure probability of O n−k+2 . Stated in terms of δ and n,
+                                                                                       
+
+the space usage of their solution is thus Ω(n lgn (1/δ)). One may wonder, whether their analysis is tight or
+whether one could prove that IBLTs actually only require o(nk) space for a similar failure probability.
+   It turns out their space bound is essentially tight and can not be improved by much. Assume we have an
+IBLT of size m storing keys k1 , . . . , kn . Furthermore assume h1 , . . . , hk are perfectly random hash functions,
+which map each key to exactly k distinct locations. For an IBLT to be decodable, we must be able to find
+a cell with a count of one at each step of the peeling process. If kn ≥ cm lg m for some sufficiently large
+constant c, then each cell will have at least c lg m elements in expectation and thus by Chernoff bound with
+high probability all cells have a count strictly larger than one. Thus it must hold that kn < cm lg m. Consider
+two distinct keys that are inserted into the IBLT. The probability that both keys are hashed into exactly
+the same cells is            −1                            −cm lg m/n
+                             m             em −k         en
+                                     ≥              ≥                         ≥ n−cm lg m/n .
+                              k              k          c lg m
+
+                                                                  12
+If we want the IBLT to be correct with probability at least 1 − δ, then it has to holds that
+
+                                                               n−cm lg m/n ≤ δ
+
+and thus
+                                                          cm lg m lg n
+                                                                        > lg(1/δ)
+                                                               n
+                                                                    n lg(1/δ)
+                                                       ⇐⇒ m lg m >            .
+                                                                       c lg n
+
+For this to hold, it must also hold that
+
+                                                                         n lg(1/δ)
+                                                          m lg(n lg(1/δ)) >
+                                                                           c lg n
+                                                                n lg(1/δ)
+                                                   ⇐⇒ m >
+                                                          c lg(n) lg(n lg(1/δ))
+
+and thus it must be true that
+                                                         n lg(1/δ)         n lgn (1/δ)
+                                             m>          2            ≥
+                                                     c lg (n lg(1/δ))   c lg2 (n lg(1/δ))
+for any choice of n ≥ 2.
+
+
+7     Supporting Subtraction
+
+Our IBLT can be made to support such an operation in a manner similar to the original IBLT construction.
+As explained previously, we modify the basic IBLT from Section 5.1 to have an additional hash sum matrix
+H where the values g(k) for keys k for some appropriate hash function g are added up. During peeling both
+cells with a count of one or minus one can be peeled, whenever the hash of the key sum cell matches the hash
+stored in the hash sum cell. These modification are described in Figure 3 and Figure 4. If g is a fully random
+function, then it is straightforward to see that the modified construction will be correct. Using a function g
+that requires little randomness is slightly more challenging. We assume that K ⊆ Zp for some prime p and
+we use hash function ga (x) = ax mod q for some sufficiently large prime q > p, which was already used by
+Mitzenmacher and Pagh [MP17] in the context of IBLTs. Such hash functions are useful due to the following
+lemma.
+
+
+ Init′ (h, g)                                     Insert′ ((T0 , . . . , T⌈lg n⌉−1 ), S, h, g)   ListEntries′ (h, g, (T0 , . . . , T⌈lg n⌉−1 ))
+ for 0 ≤ i < lg(n) − lg(τ )                       for 0 ≤ i < ⌈lg n⌉                             S+ := ∅, S− := ∅
+                     ′          −i                                        ′
+    Ti := BasicInit (1, ⌈Cn2 ⌉, hi , g)              Ti := BasicInsert (S, hi , g)               for 0 ≤ i < ⌈lg n⌉
+ for 0 ≤ i < lg(τ ))                              return (T0 , . . . , T⌈lg n⌉−1 )                  Ti := BasicDelete′ (Ti , S+ , S− , hi , g)
+                                                                                                      ′    ′
+    i′ := ⌊lg(n) − lg(τ )⌋ + i                                                                      (S+ , S− ) := BasicListEntries′ (Fi , hi , g)
+                                                  Delete((T0 , . . . , T⌈lg n⌉−1 ), S̃, h, g)                   ′
+                                                                                                    S+ := S+ ∪ S+               ′
+                                                                                                                  , S− := S− ∪ S−
+    Ti′ := BasicInit′ (2i , ⌈Cτ 2−i ⌉, hi′ , g)
+ return (T0 , . . . , T⌈lg n⌉−1 )                 for 0 ≤ i < ⌈lg n⌉                             return S+ ∪ S−
+                                                     Ti := BasicDelete′ (S̃, hi , g)
+                                                  return (T0 , . . . , T⌈lg n⌉−1 )
+
+Fig. 3. Modified stacked IBLT supporting subtraction. It makes use of the modified basic IBLT specified in Figure 4.
+
+
+
+
+                                                                        13
+Lemma 5. For any ℓ ∈ N, any k1 , . . . , kℓ ∈ Zp , any σ1 , . . . , σℓ ∈ {1, −1}, it holds that
+                          "                                               #
+                               ℓX               Xℓ
+                                                                               2ℓp + 1
+                        Pr ga           σi ki =       σi ga (ki ) mod q ≤              ,
+                                 i=1              i=1
+                                                                                  q
+
+where the probability is taken over the random choice of a ∈ Z∗q .
+Proof. Fix some arbitrary k1 , . . . , kℓ ∈ Zp and σ1 , . . . , σℓ ∈ {1, −1}. Observe that
+                                                            ℓ
+                                                            X
+                                                                  σi ki ≥ −ℓp
+                                                            i=1
+                                                                    ℓ
+                                                                    X
+                                                  ⇐⇒ ℓp +                 σi ki ≥ 0
+                                                                    i=1
+
+Next we observe that
+                                                  ℓ
+                                                                !        ℓ
+                                                  X                      X
+                                           ga           σi ki       =          σi ga (ki ) mod q
+                                                  i=1                    i=1
+                                             Pℓ                 ℓ
+                                                                X
+                                      ⇐⇒ a      i=1 σi ki   =            σi aki mod q
+                                                                i=1
+                                                                              ℓ
+                                             ℓp+ ℓi=1 σi ki
+                                                P                             X
+                                                                         ℓp
+                                      ⇐⇒ a                        =a                σi aki mod q.
+                                                                              i=1
+
+On the left side of the equation we have a polynomial of degree at most 2ℓp with indeterminant a. On
+the right hand side we have a different polynomial of degree at most ℓ(p + 1) with indeterminant a. These
+polynomials can agree on at most 2ℓp + 1 points and thus the statement follows.                        ⊔
+                                                                                                       ⊓
+
+Theorem 6. Let h be a vector of functions drawn from appropriate families of lg(lg(n)/δ)-wise independent
+                                                                                              3
+functions and let g : Zp → Zq be chosen uniformly at random as described above for q ≥ 2Cn lg(1/δ) δ
+                                                                                                     lglg(1/δ)p
+
+for some sufficiently large constant C. Then for the modified IBLT described in Figure 3, for any pair of sets
+S, S ′ ⊆ U such that |S △ S ′ | < n, it holds that
+
+                   Pr[ListEntries′ (h, g, Insert′ (h, g, S) − Insert′ (h, g, S ′ )) = S △ S ′ ] ≥ 1 − 2δ.
+
+Proof. Note that in our new decoding process, we may have counter entries of one or minus one for cells
+that contain more than one key. To see this consider a cell with k1 + k2 − k3 , where k1 , k2 , k3 are all distinct.
+The count is one, but the cell actually still contains three keys. Storing the sum of hashes of the keys in a
+cell is intended to prevent mistakenly considering such a cell peelable. This is the only new source of failure
+for the decoding algorithm. Mistaking a peelable cell as not peelable is not possible.
+     Recall that an IBLT is a key-value datastructure and thus keys are unique. That is, every key is inserted
+into one of the individual IBLTs that we will subtract from each other at most once. Obviously, a key
+may still be inserted in both, one, or neither of the two IBLTs. First, consider an inefficient hash function
+g̃ : K → {0, 1}|K| defined as mapping a key k to the bitstring of all zeroes with a single one bit at position
+k. Note that for sets X and Y of keys, the value
+                                              X           X
+                                                  g̃(x) −    g̃(y)
+                                                   x∈X                   y∈Y
+
+fully encodes the symmetric set difference between X and Y . Thus using this hash function we ensure that
+no cell is ever peeled incorrectly and we thus obtain the correct output from the decoding procedure.
+
+
+                                                                    14
+               BasicInit′ (ρ, γ, h, g)        BasicListEntries′ ((K, V , C, H), h, g)
+               K := 0ρ×γ                      S+ := ∅, S− := ∅
+                         ρ×γ                  for (i, j) ∈ [ρ] × [γ]
+               V := 0
+               C := 0    ρ×γ                      if C[i, j] ∈ {1, −1} and C[i, j] · H[i, j] = g(C[i, j] · K[i, j])
+
+               H := 0ρ×γ                            (k, v) := (C[i, j] · K[i, j], C[i, j] · V [i, j])
+
+               return (K, V , C, H)                 if C[i, j] = 1
+                                                       S+ := S+ ∪ {(k, v)}
+                                                    else
+                                                       S− := S− ∪ {(k, v)}
+                                              return (S+ , S− )
+      BasicInsert′ ((K, V , C, H), S, h, g)        BasicDelete′ ((K, V , C, H), S̃− , S̃+ , h, g)
+      foreach (k, v) ∈ S                           foreach (b, k, v) ∈ {(1, k, v)|(k, v) ∈ S̃+ } ∪ {(−1, k, v)|(k, v) ∈ S̃− }
+        foreach i ∈ [ρ]                               foreach i ∈ [ρ]
+           j := hi (k)                                     j := hi (k)
+           K[i, j] := K[i, j] + k                          K[i, j] := K[i, j] − b · k
+           V [i, j] := V [i, j] + v                        V [i, j] := V [i, j] − b · v
+           C[i, j] := C[i, j] + 1                          C[i, j] := C[i, j] − b
+           H[i, j] := H[i, j] + g(k)                       H[i, j] := H[i, j] − b · g(k)
+      return (K, V , C, H)                         return (K, V , C, H)
+
+Fig. 4. The modified basic IBLT that supports subtraction of IBLTs. This modified IBLT additionally requires a
+hash function g : K → Zq sampled from the family described above.
+
+
+    Let us fix a vector of hash functions h and consider two different IBLT decoding runs. In the first g̃ is
+used as the hash function. In the second one ga is used. As long as ga makes no mistakes, the two peeling
+processes will behave identically. Thus to show that decoding works correctly, we simply need to show that
+peeling using ga behaves identically to using g̃. Let Ei,c be the event that a cell c is not peelable after i steps
+in the decoding process using g̃, but
+                                         X        X
+                                      ga     σk k =        σk ga (k) mod q,
+                                                  k∈ki,c             k∈ki,c
+
+where ki,c are the remaining keys in cell c after i steps of peeling using g̃ and σk is the corresponding sign
+of key k. Note that the events Ei,c do not depend on whether ga correctly identified other cells in previous
+steps as peelable since we consider the peeling process according to g̃, not according to ga . By Lemma 7 we
+know that
+                                                                    
+                                 X           X                              δ(2|ki,c |p + 1)
+              Pr[Ei,c ] = Prga       σk k =         σk ga (k) mod q  ≤
+                                                                         2Cn3 lg(1/δ) lglg(1/δ)p
+                                         k∈ki,c             k∈ki,c
+
+                                                                                                        δnp
+                                                                                          ≤
+                                                                                              C · n3 lg(1/δ) lglg(1/δ)p
+                                                                                                       δ
+                                                                                          ≤                         ,
+                                                                                              Cn2 lg(1/δ) lglg(1/δ)
+where the randomness is taken over the choice of a. By union bounding over all n peeling steps and all
+Cn lg(1/δ) lglg(1/δ) cells of the data structure we obtain an additional error of at most δ. Adding this error
+to the error derived from Theorem 1 yields the theorem statement.                                           ⊔
+                                                                                                            ⊓
+
+
+                                                                       15
+References
+AGL+ 17. Giuseppe Ateniese, Michael T. Goodrich, Vassilios Lekakis, Charalampos Papamanthou, Evripidis
+         Paraskevas, and Roberto Tamassia. Accountable storage. In Dieter Gollmann, Atsuko Miyaji, and Hiroaki
+         Kikuchi, editors, ACNS 17: 15th International Conference on Applied Cryptography and Network Security,
+         volume 10355 of Lecture Notes in Computer Science, pages 623–644, Kanazawa, Japan, July 10–12, 2017.
+         Springer, Heidelberg, Germany. doi:10.1007/978-3-319-61204-1_31. 1
+BKW24. Djamal Belazzougui, Gregory Kucherov, and Stefan Walzer. Better space-time-robustness trade-offs for
+         set reconciliation. In Karl Bringmann, Martin Grohe, Gabriele Puppis, and Ola Svenson, editors, ICALP
+         2024: 51th International Colloquium on Automata, Languages and Programming, LIPIcs, Tallinn, Estonia,
+         July 8–12, 2024. Schloss Dagstuhl - Leibniz-Zentrum fuer Informatik. 1.2
+CDG+ 21. Seung Geol Choi, Dana Dachman-Soled, S. Dov Gordon, Linsheng Liu, and Arkady Yerukhimovich. Com-
+         pressed oblivious encoding for homomorphically encrypted search. In Giovanni Vigna and Elaine Shi,
+         editors, ACM CCS 2021: 28th Conference on Computer and Communications Security, pages 2277–2291,
+         Virtual Event, Republic of Korea, November 15–19, 2021. ACM Press. doi:10.1145/3460120.3484792.
+         1.1, 1.1
+DKRT15. Søren Dahlgaard, Mathias Bæk Tejs Knudsen, Eva Rotenberg, and Mikkel Thorup. Hashing for statistics
+         over K-partitions. In Venkatesan Guruswami, editor, 56th Annual Symposium on Foundations of Computer
+         Science, pages 1292–1310, Berkeley, CA, USA, October 17–20, 2015. IEEE Computer Society Press. doi:
+         10.1109/FOCS.2015.83. 1
+DR09.    Martin Dietzfelbinger and Michael Rink. Applications of a splitting trick. In Susanne Albers, Alberto
+         Marchetti-Spaccamela, Yossi Matias, Sotiris E. Nikoletseas, and Wolfgang Thomas, editors, ICALP 2009:
+         36th International Colloquium on Automata, Languages and Programming, Part I, volume 5555 of Lec-
+         ture Notes in Computer Science, pages 354–365, Rhodes, Greece, July 5–12, 2009. Springer, Heidelberg,
+         Germany. doi:10.1007/978-3-642-02927-1_30. 1
+EGL+ 98. Guy Even, Oded Goldreich, Michael Luby, Noam Nisan, and Boban Veličković. Efficient approximation
+         of product distributions. Random Struct. Algorithms, 13(1):1–16, aug 1998. 1.3, 4
+EGUV11. David Eppstein, Michael T. Goodrich, Frank Uyeda, and George Varghese. What’s the difference? efficient
+         set reconciliation without prior context. ACM SIGCOMM Computer Communication Review, 41(4):218–
+         229, August 2011. doi:10.1145/2043164.2018462. 1
+FLS22.   Nils Fleischhacker, Kasper Green Larsen, and Mark Simkin. Property-preserving hash functions for
+         hamming distance from standard assumptions. In Orr Dunkelman and Stefan Dziembowski, editors,
+         Advances in Cryptology – EUROCRYPT 2022, Part II, volume 13276 of Lecture Notes in Computer
+         Science, pages 764–781, Trondheim, Norway, May 30 – June 3, 2022. Springer, Heidelberg, Germany.
+         doi:10.1007/978-3-031-07085-3_26. 1
+FLS23.   Nils Fleischhacker, Kasper Green Larsen, and Mark Simkin. How to compress encrypted data. In Carmit
+         Hazay and Martijn Stam, editors, Advances in Cryptology – EUROCRYPT 2023, Part I, volume 14004 of
+         Lecture Notes in Computer Science, pages 551–577, Lyon, France, April 23–27, 2023. Springer, Heidelberg,
+         Germany. doi:10.1007/978-3-031-30545-0_19. 1, 1.1, A, A.1, A.1, A.1, A.3, A.3, A.4, A.5, 7, A.5, A.6,
+         A.6
+GM11.    Michael T. Goodrich and Michael Mitzenmacher. Invertible bloom lookup tables. In 49th Annual Aller-
+         ton Conference on Communication, Control, and Computing (Allerton), pages 792–799. IEEE Computer
+         Society Press, September 28–30, 2011. doi:10.1109/Allerton.2011.6120248. 1, 1.1, 1.2, 6
+GY20.    Parikshit Gopalan and Amir Yehudayoff. Concentration for limited independence via inequalities for the
+         elementary symmetric polynomials. Theory of Computing, 16(17):1–29, 2020. 1.3, 4
+LM21.    Francisco Lázaro and Balázs Matuz. Irregular invertible bloom look-up tables. In 11th International
+         Symposium on Topics in Coding, ISTC 2021, Montreal, QC, Canada, August 30 - Sept. 3, 2021, pages
+         1–5. IEEE, 2021. 1.2
+LT22.    Zeyu Liu and Eran Tromer. Oblivious message retrieval. In Yevgeniy Dodis and Thomas Shrimpton,
+         editors, Advances in Cryptology – CRYPTO 2022, Part I, volume 13507 of Lecture Notes in Computer
+         Science, pages 753–783, Santa Barbara, CA, USA, August 15–18, 2022. Springer, Heidelberg, Germany.
+         doi:10.1007/978-3-031-15802-5_26. 1.1, 1.1
+MP17.    Michael Mitzenmacher and Rasmus Pagh. Simple multi-party set reconciliation. Distributed Computing,
+         31:441–453, October 2017. doi:10.1007/s00446-017-0316-0. 1, 7
+MTZ03. Yaron Minsky, Ari Trachtenberg, and Richard Zippel. Set reconciliation with nearly optimal com-
+         munication complexity. IEEE Transactions on Information Theory, 49(9):2213–2218, September 2003.
+         doi:10.1109/TIT.2003.815784. 1
+
+
+                                                       16
+MV12.    Michael Mitzenmacher and George Varghese. Biff (bloom filter) codes: Fast error correction for large data
+         sets. In Giuseppe Caire, Michelle Effros, Hans-Andrea Loeliger, and Alexander Vardy, editors, 2012 IEEE
+         International Symposium on Information Theory, pages 483–487. IEEE Computer Society Press, July 1–6
+         2012. doi:10.1109/ISIT.2012.6284714. 1
+OAB+ 17. A. Pinar Ozisik, Gavin Andresen, George Bissias, Amir Houmansadr, and Brian Levine. Graphene: A
+         new protocol for block propagation using set reconciliation. In Joaquin Garcia-Alfaro, Guillermo Navarro-
+         Arribas, Hannes Hartenstein, and Jordi Herrera-Joancomartı́, editors, Data Privacy Management, Cryp-
+         tocurrencies and Blockchain Technology, ESORICS 2017 International Workshops, DPM 2017 and CBT
+         2017, volume 10436 of Lecture Notes in Computer Science, pages 420–428, Oslo, Norway, 14–15 2017.
+         Springer, Heidelberg, Germany. doi:10.1007/978-3-319-67816-0_24. 1
+Tho17.   Mikkel Thorup. Fast and powerful hashing using tabulation. Communications of the Association for
+         Computing Machinery, 60(7):94–101, July 2017. doi:10.1145/3068772. 1
+YGA24. Lei Yang, Yossi Gilad, and Mohammad Alizadeh. Practical rateless set reconciliation. In Aruna Senevi-
+         ratne, Darryl Veitch, Minlan Yu, and Vyas Sekar, editors, ACM SIGCOMM 2024: Proceedings of the ACM
+         SIGCOMM 2024 Conference, Sydney, Australia, August 4–8, 2024. ACM Press. 1.1
+
+
+A     Encrypted Compression
+In this section, we show that the approach towards compressing encrypted data of Fleischhacker, Larsen,
+and Simkin [FLS23] is compatible with our new stacked IBLT. In addition, we generalize their construction
+to work with encryption schemes that have arbitrarily small plaintext spaces.
+
+A.1     Additional Preliminaries
+For a set X n , we use the scissor operator ✄(X n ) := {(x1 , . . . , xn ) ∈ X n | xi ̸= xj ∀i, j ∈ [n]} to denote the
+subset of X n consisting only of those vectors with unique entries.
+
+Definition 1 (Sparse Vector Representation). Let Fq be a field and let a ∈ Fnq be a vector. The sparse
+representation of a is the set sparse(a) := {(i, ai ) | ai ̸= 0}.
+
+Homomorphic Encryption Informally, a homomorphic encryption scheme allows to compute an encryp-
+tion of f (m) given only the description of f and an encryption of m. Throughout the paper, we assume that
+functions are represented as circuits composed of addition and multiplication gates. We recall the formal
+definition of a homomorphic encryption scheme, closely following the notation of [FLS23].
+
+Definition 2. A homomorphic encryption scheme E is defined by a tuple of PPT algorithms (Gen, Enc, Eval,
+Dec) that work as follows:
+Gen(1λ ): The key generation algorithm takes the security parameter 1λ as input and returns a secret key
+    sk and public key pk. The public key implicitly defines a message space M and ciphertext space C. We
+    denote the set of all public keys as P.
+Enc(pk, m): The encryption algorithm takes the public key pk and message m ∈ M as input and returns a
+    ciphertext c ∈ C.
+Eval(pk, f, c): The evaluation algorithm takes the public key pk, a function f : Mn → Mm , and a vector
+    c ∈ C n of ciphertexts as input and returns a new vector of ciphertexts c̃ ∈ C m .
+Dec(sk, c): The deterministic decryption algorithm takes the secret key sk and ciphertext c ∈ C as input and
+    returns a message m ∈ M ∪ {⊥}.
+
+   Throughout the paper it is assumed that the ciphertext size is fixed and does not increase when applying
+the homomorphic evaluation algorithm. We extend the definition of Enc and Dec to vectors and matrices of
+messages and ciphertexts respectively, by applying them componentwise, i.e., for any matrix M ∈ Mn×m ,
+we have Enc(pk, M ) = C with C ∈ C n×m and C[i, j] = Enc(pk, M [i, j]) and equivalently Dec(sk, C) = M ′
+with M ′ ∈ Mn×m and M ′ [i, j] = Dec(sk, C[i, j]). This also applies recursively when, for instance, decrypting
+
+
+                                                         17
+a vector of matrices of ciphertexts. Let E be an additively homomorphic encryption scheme with message
+space M = Fq for some prime power q. Let f : F2q → Fq , f (a, b) := a + b and let gα : Fq → Fq , g(a) := α · a for
+any constant α ∈ Fq . For notational convenience we write Eval(pk, f, (c1 , c2 )⊺ ) as c1 ⊞ c2 and Eval(pk, gα , c)
+as α ⊡ c with pk being inferrable from context. We naturally extend these notions to vectors, i.e. for two
+vectors c, c′ ∈ C n we denote c ⊞ c′ = (c0 ⊞ c′0 , . . . , cn ⊞ c′n )⊺ and for a vector α ∈ Mn we denote α ⊡ c =
+(α0 ⊡ c, . . . , α0 ⊡ c)⊺ . For the sake of simplicity we restrict ourselves to homomorphic encryption schemes
+with unique secret keys, i.e. for a given pk, there exists at most one sk, such that (sk, pk) ← Gen(1λ ). The
+unique secret key is denoted as Gen−1 (pk) and we stress that the function Gen−1 (·) does not need to be
+efficiently computable.
+     We recall the definition of ciphertexts valid relative to a class of circuits and of a ciphertext compression
+scheme from [FLS23].
+
+Definition 3 (Z-Validity). Let (Gen, Enc, Eval, Dec) be a homomorphic encryption scheme, let Z be a class
+of circuits, and let pk be a public key. A vector c of ciphertexts is Z-valid for pk, iff for all functions f ∈ Z it
+holds that ⊥ ∈/ Dec(Gen−1 (pk), c) and Dec(Gen−1 (pk), Eval(pk, f, c) = f (Dec(sk, c)). We denote by vld(Z, pk)
+the set of ciphertext vectors Z-valid for pk.
+
+Definition 4 (Ciphertext Compression Scheme). Let E = (Gen, Enc, Eval, Dec) be a homomorphic pub-
+lic key encryption scheme with ciphertext size ξ = ξ(λ). Let P be the public key space of E. For each pk ∈ P
+let Fpk be a set of ciphertext vectors. A δ-compressing, (1 − ϵ)-correct ciphertext compression scheme for
+the family F := {Fpk | pk ∈ P} is a pair of PPT algorithms (Compress, Decompress), such that for any
+(sk, pk) ← Gen(1λ ) and any c ∈ Fpk the output length of Compress(pk, c) is at most δξ|c| and it holds that
+
+                     Pr[Decompress(sk, Compress(pk, c)) = sparse(Dec(sk, c))] = 1 − ϵ(λ),
+
+where the probability is taken over the random coins of the compression and decompression algorithms.
+
+   Just like the construction of [FLS23], our construction described in Section A.4 works for ciphertext
+vectors of low Hamming weight, which allow for the homomorphic evaluation of inner product functions.
+The following two definitions, taken verbatim from [FLS23] are recalled in the following.
+
+Definition 5 (Inner Product Functions). The class of inner product functions is the set of functions
+Zip = {fa | a ∈ Fnq } with
+                               fa : Fnq → Fq , fa (x) := ⟨a, x⟩.
+
+Definition 6 (Zip -Valid Low Hamming Weight Ciphertext Vectors). Let E = (Gen, Enc, Eval, Dec)
+be a homomorphic public key encryption scheme. For any pk ∈ P, let
+                          ip
+                               := c ∈ vld(Zip , pk) | hw(Dec(Gen−1 (pk), c)) < t .
+                                 
+                         Ft,pk
+
+We then define the family of Zip -valid ciphertext vectors with low hamming weight as Ftip := {Ft,pk
+                                                                                                ip
+                                                                                                     | pk ∈ P}.
+
+
+A.2    Pseudorandom Functions with Variable Codomains
+
+The construction presented in Section A.4 relies on a pseudorandom function that needs to be able to produce
+outputs from variable codomains. We define such a variant of PRFs here.
+
+Definition 7 (Pseudorandom Function with Variable Codomain). An efficiently computable function
+PRF : {0, 1}λ ×N×{0, 1}∗ → N is a pseudorandom function with variable codomain, if it satisfies the following
+properties.
+
+1. For any s ∈ {0, 1}λ , any γ ∈ N with log γ = poly(λ), and any x ∈ {0, 1}∗ , it holds that PRF(s, γ, x) ∈ [γ].
+
+
+                                                        18
+2. Let G be the set of all functions g : N × {0, 1}∗ → N such that for all γ ∈ N and all x ∈ {0, 1}∗ it holds
+   that g(γ, x) ∈ [γ]. For all PPT adversaries A it holds that
+
+                               | Pr[APRF(s,·,·) (1λ ) = 1] − Pr[Ag(·,·) (1λ ) = 1]| ≤ negl(λ)
+
+    where the probabilities are taken over the uniform choice of s ∈ {0, 1}λ and g ∈ G respectively.
+
+While this funky definition of a PRF is helpful to us as an abstraction, such PRFs are luckily existentially
+equivalent to regular PRFs. To see this, consider a regular PRF PRF′ : {0, 1}λ × {0, 1}∗ → {0, 1}λ . We can
+construct a PRF with variable codomain PRF as follows. On input (s, γ, x) first compute s′ := PRF′ (s, γ). This
+step gives us (computationally) independent keys for the PRF evaluations for different output domains. Then
+compute y ′ := PRF′ (s′ , x), this already gives us a pseudorandom value however it’s from the wrong domain.
+We can now stretch y ′ to a sufficient length using a pseudorandom generator and finally reduce it modulo γ
+to get a pseudorandom value in [γ]. A simple hybrid argument can be used to establish pseudorandomness.
+
+
+A.3   Wunderbar Pseudorandom Vectors over K ∈ Fηq
+
+As in the original construction, the ciphertext compression scheme relies on wunderbar pseudorandom vec-
+tors. The construction requires that the the universe K over which the wunderbar pseudorandom vector
+operates is “large enough”. In [FLS23] this was achieved by requiring that the field the encryption scheme
+operates on is large. Here we show how the same can be achieved by instead defining K ⊆ Fηq for an arbitrar-
+ily small q and large enough η. We first recall the definition of a a wunderbar pseudorandom vector taken
+verbatim from [FLS23].
+
+Definition 8. A pseudorandom vector with index recovery for an efficiently sampleable universe K = K(λ)
+consists of a triple of ppt algorithms (Sample, Entry, Index) such that
+
+Sample(1λ , 1n ): The sampling algorithm takes as input the security parameter λ and the vector length n in
+    unary and outputs the description of a pseudorandom vector s.
+Entry(s, i): The deterministic retrieving algorithm takes as input a description s and an index i ∈ [n] and
+    outputs a value ki ∈ K.
+Index(s, k): The deterministic index recovery algorithm takes as input a description s and a value k and
+    outputs either an index i ∈ [n] or ⊥.
+
+A pseudorandom vector with index recovery is correct, if for all vector lengths n = poly(λ) and all seeds
+s ← Sample(1λ , 1n ) it holds that:
+
+1. For all indices i ∈ [n] it holds that Index(s, Entry(s, i)) = i.
+2. For all all k ∗ ̸∈ {Entry(s, i) | i ∈ [n]} it holds that Index(s, k ∗ ) = ⊥.
+
+The pseudorandom vector is wunderbar if the description of a vector has length O(λ) and the runtime
+of Entry and Index is O(polylog(n)). A pseudorandom vector is secure, if for all n = poly(λ) and all ppt
+algorithms A                                      
+                       s ← Sample(1λ , 1n ),
+                                                
+                              Entry(s, 1)                      n
+                   Pr
+                                    .        : A(k)
+                                                    − Pr[k ← ✄(K ) : A(k)] ≤ negl(λ)
+                       k := 
+                                   ..     
+                                                  
+                               Entry(s, n)
+
+    Fleischhacker, Larsen, and Simkin [FLS23] construct a wunderbar pseudorandom vector for K ⊆ Fq from
+a pseudorandom permutation. The construction essentially just takes a PRP over Fλ2 and uses an efficiently
+computable and invertible injective function to map values from Fλ2 to Fq and back. The construction is
+easily generalized for K ⊆ S for any set S as long as there exists an efficiently computable and invertible
+injective function from Fλ2 to S.
+
+
+                                                          19
+   The new construction requires K ⊆ Fηq for some η and such that |K| > α for some given lower bound α.
+We specify the required injective function in the following.
+   Let decompp : N → [p]∗ denote the function that maps an integer to its canonical p-ary representation
+and let projp : [p]∗ → N be its inverse. Let q = pm be an arbitrary prime power and let η = ⌈λ/ log q⌉ =
+⌈λ/(m log p)⌉ We then define an injective function
+
+                                  binToField : Fλ2 → Fηq           binToField(b) = d
+
+where
+                                                       m−1
+                                                       X
+                                               di :=          cim+j xj
+                                                       j=0
+
+where
+                                             c := decompq (proj2 (b)).
+We further specify the inverse function as
+
+                                         fieldToBin : Fηq → Fλ2 ∪ {⊥}
+                                             (
+                                               ⊥                    if projp (c) ≥ 2λ
+                           fieldToBin(d) :=
+                                               decomp2 (projq (c)) otherwise
+
+where
+                                                       m−1
+                                                       X
+                                               di =          cim+j xj .
+                                                       j=0
+
+For a given α, any λ = Ω(log α) leads to the required wunderbar pseudorandom vector.
+
+A.4     A Ciphertext Compression Scheme for Small Fields
+In this section we present a construction of a ciphertext compression scheme, that in contrast to [FLS23]
+also works if the encryption scheme is defined over an arbitrarily small field, even for F2 .
+
+A.5     The Generalized Helpful Lemma
+Fleischhacker, Larsen, and Simkin [FLS23] state the following helpful lemma.
+                                                                                              n
+Lemma 7 (Helpful   P Lemma [FLS23, Lemma ′13]). Let K ⊆ Fq , (m1 , . . . , mn ) ∈ Fq and I ⊆ [n] be
+arbitrary such that i∈I mi ̸= 0 and there exist i, i ∈ I with 0 ̸∈ {mi , mi′ }. It holds that
+                                                          P           
+                                        n                    i∈I ki mi        n
+                             Pr k ← K : ∃j ∈ [n]. kj = P                 ≤
+                                                              i∈I mi         |K|
+We generalize this lemma to vectors of Fq elements.
+Lemma 8 (Generalized      Helpful Lemma). Let η ∈ N+ , K ⊆ Fηq , (m1 , . . . , mn ) ∈ Fnq , and I ⊆ [n] be
+arbitrary such that i∈I mi ̸= 0 and there exist i, i′ ∈ I with 0 ̸∈ {mi , mi′ }. It holds that
+                   P
+
+                                                                               
+                                  n
+                                                       X −1 X                        n
+                      Pr k ← K : ∃j ∈ [n]. kj =           mi      ·   mi · ki ≤
+                                                                                     |K|
+                                                             i∈I           i∈I
+
+Proof.  Observe that kj ∈ K ⊆ Fηq can be interpreted as polynomials of degree at most η − 1 with coefficients
+in Fq . Similarly, mi ∈ Fq is simply a constant polynomial over Fq and the vector-scalar multiplications are
+in fact correct polynomial multiplications resulting in polynomials of degree at most η − 1 with coefficients
+in Fq . Therefore, the lemma can be reinterpreted as working over the extension field Fqη . It then follows
+directly as a special case of Lemma 7 for Fqη .                                                            ⊔
+                                                                                                           ⊓
+
+
+                                                         20
+              Insert1 (S, s1 )                                            ListEntries1 ((F0 , . . . , F⌈log t⌉−1 ), s1 )
+              for 0 ≤ i < log t − log τ                                   S ′ := ∅
+                 Fi := BasicInsert1 (1, ⌈Ct2−i ⌉, S, (i, s1 ))            for 0 ≤ i < ⌈log t⌉
+              for 0 ≤ i < log τ                                              Fi := BasicDel1 (Fi , S ′ , (i, s1 ))
+                 i′ := ⌊log t − log τ ⌋                                      S ′ := S ′ ∪ BasicListEntries1 (Fi , (i, s1 ))
+                 Fi′ := BasicInsert1 (2i , ⌈Cτ 2−i ⌉, S, (i′ , s1 ))      return S ′
+              return (F0 , . . . , F⌈log t⌉−1 )
+
+            Insert2 (S, s1 , s2 )                                        ListEntries2 ((F0 , . . . , F⌈log t⌉−1 ), s1 , s2 )
+            for 0 ≤ i < log t − log τ                                    S ′ := ∅
+               Fi := BasicInsert2 (1, ⌈Ct2−i ⌉, S, (i, s1 ), s2 )        for 0 ≤ i < ⌈log n⌉
+            for 0 ≤ i < log τ                                               Fi := BasicDel2 (Fi , S ′ , (i, s1 ), s2 )
+               i′ := ⌊log t − log τ ⌋                                       S ′ := S ′ ∪ BasicListEntries2 (Fi , (i, s1 ), s2 )
+                                                                                      ′
+               Fi′ := BasicInsert2 (2i , ⌈Cτ 2−i ⌉, S, (i′ , s1 ), s2 ) return S
+            return (F0 , . . . , F⌈log t⌉−1 )
+
+Fig. 5. Variants of the simplified stacked IBLT from this work. These use modified basic IBLTs specified in Figure 6
+respectively as a building blocks. As with the original stacked IBLT we have τ = C0 κ for a sufficiently large constant
+C0 > 0 and C = 8e. Changes between successive modifications are marked in gray.
+
+
+
+As in [FLS23], the following corollary follows from the observation that due to the birthday bound the
+statistical distance between sampling from K n and ✄(K n )) is at most n2 /|K|.
+
+Corollary 9. Let η ∈ N+ , K ⊆ Fηq , (m1 , . . . , mn ) ∈ Fnq , and I ⊆ [n] be arbitrary such that i∈I mi ̸= 0 and
+                                                                                                 P
+there exist i, i′ ∈ I with 0 ̸∈ {mi , mi′ }. It holds that
+                                                             P
+                                                                              n2 + n
+                                                                         
+                                                                   ki m i
+                                    Pr k ← K : ∃j ∈ [n]. kj = Pi∈I
+                                            n
+                                                                            ≤
+                                                                i∈I mi         |K|
+
+
+A.6    Construction
+
+The construction presented here essentially takes the construction of Fleischhacker, Larsen, and Simkin [FLS23],
+applies the improved IBLT construction from this work, and instantiates the wunderbar pseudorandom vec-
+tor using the construction for K ⊆ Fηq described in Section A.3. We give a full formal proof of the construction
+here.
+    Before we give the actual construction we first specify two variants of the stacked IBLT construction
+from this work and prove several lemmas about them. These two variants are specified in Figure 5 and
+Figure 6. We now state and prove several lemmas about these two variants. The first lemma states that
+the first variant described in Figure 5 still works as expected, when truly random functions are replaced by
+pseudorandom ones.
+
+Lemma 10. Let PRF be a variable output domain pseudorandom function as defined in Definition 7. Then
+for any set S ⊆ Fq × Fq with |S| ≤ n and such that for all (i, m), (i′ , m′ ) ∈ S, i ̸= i′ it holds that
+
+                           Pr[ListEntries1 (Insert1 (ρ, γ, S, s1 ), s1 ) = S] ≥ 1 − 2−κ − negl(λ)
+
+where the probability is taken over the uniform choice of s1 .
+
+
+                                                                    21
+                  BasicInsert1 (ρ, γ, S, (r, s1 ))            BasicInsert2 (ρ, γ, S, (r, s1 ), s2 )
+                                ρ×γ
+                  M := 0                                      M := 0ρ×γ
+                  K := 0ρ×γ                                   K := (0η )ρ×γ
+                  C := 0ρ×γ
+                  foreach (d, m) ∈ S                          foreach (d, m) ∈ S
+                        foreach i ∈ [ρ]                           foreach i ∈ [ρ]
+                          j := PRF(s1 , γ, (r, i, d))               j := PRF(s1 , γ, (r, i, d))
+                          M [i, j] := M [i, j] + m                  M [i, j] := M [i, j] + m
+                                                                    k := Entry(s2 , d)
+                          K[i, j] := K[i, j] + d                    K[i, j] := K[i, j] + (m · k)
+                          C[i, j] := C[i, j] + 1
+                  return (M , K, C)                           return (M , K)
+
+                  BasicDel1 ((K, M , C), S̃, (r, s1 ))        BasicDel2 ((K, M ), S̃, (r, s1 , s2 ))
+                  foreach (d, m) ∈ S̃                         foreach (d, m) ∈ S̃
+                        foreach i ∈ [ρ]                           foreach i ∈ [ρ]
+                          j := PRF(s1 , γ, (r, i, d))               j := PRF(s1 , γ, (r, i, d))
+                                                                    k := Entry(s2 , d)
+                          M [i, j] := M [i, j] − m                  M [i, j] := M [i, j] − m
+                          K[i, j] := K[i, j] − d                    K[i, j] := K[i, j] − (m · k)
+                          C[i, j] := C[i, j] − 1
+                  return (M , K, M )                          return (M , K)
+
+                  BasicListEntries1 ((K, M , C), (r, s1 ))    BasicListEntries2 ((K, M ), (r, s1 , s2 ))
+                    ′
+                  S := ∅                                      S ′ := ∅
+                  for (i, j) ∈ [ρ] × [γ]                      for (i, j) ∈ [ρ] × [γ]
+                                                                  if M [i, j] ̸= 0
+                                                                    d := Index s2 , (M [i, j])−1 · K[i, j]
+                                                                                                             
+
+                        if C[i, j] = 1                              if d ∈ [n]
+                            ′         ′
+                          S := S ∪ {(K[i, j], M [i, j])}               S ′ := S ′ ∪ {(d, M [i, j])}
+                                 ′
+                  return S                                    return S ′
+
+Fig. 6. The left hand side shows the basic IBLT, but using a PRF with variable codomain as replacement for the truly
+random functions. The difference between the original basic IBLT and this one are marked in gray. The right hand
+side shows a modified basic IBLT that works without a count matrix and allows insertions using only addition and
+multiplication by constants. The differences are again marked in gray. As long as all inserted messages are non-zero,
+the decoding of all three filters will be the same with overwhelming probability.
+
+
+
+
+                                                             22
+Proof. The lemma follows from Theorem 1 and by a simple reduction to the pseudorandom of PRF. Let S
+be an arbitrary set. We established the claimed bound by constructing an adversary A against the pseudo-
+randomness of PRF as follows. We then related the success probability of A, to the probability of Insert1 and
+ListEntries1 working as intended. On input 1λ and given access to an oracle o that contains either a truly
+random function of PRF(s1 , ·, ·), A computes
+
+                                        S ′ = ListEntries(Insert(ρ, γ, S, h), h)
+
+but replaces invocations of hi,j (·) with queries of the form o(γi , (i, j, ·)). If S ′ = S, A outputs 0, otherwise it
+outputs 1. Note that if o contains a truly random function, this perfectly simulates
+
+                                           ListEntries(Insert(ρ, γ, S, h), h).
+
+If on the other hand o contains PRF(s1 , ·, ·), this perfectly simulates
+
+                                         ListEntries1 (Insert1 (ρ, γ, S, s2 ), s2 ).
+
+From the pseudorandomness of PRF it follows that
+
+                               Pr[ListEntries(Insert(ρ, γ, S, h), h) = S]
+                                                                                       ≤ negl(λ).
+                             − Pr[ListEntries1 (Insert1 (ρ, γ, S, s2 ), s2 ) = S]
+
+Combined with Theorem 1 the lemma immediately follows.                                                              ⊔
+                                                                                                                    ⊓
+
+    The second variant of the stacked IBLT construction described in Figure 5 essentially applies the same
+modification to stacked IBLTs that [FLS23] applied to regular IBLTs. That is, detecting “peelable” entries
+no longer uses a count matrix, but instead uses a wunderbar pseudorandom vector. The following lemma
+essentially states that, as long as the encoded set does not contain any zero entries, the two variants of stacked
+IBLTs will decode the same set with high probability if the wunderbar pseudorandom vector operates over
+a large enough universe.
+Lemma 11. Let (Entry, Index) be a wunderbar pseudorandom vector. Then, for any r, ρ, γ ∈ Z, any PRF
+key s2 , and any set S ⊆ [n] × (Fq \ {0}) such that |S| ≤ t and for all distinct (i, m), (i′ , m′ ) ∈ S, i ̸= i′ it
+holds that               "                                                                          #
+                             BasicListEntries1 (BasicInsert1 (ρ, γ, S, (r, s1 )), (r, s1 ))
+                       Pr
+                          = BasicListEntries2 (BasicInsert2 (ρ, γ, S, (r, s1 ), s2 ), (r, s1 ), s2 )
+                             ργ(n2 + n)
+                     ≥1−
+                                |K|
+where the probability is taken over the uniform choice of s1 .
+
+Proof. Let S1 , S2 be the sets decoded by BasicListEntries1 and BasicListEntries2 . We consider two types of
+errors: There could be an (d, m) ∈ S1 \ S2 or an (d, m) ∈ S2 \ S1 .
+    In the first case, since BasicListEntries1 is decoding the element, it must the case that (d, m) is mapped
+into a cell on its own. However, this implies that the corresponding cell in the output of BasicInsert2 will
+contain m in the value matrix and m · Entry(s2 , d) in the key matrix. Therefore, since m ̸= 0 and by the
+correctness of the wunderbar pseudorandom vector, BasicListEntries2 will also decode the same element.
+    In the second case, it must hold that several entries m1 , . . . , ma got mapped to the same position, but it
+so happens that
+                                             a           a                   
+                                           X       −1 X
+                                Index s2 ,      mi    ·    mi · Entry(s2 , d) ∈ [n]
+                                             i=1           i=1
+
+by using the pseudorandomness of the wunderbar pseudorandom vector and applying Corollary 9 we can
+conclude that this will happen for any particular cell with probability at most (n2 + n)/|K|. Since there are
+ργ cells, the lemma follows by a union bound over the number of cells.                                     ⊔
+                                                                                                           ⊓
+
+
+                                                             23
+The following lemma states that deletion works as expected in both variants of the basic IBLTs described
+in Figure 6 and used as building blocks in the variants of the stacked IBLT described in Figure 5. That is,
+if a set S is encoded and a subset S̃ is deleted from the encoding, the result is identical to a fresh encoding
+of S \ S̃ in both constructions.
+Lemma 12. For any r, γ, ρ ∈ Z, any PRF key s1 , any wunderbar pseudorandom vector s2 , any set S ⊆
+[n] × Fq such that for all distinct (i, m), (i′ , m′ ) ∈ S, i ̸= i′ , and any subset S̃ ⊆ S it holds that
+
+                                    BasicDel1 (BasicInsert1 (ρ, γ, S, (r, s1 )), S̃, (r, s1 ))
+                                = BasicInsert1 (ρ, γ, S \ S̃, (r, s1 ))
+and
+                                 BasicDel2 (BasicInsert2 (ρ, γ, S, (r, s1 ), s2 ), S̃, r, s1 , s2 )
+                             = BasicInsert2 (ρ, γ, S \ S̃, (r, s1 ), s2 )
+   where the probability is taken over the choice of h, s1 , and s2 .
+Proof. The lemma follows easily by observing that deletion exactly subtracts the values that were added
+during encoding in both cases.                                                                        ⊔
+                                                                                                      ⊓
+The following lemma now states that also the second variant of the stacked IBLT described in Figure 5 works
+as intended, as long as the wunderbar pseudorandom vector operates over a large enough universe K and
+the set S does not contain any zero entries.
+Lemma 13. Let PRF be a variable output domain pseudorandom function as defined in Definition 7. Let
+(Entry, Index) be a wunderbar pseudorandom vector. Then there exists a large enough constant C ′ > 0 such
+that for any set S ⊆ Fq × {Fq } with |S| ≤ t and such that for all distinct (i, m), (i′ , m′ ) ∈ S, i ̸= i′ it holds
+that
+                               Pr[ListEntries2 (Insert2 (ρ, γ, S, s1 , s2 ), s1 , s2 ) = S]
+                                                 C ′ (n2 + n)(t + κ log κ)
+                               ≥ 1 − 2−κ −                                 − negl(λ)
+                                                            |K|
+where the probability is taken over the uniform choice of s1 and s2 .
+Proof. Let S ⊆ Fq × {Fq } with |S| ≤ t be arbitrary. Consider the two decoding procedures running in
+parallel. Clearly, for the end result to differ, one of the executions of BasicListEntries1/2 has to result in
+different outputs.
+    Let 0 ≤ ı̃ < ⌈log t⌉ be an index, such that for all executions of BasicListEntries1/2 with i ≤ ı̃ the outputs
+were identical. Let S̃ be the set S ′ before the ith execution of BasicListEntries1/2 . Clearly S̃ ′ is the same
+in both cases. Since BasicListEntries1 decodes elements if and only if they happen to be alone in their cell,
+BasicListEntries1 never causes any false positives and it must always hold that S̃ ⊆ S. It thus follows from
+Lemma 12, that the outputs of the ı̃th executions of BasicListEntries1/2 are
+
+                            BasicListEntries1 (BasicInsert1 (ρı̃ , γı̃ , S \ S̃, (ı̃, s1 )), (ı̃, s1 ))
+
+and
+                        BasicListEntries2 (BasicInsert2 (ρı̃ , γı̃ , S \ S̃, (ı̃, s1 ), s2 ), (ı̃, s1 ), s2 )
+for some choice of ρı̃ and γı̃ .
+    By Lemma 11 the probability that the output differs is then at most ρı̃ γı̃ (n2 +n)/|K|. With a simple union
+bound over all indices 0 ≤ ı̃ < log t and by observing that the entire datastructure overall has O(t + κ log κ)
+cells it then follows that there exists some large enough constant C ′ such that the output of ListEntries2
+differs from the output of ListEntries1 with probability at most
+                                     n2 + n X         C ′ (n2 + n)(t + κ log κ)
+                                           ·  ρi γi ≤                           .
+                                      |K|                        |K|
+                                             0≤i<log t
+
+
+                                                                24
+                                                   \
+                                                 BasicInsert(ρ, γ, c, (r, s1 ), s2 ))
+                                                 M := Enc0ρ×γ
+                                                 K := Enc(0δ )ρ×γ
+                                                 foreach d ∈ [|c|]
+                                                    foreach i ∈ [ρ]
+                                                       j := PRF(s1 , γ, (r, i, d))
+                                                       M [i, j] := M [i, j]⊞cd
+                                                       k := Entry(s2 , d)
+                                                       K[i, j] := K[i, j]⊞(cd ⊡ k)
+
+              \
+Fig. 7. The BasicInsert procedure is a modified version of BasicInsert2 to allow filling the filter under additively
+homomorphic encryption. Changes are marked in gray.
+
+
+Since by Lemma 10 the output of ListEntries1 is correct with probability 1 − 2−κ − negl(λ), the lemma follows
+by another union bound.                                                                                     ⊔
+                                                                                                            ⊓
+
+We now specify a final variant of the basic encoding procedure in Figure 7. Essentially the only important
+                      \
+difference between BasicInsert and BasicInsert2 is that the former acts on an encrypted version of the en-
+coded set (represented by a vector of ciphertexts). This now finally allows us to state the actual ciphertext
+compression scheme in Figure 8 and we state the correctness of the compression scheme in Theorem 14.
+
+
+                   Compress(pk, c)                                            Decompress(sk, (F , s1 , s2 ))
+                   s1 ← {0, 1}   λ
+                                                                              F ′ := Dec(sk, F )
+                   s2 ← Sample(1λ , 1n )                                      return ListEntries2 (F ′ , s1 , s2 ))
+                   for 0 ≤ i < log t − log τ
+                             \
+                     Fi := BasicInsert(1, ⌈Cn2−i ⌉, c, (i, s1 ), s2 )
+                   for 0 ≤ i < log τ
+                     i′ := ⌊log t − log τ ⌋
+                              \
+                     Fi′ := BasicInsert(2i
+                                           , ⌈Cτ 2−i ⌉, c, (i′ , s1 ), s2 )
+                   return ((F0 , . . . , F⌈log t⌉−1 ), s1 , s2 )
+
+                                                                                                        ip
+   Fig. 8. A ciphertext compression scheme for arbitrary additively homomorphic encryption schemes for Ft,pk .
+
+
+
+
+Theorem 14. Let E = (Gen, Enc, Dec) be an additively homomorphic encryption scheme with plaintext space
+Fq and ciphertext length ξ = ξ(λ). Let (Sample, Entry, Index) be a wunderbar pseudorandom vector with index
+recovery for a universe K ⊆ Fη with |K| ≥ C ′ (n2 + n)(t + κ log κ) · 2κ for a large enough constant C ′ > 0
+and let PRF be a pseudorandom function with variable codomain. Then (Compress, Decompress) as specified
+in Figure 8 is a (1 − 2−(κ−1) − negl(λ))-correct (λ + (t + κ log κ)ηξ)/(nξ)) compressing ciphertext compression
+scheme for Ftip .
+
+Before we prove this theorem we will state the following simple corollary that follows simply by instantiating
+the construction with the wunderbar pseudorandom vector from Section A.3 and holds for all reasonable
+encryption schemes with ciphertext size ξ = Ω(λ).
+
+
+                                                                   25
+Corollary 15. Let E = (Gen, Enc, Dec) be an additively homomorphic encryption scheme with plaintext space
+                                                                                        ′′
+Fq and ciphertext length ξ = Ω(λ). Let PRP be a pseudorandom permutation over {0, 1}κ+C +2 log n+log(t+κ log κ)
+for some large enough constant C ′′ and let PRF be a pseudorandom function with variable codomain. Then
+(Compress, Decompress) as specified in Figure 8 can be instantiated to be a (1 − 2−(κ−1) − negl(λ))-correct
+              2                                                  ip
+and Õ( κt+κ                 5
+        n log q ) compressing ciphertext compression scheme for Ft .
+
+Proof (Theorem 14). First observe that Compress executes exactly Insert2 on the set S = {(d, m) ∈ [n] × Fq |
+Dec(Gen−1 (pk), cd )} but under homomorphic encryption. Each cell in the encoding is computed as the inner
+product of the ciphertext vector and some plaintext vector. It thus follows from the Zip validity of c, that
+after decryption step in Decompress we have F ′ = Insert2 (S, s1 , s2 ). However, since by design any (d, 0) ∈ S
+does not influence the value of F ′ we have in fact that F ′ = Insert2 (S ′ , s1 , s2 ) where S ′ := {(d, m) ∈ S | m ̸=
+                           ip
+0} = sparse(). Since c ∈ Ft,pk and thus |S ′ | ≤ t, we can apply Lemma 13 that
+
+                                Pr[Decompress(sk, Compress(pk, c)) = sparse(Dec(sk, c)]
+                             = Pr[ListEntries2 (Insert2 (S ′ , s1 , s2 ), s1 , s2 ) = S ′ ]
+                                         O(n2 (t + κ log κ))
+                             ≥ 1 − 2−κ −                      − negl(λ)
+                                                 |K|
+                                          O(n2 (t + κ log κ))
+                             = 1 − 2−κ −                         − negl(λ)
+                                         Ω(n2 (t + κ log κ) · 2κ
+                             ≥ 1 − 2−(κ−1) − negl(λ)
+
+as claimed.
+    To see the compression factor, consider that the output of Compress consists of s1 and s2 , both of which
+have length O(λ) as well as the encrypted stacked IBLT without counters. The IBLT consists of pairs of
+value and key matrices. The value matrices combined have O(t + κ log κ) entries of 1 ciphertext each and the
+key matrices combined have O(t + κ log κ) entries of η ciphertexts each. Thus overall the output of Compress
+has a length of O(λ + (t + κ log κ)ηξ) bits leading to the claimed compression factor.                      ⊔
+                                                                                                            ⊓
+
+
+
+
+5
+    The soft-O notation Õ(·) ignores log factors in κ and n.
+
+
+                                                                 26
+

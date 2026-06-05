@@ -1,0 +1,129 @@
+\section{Security Analysis}
+\label{sec:security}
+% ============================================================
+
+We prove that $\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}[f_{\cup}]$
+(Fig.~\ref{fig:f-fpsu}) in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid
+model against PPT semi-honest adaptive adversaries, for all four output types.
+
+\subsection{UC Security}
+
+\begin{theorem}[Main Security]\label{thm:main}
+Assume $\SE$ is IND-CPA secure and HMAC-SHA256 is a secure PRF. Then
+$\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}[f_{\cup}]$ in the
+$(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model against PPT semi-honest
+adaptive adversaries.
+\end{theorem}
+
+\textbf{Proof structure.} The proof decomposes modularly into: (i)~per-epoch
+security, inheriting from $\Pi_{\mathsf{UnionPeel}}$~\cite{PT26};
+(ii)~cross-epoch forward privacy via the PRF chain (three-hybrid argument);
+and (iii)~OT-masked deletion security (Lemma~\ref{lem:otmask}). The full
+proof, including simulator construction, appears in
+Appendix~\ref{sec:full-proofs}.
+
+\subsection{Game-Based Forward Privacy (FP-IND)}
+
+We supplement the UC definition with a standalone game-based notion that
+directly captures the PRF-chain guarantee.
+
+\begin{definition}[FP-IND Game]\label{def:fp-ind}
+\begin{enumerate}
+\item Challenger samples $b \sample \{0,1\}$, $K_0 \sample \{0,1\}^\kappa$.
+\item For $t = 1$ to $T$: $K_t \leftarrow F(K_{t-1}, c)$.
+\item Adversary (observing all transcripts) selects $\tau \in [T]$, receives
+$K_\tau$.
+\item If $b = 0$: receives real $\{K_t\}_{t < \tau}$. If $b = 1$: receives
+independent $\{R_t \sample \{0,1\}^\kappa\}_{t < \tau}$.
+\item Adversary outputs $b'$, wins if $b' = b$.
+\end{enumerate}
+$\mathsf{Adv}^{\mathsf{FP\text{-}IND}}(\kappa) = |\Pr[b' = b] - \tfrac{1}{2}|
+\leq \negl(\kappa)$.
+\end{definition}
+
+\begin{corollary}[Forward Privacy]\label{cor:fp}
+If $\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}$ with adaptive
+corruptions, then $\mathsf{Adv}^{\mathsf{FP\text{-}IND}}(\kappa) \leq T \cdot
+\mathsf{Adv}^{\mathsf{PRF}}(\kappa)$.
+\end{corollary}
+
+\subsection{Adaptive Input Selection}
+
+Liu et al.~\cite{LMR+26} recently showed that several published UPSI protocols
+are broken by \emph{adaptive input selection}: an adversary who chooses deltas
+based on prior transcripts can extract information about the honest party's
+historical inputs from the protocol's stored state (e.g., OKVS encodings). We
+show that F-PSU requires no modification to resist this class of attacks.
+
+\smallskip\noindent\textbf{Why UPSI is vulnerable.}
+In LMR+26's setting, the server stores an OKVS encoding of its set across
+epochs. An adaptive adversary can insert elements strategically chosen to
+interact with this encoding, learning membership information beyond what the
+PSI output reveals. The root cause is that the server's \emph{state} depends
+deterministically on its historical inputs, and adaptive queries can probe
+this state.
+
+\smallskip\noindent\textbf{Why F-PSU is immune.}
+F-PSU's state has two layers of protection:
+\begin{enumerate}
+\item \textbf{Semantic security of encryption.} The stored IBLT is encrypted
+under $\SE$ with a per-epoch key $K_t$. An adaptive adversary probing the
+ciphertext learns nothing about the underlying plaintext (semantic security of
+IND-CPA security of $\SE$).
+\item \textbf{Forward privacy of the key chain.} The key $K_t$ is derived via a
+PRF chain: $K_t \leftarrow \PRF(K_{t-1})$, with $K_{t-1}$ immediately erased.
+By the FP-IND guarantee (Corollary~\ref{cor:fp}), compromising at epoch $\tau$
+reveals $K_\tau$ but nothing about $\{K_t\}_{t < \tau}$. The adversary cannot
+decrypt ciphertexts from prior epochs, even with adaptive oracle access.
+\end{enumerate}
+
+Consequently, the adversary's view at each epoch consists of the union output
+$X_{\cup,t}$ and the size leakage $\cL_t$, exactly as specified by the ideal
+functionality $\cF_{\mathsf{updPSU}}$ (Fig.~\ref{fig:f-fpsu}). Adaptive choice
+of deltas changes \emph{which} elements are added or deleted, but does not
+change \emph{what the protocol leaks}: the updated union and the delta sizes.
+No additional game-based definition is required; the UC simulator in
+Theorem~\ref{thm:main} already handles adaptive input selection by extracting
+the corrupted party's effective input and forwarding it to $\cF_{\mathsf{updPSU}}$.
+
+\smallskip\noindent\textbf{Structural contrast with PSI.}
+In PSI, the output $X_{\cap,t}$ is a \emph{subset} of both inputs: an element
+appears in the output only if both parties hold it. Adaptive addition of $x$
+reveals $x \in Y_t$ with certainty (if $x$ appears in the new intersection).
+In PSU, the output $X_{\cup,t}$ is a \emph{superset}: any element added by the
+adversary appears in the union unconditionally. The adversary learns
+$Y_t \setminus X_{0,t}$ (inherent to PSU), but adaptive probing yields no
+additional information---the encrypted state and forward-private keys ensure
+that historical data remains inaccessible regardless of input strategy.
+
+\subsection{Security of OT-Masked Deletion}
+
+\begin{lemma}[OT-Masked Deletion]\label{lem:otmask}
+The OT-based membership check in Step~5 of $\Pi_{\mathsf{fpsu}}$ (Fig.~\ref{fig:protocol})
+reveals no information beyond (i)~the per-party deletion counts $|\Delta^-_C|, |\Delta^-_S|$, and
+(ii)~for each queried element $x \in \Delta^-_C$, whether $x$ belongs to $Y_{t-1}$
+and $x \in \Delta^-_S$. Both are implied by the final union output $X_{\cup,t}$.
+\end{lemma}
+
+\begin{proof}[Proof sketch]
+The 2-bit OT is realized via one OPRF evaluation (membership test) and one
+additional OT (deletion coincidence check), both in the
+$(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model. For Case~1 and Case~2
+elements, the IBLT is unmodified, so the protocol transcript is identical to
+an execution where those deletions were purely local. For Case~3 elements, the
+IBLT subtraction is indistinguishable from a standard UnionPeel cell update.
+
+A single hybrid replaces each deletion query $x$ with a random dummy element
+$x' \notin X_{t-1} \cup Y_{t-1}$. The simulator can program the OT response
+to match the expected output, since the final union $X_{\cup,t}$ constrains
+which deletions actually removed elements. The distinguishing advantage is
+bounded by $\mathsf{Adv}^{\mathsf{PRF}}(\kappa)$ per query, totaling
+$|\Delta^-| \cdot \mathsf{Adv}^{\mathsf{PRF}}(\kappa) \leq \negl(\kappa)$.
+\end{proof}
+
+This lemma ensures that OT-masked deletion inherits the security of the
+underlying UnionPeel protocol without introducing new attack surface. Combined
+with the per-epoch UC proof (Theorem~\ref{thm:main}), the full F-PSU protocol
+with OT-masked deletion UC-realizes $\cF_{\mathsf{updPSU}}[f_{\cup}]$.
+
+% ============================================================

@@ -1,0 +1,1597 @@
+        Revisiting OKVS-based OPRF and PSI:
+        Cryptanalysis and Better Construction
+
+    Kyoohyung Han1 , Seongkwang Kim1 , Byeonghak Lee1 , and Yongha Son2⋆
+                           1
+                             Samsung SDS, Seoul, Korea,
+                   {kh89.han,sk39.kim,byghak.lee}@samsung.com
+                    2
+                      Sungshin Women’s University, Seoul, Korea,
+                            yongha.son@sungshin.ac.kr
+
+
+
+        Abstract. Oblivious pseudorandom function (OPRF) is a two-party
+        cryptographic protocol that allows the receiver to input x and learn F (x)
+        for some PRF F , only known to the sender. For private set intersection
+        (PSI) applications, OPRF protocols have evolved to enhance efficiency,
+        primarily using symmetric key cryptography. Current state-of-the-art
+        protocols, such as those by Rindal and Schoppmann (Eurocrypt ’21),
+        leverage vector oblivious linear evaluation (VOLE) and oblivious key-
+        value store (OKVS) constructions.
+        In this work, we identify a flaw in an existing security proof, and present
+        practical attacks in the malicious model, which results in additional PRF
+        evaluations than the previous works’ claim. In particular, the attack for
+        malicious model is related to the concept of OKVS overfitting, whose
+        hardness is conjectured in previous works. Our attack is the first one to
+        discuss the concrete hardness of OKVS overfitting problem.
+        As another flavour of contribution, we generalize OKVS-based OPRF
+        constructions, suggesting new instantiations using a VOLE protocol with
+        only Minicrypt assumptions. Our generalized construction shows im-
+        proved performance in high-speed network environments, narrowing the
+        efficiency gap between the OPRF constructions over Cryptomania and
+        Minicrypt.
+
+
+Keywords: oblivious pseudorandom function, oblivious key-value store, private
+set intersection
+
+
+1     Introduction
+
+Oblivious pseudo random function (OPRF) is a two-party cryptographic protocol
+that allows the receiver to input x and learn F (x) for some PRF F , only known
+to the sender. OPRF in general can be thought of as a two-party protocol where
+the sender inputs a secret key and the receiver inputs some items to evaluated
+and obtains a PRF value for each input. In contrast, OPRF for PSI application
+– which will be called batch OPRF – have been advanced in an independent
+⋆
+    This work was done while Y. Son was at Samsung SDS.
+direction. As two-party PSI does not require the sender to choose the secret key
+nor to evaluate each item separately, batch OPRF usually outputs a random
+secret key to the sender and batched PRF evaluations to the receiver. Any item
+which is not in the batched inputs at the moment of invoking the OPRF protocol
+cannot be evaluated.
+    At the cost of such demerits, batch OPRFs are concretely efficient since they
+heavily use symmetric key cryptography rather than public key cryptography
+such as Diffie-Hellman computation. Pinkas et al. [9] proposed a PSI protocol
+based on a special sort of data structure called oblivious key-value store (OKVS)
+(called PaXoS at that time of writing). Although this paper does not include any
+explicit OPRF construction, the PSI protocol can be naturally extend to a PSI
+protocol, which we call PRTY construction hereafter. After then, Rindal and
+Schoppmann proposed an improved construction while replacing a subroutine
+of the PRTY construction by another functionality called vector-oblivious linear
+evaluation (VOLE), which forms the state-of-the-art protocols of (batch) OPRF
+and PSI protocols [10,3], and we call this by RS construction.
+    Currently, the RS construction that utilizes VOLE over large field such as
+GF(2128 ) has much better performance than the PRTY construction, in both
+computation and communication view. It depends on so-called VOLE protocols
+based on pseudorandom correlation generator (PCG) [5,4,11], which assumes
+some (some variants of) Learning Parity with Noise (LPN). Meanwhile, the
+PRTY construction used the OOS functionality [8] (or GF(2)-VOLE), which
+can be realized with only Minicrypt assumptions. However, as the performance
+gap between two constructions is fairly large currently, the advantage of PRTY
+construction in robustness may seem less attractive.
+    In batch OPRF protocols based on OKVS, the receiver encodes all its input
+items into an OKVS to obtain the PRF values of them. Because of the linearity
+of existing OKVS, the OPRF protocols based on OKVS by nature allows more
+evaluations than it should. Pinkas et al. upper bound the allowed number of
+evaluations information-theoretically, and Garimella et al. formalize the problem
+to overpack in an OKVS as OKVS overfitting problem.
+
+1.1   Our Contribution
+We revisit the security of batch OPRFs, with respect to the number of evaluation.
+Although OPRF protocols should prevent the receiver to arbitrarily evaluate the
+PRF value, we found that batch OPRF protocols in [13,10,3] based on OKVS
+allow more evaluations than the authors claimed. We point out the flaw in the
+security proof, and present practical attacks on them.
+    In the malicious model, we propose an overfitting algorithm to solve the
+OKVS overfitting problem, whose main idea is to reduce the overfitting prob-
+lem of OKVS to either a k-XOR problem or a multicollision finding problem.
+To the best of our knowledge, the second attack is the first constructive (not
+information-theoretical) solving algorithm for the OKVS overfitting problem [7].
+To prevent these attacks, [13] in the malicious setting incurs 1371% communi-
+cation overhead, where the number of items is set to 220 .
+
+
+                                       2
+    In PSI applications, our attacks usually incur a situation that a corrupt re-
+ceiver knows “the sender does not have some specific items”. In the literature, the
+security of PSI only refers to the opposite side (“the sender have some specific
+items”). However, we clarify that such situation may leak some membership in-
+formation by computing statistical distance. Depends on the application setting,
+the distance may exceed 2−λ where λ is the statistical security parameter.
+    In a construction aspect, we suggest some possible mitigations to prevent our
+proposed attacks, and also provide revised security proof along with the mitiga-
+tions in the malicious model. The mitigations shows more efficiency compared
+to solely following the PRTY information-theoretic bound.
+    We also investigate more general instantiations of OKVS-based OPRF con-
+struction, and suggest new instantiations that generalize the PRTY construction
+[9] using a recently proposed VOLE protocol over Minicrypt assumptions [14].
+In the fast network environments, our generalization even outperforms the RS
+construction (with quasi-cyclic code). In slower network environment, as our
+generalization requires more communication than the RS constructions, the RS
+constructions remains the best one. Although, our generalization is still meaning-
+ful in a view that it narrows the communication gap between the RS construction
+(Cryptomania) and the PRTY construction (Minicrypt) from 4.2x to 1.3x.
+
+
+2     Preliminaries
+
+2.1   Notation
+
+For a matrix A, each i-th row vector is denoted by A           ⃗ i and j-th column vector
+is denoted by A ⃗ j . For a vector ∆   ⃗ = (∆1 , · · · , ∆n ) and a matrix U , we denote
+∆⃗ ⊙ U := (∆1 · U⃗ 1 , · · · , ∆n · U
+                                    ⃗ nc ). Unless otherwise stated, every field F in our
+                                 c
+paper is assumed to be of characteristic 2, or we explicitly write the finite field
+(or Galois field) of size q by GF(q). For a field F, we write a linear code C in a
+kc dimensional subspace in Fnc with minimum distance dc by [nc , kc , dc ]F , with
+an exception of [nc , kc , dc ]2 for F = GF(2) case. We often consider a [nc , kc , dc ]F
+linear code as a map C : Fkc → Fnc to write the codeword on ⃗x ∈ Bkc by
+C(⃗x). We denote computational security parameter by κ, and statistical security
+parameter by λ. We denote B(n, p) binomial distribution of probability p and n
+independent experiments.
+
+
+2.2   Vector Oblivious Linear Evaluation
+
+A (subfield) vector oblivious linear evaluation, precisely (F, B)-VOLE outputs
+two parties a secret shares of scalar-vector multiplication ∆ · U⃗ for randomly
+chosen ∆ ∈ F and U  ⃗ ∈ Bm to each party. When the subfield B equals to F, we
+call it simply by F-VOLE. The corresponding ideal functionality Fvole is defined
+as Figure 1.
+    During the past few years, the performance of VOLE for large fields such as
+GF(2128 ) has been rapidly improved, thanks to the advances on pseudorandom
+
+
+                                           3
+correlation generator (PCG) [5] based on learning with parity (LPN) problem.
+However, such rapid performance is enabled by assuming the hardness of LPN
+over somewhat non-standard codes [6,4,11]. Indeed, there has been proposed an
+attack [11] on the silver code utilized in [6]. Meanwhile, Roy [14] proposed a novel
+VOLE protocol that only requires Minicrypt assumptions, unlike the LPN-based
+protocols. It is practically efficient for small field such as GF(2f ) with f ≤ 8.
+
+
+Parameters: Two parties (a sender and a receiver). A field F with a subfield B,
+and an integer m representing the length of output vector.
+Functionality:
+
+  – If the receiver is malicious, wait for them to send V ⃗ ∈ Fm and U ⃗ ∈ Bm .
+                                   ⃗     ⃗       ⃗
+    Then sample ∆ ← F and let W := V + ∆ · U ∈ F .     m
+
+  – If the sender is malicious, wait for them to send ⃗W ∈ Fm and ∆ ∈ F. Then
+    sample U ⃗ ← B and let V
+                    m         ⃗ := ⃗W −∆·U   ⃗ ∈F .m
+
+                                                              ⃗ ← Fm , U
+  – Otherwise, i.e., adversarial party is semi-honest, sample V        ⃗ ← Bm
+                          ⃗     ⃗
+    and ∆ ← F, and let W = V + ∆ · U ∈ F⃗     m
+
+
+Output W  ⃗ ∈ Fm and ∆ ∈ F to the sender, and V
+                                              ⃗ ∈ Fm and U
+                                                         ⃗ ∈ Bm to the
+receiver.
+
+Fig. 1: An ideal functionality of Fvole (F, B) for (F, B)-vector oblivious linear eval-
+uation
+
+
+
+
+2.3   Oblivious Key-Value Store
+
+Informally, an oblivious key-value store (OKVS) is a data structure that effi-
+ciently encodes n pairs of keys and values, which satisfies if a value are random,
+the corresponding key cannot be recovered from the encoding of the key-value
+pairs.
+
+Definition 1 (Oblivious Key-Value Store). An oblivious key-value store
+(OKVS) with key universe K and value universe V consists of two functions:
+
+ – Ecd : (K × V)n → V m ∪ {⊥}, a function that receives n distinct key-value
+   pairs (ki , vi )i∈[n] then outputs encoding S or failure symbol ⊥;
+ – Dcd : V m × K → V, a function that receives encoding S and a key k then
+   outputs the associated value v.
+
+For correctness, for all I ⊂ K × V of n elements with distinct keys and an
+ordering I⃗ ∈ (K × V)n of I, an OKVS should satisfies
+
+                 (k, v) ∈ I and Ecd( ⃗
+                                    I) = S ̸= ⊥ ⇒ Dcd(S, k) = v.
+
+
+                                          4
+For obliviousness, for any pair of lists of n distinct keys (k1 , . . . , kn ) ∈ Kn and
+(k1′ , . . . , kn′ ) ∈ Kn and n random values v1 , . . . , vn ←$ V, Ecd ((k1 , v1 ), . . . , (kn , vn ))
+and Ecd ((k1′ , v1 ), . . . , (kn′ , vn )) should be computationally indistinguishable.
+
+    The storage efficiency of OKVS can be measure by the expansion ratio of
+the number of key-value pairs n and the length of the encoding vector m. Many
+known OKVS constructions achieves m = (1 + εokvs ) · n for some small constant
+εokvs : PaXoS [9] achieves ε ≈ 1.4, 3H-GCT [7] and RR22 [10] achieve ε ≈ 0.3,
+and RB-OKVS [3] achieve ε down to 0.03.
+    Several OKVS applications, such as OPRF and PSI, expect OKVS to have
+linearity and support for some sort of homomorphic operations, and we call such
+OKVS by linear OKVS.
+Definition 2 (Linear OKVS). An OKVS is linear if there exists a function
+row : K → V m such that Dcd(S, k) = ⟨row(k), S⟩ for all k ∈ K and S ∈ V m . If
+the range of such function row can be restricted to a set of binary vectors, i.e.,
+row : K →{0, 1}m , we call the OKVS as binary linear, or simply binary.
+
+
+3     Oblivious PRF and OKVS-based Constructions
+This section provides a formal definition of oblivious PRF (and private set inter-
+section), and reviews the OKVS-based OPRF constructions [9,13], which consists
+of the state-of-the-art protocols [10,3].
+
+3.1    Ideal Functionalities and Generic PSI Construction
+The ideal functionality of an oblivious pseudorandom function (OPRF) is de-
+scribed in Figure 2, and the (two-party) private set intersection (PSI) function-
+ality is described in Figure 3. Ideally, the receiver should not be able to obtain
+any OPRF evaluations other than for its input. However, the OPRF definition
+in Figure 2 allows more PRF evaluations, denoted by n′ > n for a malicious
+receiver, and the PSI definition also allows at most n′ items for the malicious
+receiver. This reflects the fact that known OPRF (or PSI) protocols enable an
+
+
+Parameters: Two parties (a sender and a receiver). The receiver’s set size pa-
+rameters n for the semi-honest model and n′ for the malicious model. An OPRF
+output length ℓ2 .
+Functionality: Upon the receiver’s input set X, abort if |X| > n′ when the
+receiver is malicious.
+The functionality defines a random function F : {0, 1}∗ → {0, 1}ℓ2 , and output
+F (X) = {F (x) | x ∈ X} to the receiver. After then, upon the sender’s query y,
+the functionality sends F (y) to the Sender.
+
+       Fig. 2: Ideal functionality Foprf of oblivious pseudorandom function.
+
+
+                                                  5
+Parameters: Two parties (a sender and a receiver). The sender’s set size pa-
+rameter ny , and the receiver’s set size parameters nx for the semi-honest model
+and n′ for the malicious model.
+Functionality: Upon the receiver’s input set X and the Sender’s input set Y ,
+abort if |X| > n′ when the receiver is malicious, and outputs X ∩ Y to the
+receiver.
+
+      Fig. 3: Ideal functionality Fpsi of (2-party) private set intersection.
+
+
+adversary to learn OPRF values F (X) (or X ∩ Y ) for some n′ (> n)-sized set X,
+while pretending to run the protocol with a size n set. This type of definition
+has been widely adopted in the literature [9,13].
+PSI from OPRF. Given an OPRF functionality Foprf , it is straightforward
+to construct a protocol that realizes Fpsi , as shown in Figure 4. This protocol
+requires one additional round of communication, with ℓ2 · ny bits transferred
+from the sender to the receiver, on top of the communication cost for realizing
+Foprf . The concrete choice of ℓ2 has been improved using better security proofs,
+and our paper adapts the state-of-the-art result from [13].
+
+
+Parameters: Two parties (a sender and a receiver). An OPRF functionality
+Foprf with set size parameters nx or n′ , and OPRF length ℓ2 .
+Protocol: Upon an input set X from the receiver, and an input set Y from the
+sender, the protocol runs as follows:
+
+ 1. The sender and the receiver interact with Foprf with the receiver’s input set
+    X.
+ 2. As Foprf outputs, the receiver obtains F (X). Then the sender obtains F (Y ) =
+    {F (y) ∈ {0, 1}ℓ2 : y ∈ Y } by querying each y ∈ Y to Foprf .
+ 3. The sender sends F (Y ) to the receiver in a random order, who outputs
+    Z = {x ∈ X : F (x) ∈ F (Y )}.
+
+
+         Fig. 4: Protocol Πpsi for a private set intersection using Foprf .
+
+
+
+Theorem 1 (Adapted from [13]). The protocol Πpsi realizes the Fpsi func-
+tionality in the semi-honest model with ℓ2 = λ + log(nx ny ) and in the malicious
+model with ℓ2 = κ, in a Foprf -hybrid model.
+
+Remark 1. In more detail, the simulated view against the malicious sender in
+[13] is distinguishable from the real protocol execution with 2ℓ2 /nx random oracle
+queries. Hence, the simulation with ℓ2 = κ can be distinguished by fewer than
+
+
+                                         6
+2κ queries. Rindal and Schoppmann was already aware of this fact while they
+sticked to use ℓ2 = κ [13]. To be more rigorous, it is required to set ℓ2 = κ+log nx
+in order to simulate against the malicious sender. But we follow the choice ℓ2 = κ
+as the distinguishing advantage does not lead to any actual information leakage.
+
+
+
+3.2   OKVS-based OPRF Constructions
+
+
+We present an overview of the OKVS-based OPRF construction in Figure 5,
+which captures the RS construction [13,10,3] with F = GF(2128 ) and the identity
+linear code [1, 1, 1]GF(2128 ) , as well as the natural OPRF extension from the PRTY
+PSI protocol [9,7] with F = GF(2) and non-trivial binary linear codes. Detailed
+parameter selections and security arguments will be presented in later sections,
+as one of our main contributions is to identify the flaws in previous works.
+
+
+Parameters:
+
+  – Random oracles H1 : {0, 1}∗ →{0, 1}ℓ1 and H2 : {0, 1}∗ →{0, 1}ℓ2
+  – A finite field F and a [nc , kc , d]F -linear code C.
+  – A linear OKVS (Ecd, Dcd) of expansion factor εokvs .
+  – The number of items n of the receiver which will be evaluated.
+Protocol: Upon an input set X from the receiver, the protocol runs as follows:
+
+ 1. Using nc times F-VOLE of length m = (1 + εokvs )n, two parties generate
+    W, V ∈ Fm×nc (U ∈ Fm×nc , resp) such that W = V + ∆      ⃗ ⊙ U.
+ 2. The receiver computes an OKVS encoding P ∈ {0, 1}m×ℓ1 on the set
+    {(x, vx ) : x ∈ X, vx = H1 (x)}.
+ 3. The receiver computes C(P ) where C is applied in a row-wise manner, and
+    sends U ′ = C(P ) − U ∈ Fm×nc to the sender who locally computes W ′ =
+    W +∆  ⃗ ⊙ U ′.
+ 4. The receiver outputs {H2 (x, Dcd(V, x)) | x ∈ X} (as F (X)).
+ 5. The sender defines the OPRF function F : {0, 1}∗ →{0, 1}ℓ2 by
+                                                               
+                                                   ⃗ ⊙ C(H1 (y)) .
+                     F (y) := H2 y, Dcd(W ′ , y) − ∆
+
+
+         Fig. 5: Integrated overview of OKVS-based OPRF protocols.
+
+
+
+   To see the correctness, the set {H2 (x, Dcd(V, x)) | x ∈ X} should equal to
+F (X) with the sender’s definition F (y) = H2 (y, Dcd(W, y) − ∆⃗ ⊙ C(H1 (y))).
+
+
+                                         7
+From the linearity of Dcd and the linear code C, we have
+
+             F (y) = H2 (y, Dcd(W ′ , y) − ∆⃗ ⊙ C(H1 (y)))
+                   = H2 (y, Dcd(V, y) − ∆ ⃗ ⊙ C(Dcd(P, y) − H1 (y)))
+
+for any y ∈ {0, 1}∗ . So, the OKVS correctness is ensured by the fact that
+Dcd(P, x) = H1 (x) for every x ∈ X. Thus, we further have
+
+                            ⃗ ⊙ C(Dcd(P, y) − H1 (y))) = H2 (x, Dcd(V, x)). (1)
+ F (x) = H2 (x, Dcd(V, y) − ∆
+
+Remark 2. The original description in [9] used OOS (correlated) OT exten-
+sion [8] instead of VOLE over GF(2), but two functionalities are exactly same.
+Overfitted OKVS. The key to the correctness of OKVS-based OPRF in (1)
+is the equality Dcd(P, x) = H(x) for every x ∈ X, ensured by the OKVS cor-
+rectness. However, in OKVS-based OPRF protocols, a malicious receiver can
+arbitrarily generate the OKVS encoding P , allowing more than n items x such
+that Dcd(P, x) = H1 (x). This enables the receiver to obtain the PRF values for
+these x. Garimella et al. [7] formalize this issue as the OKVS overfitting game
+as follows.
+
+Definition 3 ((n, n′ )-OKVS overfitting game, [7]). Let (Ecd, Dcd) be an
+OKVS with parameters chosen to support n items, and let H1 : {0, 1}∗ →
+{0, 1}ℓ1 be a random oracle. For any arbitrary PPT adversary A that outputs
+P ∈ {0, 1}ℓ1 ×m ← AH (1κ ), define
+
+             X ′ = {x | A queried H1 at x and Dcd(P, x) = H1 (x)}.
+
+If |X ′ | > n′ , then the adversary wins the (n, n′ )-OKVS overfitting game.
+    We say the (n, n′ )-OKVS overfitting problem is hard for an OKVS construc-
+tion if no PPT adversary wins this game except with negligible probability.
+
+PRTY bound. It can be easily observed that if the underlying OKVS is linear,
+a malicious receiver can obtain m = (1 + εokvs ) · n PRF evaluations with almost
+no computational overhead. This fact leads OKVS-based OPRF protocols to
+focus on n′ = c · m for some c > 1.
+   In [9], Pinkas et al. analyzed the choice of ℓ1 (the output bit-length of
+H1 in Figure 5) that makes the OKVS-based OPRF construction information-
+theoretically secure against malicious adversaries. This analysis can be rephrased
+using OKVS terminology as follows.
+
+Lemma 1 (PRTY bound, [9]). Suppose an adversary makes q queries to
+random oracle H1 with output length ℓ1 , and then generates an OKVS P of size
+m. For a fixed integer n′ , let E denote the event that Dcd(P, x) = H1 (x) for at
+least n′ values x that were queried to H1 . Then,
+                                             q
+                                               
+                                               n′
+                               Pr[E] ≤    (n ′ −m)ℓ .
+                                         2         1
+
+
+
+
+                                         8
+                                                                   ′
+    Suppose there is a linear system Ax = b where A ∈ (F2ℓ1 )n ×m (n′ > m) is
+invertible and b ←$ (F2ℓ1 )m . The probability that b produces a solvable     system
+      ′
+is 2(n −m)ℓ1 . Since the number of n′ -tuples of queried items is nq′ , the bound in
+                                                                     
+
+Lemma 1 is quite tight, with only a small gap possible due to a non-invertible
+OKVS system.
+
+
+4     Security Flaws of OKVS-based OPRFs
+The OKVS-based OPRF naturally allows the receiver to locally computes F (x)
+that satisfies Dcd(P, x) = H1 (x) ∈ {0, 1}ℓ1 . Thus, the length ℓ1 should be set
+properly to prevent unwanted PRF evaluations. Indeed, previous OKVS-based
+OPRF protocols suggested some appropriate choice of ℓ1 to bound the number of
+PRF evaluation by n (semi-honest) or n′ (malicious), along with corresponding
+security arguments. However, in this section, we present some (possible) vulner-
+abilities in the previous works setting on n, n′ and ℓ1 , and show that it indeed
+implies more number of PRF evaluations than the works claimed.
+
+4.1   Caution for Possible Semi-honest OPRF
+Although previous works [9,13,10] claimed the malicious security of the OPRF
+protocol or the semi-honest security of the PSI protocol rather than the semi-
+honest security of OPRF protocol, one can naturally derive an semi-honest ver-
+sion of OPRF protocol and try to use it. In this section, we briefly point out
+which security issue can be popped up.
+    All semi-honest OKVS-based PSI protocols set ℓ1 = λ+2 log n where n is the
+number of items in both parties, whose rationale is to prevent unwanted collision
+of hashed values. However, as random oracle is an idealization of cryptographic
+hash function, it should be assumed that the receiver is free to query to the
+random oracle before or after the protocol. It implies that the probability of the
+equality Dcd(P, x) = H1 (x) for a fixed P and a random x is 1/2ℓ1 .
+    This fact discloses the trivial attack on the natural OPRF extension; for a
+fixed P after the OPRF protocol, the corrupt receiver can query to H1 and find
+inputs satisfying Dcd(P, x) = H1 (x). As the computational security parameter
+κ is much larger than those choices of ℓ1 , the receiver can obtain q/ℓ1 extra
+evaluations with q local computation of H1 .
+
+4.2   Malicious Flaw: Hardness of OKVS Overfitting Game
+The OPRF (PSI) protocol of PRTY [9] takes ℓ1 so that Pr[E] in the PRTY bound
+(Lemma 1) is bounded by 2−λ , given n′ = c · m. One can check that larger n′
+yields smaller ℓ1 , and such smaller ℓ1 naturally brings better efficiency. Indeed,
+[9] set n′ ≈ 12n to have efficient protocol where they reported experimental
+results. Meanwhile, Rindal and Schoppmann [13] (implicitly) argued that n′ can
+be limited by only m = (1 + εokvs )n, by setting ℓ1 = κ. This obviously makes it
+possible to take smaller ℓ1 than [9] protocol, so that has better parameter choice
+
+
+                                         9
+and better performance of the OPRF protocol.3 This has also been continously
+adapted in the following works [10,3]; whose main points are improving OKVS
+performance while following the framework of [13].
+     However, we claim the choice of ℓ1 = κ of RS construction with n′ = m
+is flawed. The reason is simple: ℓ1 = κ is less than ℓ1 derived from the PRTY
+bound with n′ = m. That is, the malicious receiver with unbounded power can
+indeed find (more than) n′ items x fitting in some P . However, such presence of
+unbounded adversary could be not considered as serious one, because one can
+simply assume the computational hardness of OKVS overfitting problem to make
+[13] secure. Indeed, Garimella et. al. [7] stated that OKVS overfitting could be
+computationally hard even ℓ1 is below PRTY bound.
+     What we further make is the concrete attack that shows OKVS overfitting
+can be computationally done, so that ℓ1 = κ choice of [13,10,3] allows more PRF
+evaluations than n′ = m using less than 2κ computational cost. The details are
+placed in the next section independently.
+Flaw in the security proof. The Hybrid 4 of Lemma 2 in [13] is the relevant
+argument that argues n′ can be limited to m = (1 + εokvs )n. However, their
+argument only considered the case where the malicious adversary fixes the OKVS
+encoding P and then expects that Dcd(P, x) = H1 (x) for additional x. This
+makes the proof false, because the malicious adversary can make q = O(2κ )
+amount of H1 queries in advance, and then tries to find some maximal subset
+X ′ that overfits to some P of size m among the H1 queries.
+
+
+4.3     Efficacy of Extra Evaluation
+
+In the OPRF view, extra evaluation directly violates the security requirements.
+However, the implication on PSI need some consideration. If the receiver obtains
+an additional PRF evaluation F (y) for y ∈ Y \X, this immediately violates the
+PSI functionality since the receiver knows other information than the intersection
+X ∩ Y . The case where the additional PRF evaluation F (y) is for y ∈   / X ∪ Y lets
+the receiver know that the element y is not in the sender’s set Y , whose effect
+seems a bit ambiguous.
+    In fact, we can measure the amount of information leakage from the informa-
+tion y ∈  / Ȳ . Suppose that D1 be the original distribution of the sender’s dataset
+Ȳ with p1 (Ȳ ) = PrY ∼D1 [Y = Ȳ ]. And, let D2 be the distribution of the dataset
+without an element z in a universe of items in set. From the additional leakage of
+z∈ / Ȳ , the corrupt receiver now have the distribution D2 of the sender’s dataset.
+And the probability function of D2 can be computed as follows:
+                                   (
+                                       1
+                                         ′ · p1 (X̄) if z ∈
+                                                          / X̄
+                          p2 (X̄) = 1−p
+                                     0               otherwise
+3
+    We are not saying that every performance gain of [13] comes from such small ℓ1 ;
+    indeed the primary change from [9] to [13] that greatly affects to the performance is
+    replacing OOS functionality into LPN-based VOLE.
+
+
+                                           10
+where p′ = {X̄|z∈X̄} p1 (X̄). Note that the probability p2 (X̄) is increased pro-
+             P
+
+portionally to have sum of all the probability 1 when z ∈
+                                                        / X̄. Now we can compute
+the statistical distance between D1 and D2 ,
+                        X                        X
+       dist(D1 , D2 ) =     p1 (X̄) − p2 (X̄) +     p1 (X̄) − p2 (X̄) = 2p′ .
+                          z∈
+                           / X̄                       z∈X̄
+
+From this, we conclude that the information of y ∈
+                                                 / Y can lead to a non-negligible
+amount of information, if y has a non-negligible probability (> 2−λ ) to be in-
+cluded in the honest party’s dataset. Moreover, this series of computations shows
+an undesirable feature of the PSI protocol, which is the dependency of the secu-
+rity on the distribution of the dataset.
+
+
+5    Overfitting Attacks on Various OKVS
+The ℓ1 bound in [13] was found out to be information-theoretically not secure.
+To connect the information-theoretic vulnerability to a concrete attack, we need
+to overfit the OKVS P . Overfitting P refers to a problem to find n′ > m items
+x1 , . . . , xn′ and a vector P that satisfy Dcd(P, xi ) = H1 (xi ) for all i. Since the
+OKVS algorithm used in [13] is binary linear, there is a function row : {0, 1}∗ →
+{0, 1}ℓ1 such that Dcd(P, x) = ⟨row(x), P ⟩. Then overfitting P is in principle
+a finding X     ⃗ = (x1 , . . . , xn′ ) which builds a redundant (i.e., linearly dependent)
+system of linear equations row(X)          ⃗ · P = H1 (X)⃗ for n′ > n, where row(X) ⃗ (and
+       ⃗
+H1 (X)) is a matrix whose i-th row is row(xi ) (and H1 (xi )).
+     For the idea of the        attacks, observe that if there are some elements x1 , . . . , xk
+in X ⃗ satisfy that Pk row(xj )∥H1 (xj ) = 0, they contribute to the rank of
+                              j=1
+row(X)  ⃗ by at most k − 1. Finding such x1 , . . . , xk is equivalent to solving the k-
+XOR problem for k ≥ 2, and hence we can build X            ⃗ of length k(m−1)/(k−1) > m
+by solving the k-XOR problem repeatedly. Although row( ⃗                X) is a quite large
+matrix of size k × m where k-XOR problem is difficult in general, the attacks
+can be practically feasible thanks to the special structure of row( ⃗           X) observed
+in previous OKVS constructions [13,10,3], whose details are described in the
+following subsections.
+     Before presenting the attacks, we provide some definitions of basic problems
+required to formulate the attacks.
+k-XOR Problem and Multi-collision Finding Problem. Before explaining
+our attacks, we briefly introduce the k-XOR problem and the multi-collision
+finding problem since it is a crucial subroutine of our attacks to solve these
+problems. The k-XOR problem is to find a k-tuple in some lists whose sum is 0.
+Formally, a k-XOR problem is defined as follows.
+Definition 4 (k-XOR Problem). Given lists of n-bit strings L1 , . . . , Lk , find
+k distinct elements a1 ∈ L1 , . . . , ak ∈ Lk such that their XOR sum is zero:
+
+                                  a1 ⊕ a2 ⊕ · · · ⊕ ak = 0.
+
+
+                                              11
+The state of the art algorithm to solve the k-XOR problem is Wagner’s k-tree
+algorithm [17]. It costs O(k · 2n/(1+⌊log k⌋) ) time and space with lists of size
+O(2n/(1+⌊log k⌋) ) each.
+    For a given cryptographic hash function, the multi-collision finding problem
+is to find c multi-collisions which give the same hash output. Formally, a multi-
+collision finding problem is defined as follows.
+Definition 5 (c-Multicollision Finding Problem). Given a hash function
+H : {0, 1}∗ → {0, 1}n , find c distinct elements a1 , . . . , ac such that:
+
+                          H(a1 ) = H(a2 ) = · · · = H(ac ).
+
+The best algorithm to solve the c-multicollision finding problem is proposed by
+Suzuki et al. [15], which costs O((c!)1/c · 2(c−1)n/c ) time and space.
+
+5.1   Overfitting PaXoS
+PaXoS [9] is the firstly proposed OKVS with linear complexity. Given a vector
+               ⃗ which is an ordering of the set X, PaXoS has a following type
+of input items X,
+            ⃗
+of the row(X) matrix.
+                                  ⃗ = [R ⃗ | D ⃗ ]
+                              row(X)      X     X
+
+where RX⃗ ∈ Fn×m  2    is defined by a pair of hash functions (h1 , h2 ) each to [m] =
+{1, . . . , m}, and DX⃗ ∈ Fn×d2    is a matrix with uniformly random entries. Each
+row of RX⃗ corresponds to an item x, and it has only two 1’s whose positions are
+h1 (x) and h2 (x). In the same row, the row of DX⃗ also corresponds to the same
+item x, and it is defined by a uniform hash function h0 : {0, 1}∗ → {0, 1}d . We
+note that m is set to be 2.4n in [13].
+    As RX⃗ is a sparse matrix, it is hard to apply Wagner’s k-tree algorithm
+directly on row(x)∥H1 (x). So, we will solve the k-XOR problem over h0 (x)∥H1 (x)
+rather than row(X)∥H⃗      1 (x). To make RX  ⃗ part also sum to zero, we bucketize
+row( ⃗X)∥H1 (x) by h1 and h2 , and deliberately organize a singular combination
+of buckets. For an easy example, if three items x1 , x2 , x3 satisfy
+
+                              h1 (x1 ) = 1, h2 (x1 ) = 2,
+                              h1 (x2 ) = 2, h2 (x2 ) = 3,
+                              h1 (x3 ) = 3, h2 (x3 ) = 1,
+
+then RX⃗ part of those three items sum to zero. Then, solving 3-XOR problem in
+those three buckets gives a small redundant system of equations of rank 2. Our
+attack on [13] basically repeats these steps until row( ⃗
+                                                       X) has full rank, but the
+number of buckets may vary. In the following, we describe the detailed procedure
+of the attack.
+
+ – (Case n′ < 2(m − 1)) For this case, we reduce the (n, k(m−1)
+                                                           k−1 )-overfitting
+   game to a k-XOR problem as follows. We will assume that k − 1 | m − 1,
+   but the attack also works well otherwise.
+
+
+                                          12
+ 1. Let Q = {x1 , . . . , xq } be an arbitrary subset in {0, 1}∗ . Query all the
+    items in Q to h0 , h1 , h2 , and H1 . Bucketize Q by {h1 , h2 }, denoting
+    Bh1 ,h2 the corresponding    bucket. Then, there are m2 buckets, and there
+                          m
+                            
+    are expectedly q/ 2 items per bucket.
+ 2. Make a k × k-matrix K over F2 such that
+      • rank(K) = k − 1;
+                                                    (k−1)×(k−1)
+      • rank(K ′ ) = k − 1 where K ′ ∈ F2                  is sub-matrix of K with
+          first k − 1 rows and first k − 1 columns;
+      • each row of K should have only two 1’s.
+    See Figure 6 for examples.
+ 3. Set X ′ ← ∅, and do the following for j ∈ {1, 1 + (k − 1), 1 + 2(k −
+    1), . . . , m − k + 2}.
+    (a) Denote the positions of two 1’s in the i-th row (1 ≤ i ≤ k) of K
+          by pi and p′i . Solve a k-XOR problem for h0 (x) ∥ H1 (x) in buckets
+          Bj+p1 ,j+p′1 , . . . , Bj+pk ,j+p′k .
+    (b) Denote the solution (x1 , . . . , xk ), then it satisfies
+
+                                        k
+                                        X
+                                              h0 (xi )∥H1 (xi ) = 0.
+                                        i=1
+
+        Set X ′ ← X ′ ∪ {x1 , . . . , xk }
+ 4. Let X⃗ ′ = (x′ , . . . , x′ ′ ) be an ordering of X ′ where n′ = k(m−1) . Since
+                   1          n                                                   k−1
+    rank(row(X ⃗ ′ )) = rank(row(X      ⃗ ′ )|H1 (X ⃗ ′ )), there is a solution P ′ of the lin-
+    ear equation row(X    ⃗ ′ )·P ′ = H1 (X  ⃗ ′ ) where H1 (X  ⃗ ′ ) = (H1 (x′ ), . . . , H1 (x′ ′ )).
+                                                                           1 d+ℓ1             n
+
+As solving a k-XOR problem of (d+ℓ1 )-bit strings costs O k2                  1+⌊log   k⌋   time,
+                                  d+ℓ1  
+our attack costs O m2 2 1+⌊log k⌋ time including time for querying to the
+random oracle. Note that the time cost for random oracle query dominates
+the cost for solving k-XOR problems.
+
+
+                                                                         
+               1100                                                11000
+              0 1 1 0                                           0 1 1 0 0
+                                                                         
+              0 0 1 1                                           0 0 1 1 0
+                                                                           
+               1001                                               0 0 0 1 1
+                                                                   10001
+               (a) k = 4
+                                                                    (b) k = 5
+
+                             Fig. 6: Examples of Step 2.
+
+
+
+
+                                              13
+ – (Case n′ ≥ 2m) For this case, we reduce the (n, c(m − 1))-overfitting game
+   to a c-multicollision (c ≥ 2) finding problem as follows.
+    1. Let Q = {x1 , . . . , xq } be an arbitrary subset in {0, 1}∗ . Query all the
+       items in Q to h0 , h1 , h2 , and H1 . Bucketize Q by {h1 , h2 }, denoting
+       Bh1 ,h2 the corresponding         bucket. Then, there are m      2 buckets, and there
+                                m
+                                  
+       are expectedly q/ 2 items per bucket.
+    2. Set X ′ ← ∅ and do the following for j ∈ {1, 2, . . . , m − 1}.
+       (a) Find a c-multicollision for h0 (x) ∥ H1 (x) from bucket Bj,j+1 .
+       (b) Gather the solutions of the problem to X ′ .
+    3. Let X⃗ ′ = (x′ , . . . , x′ ′ ) be an ordering of X ′ where n′ = c(m − 1). Since
+                      1          n
+       rank(row(X  ⃗ ′ )) = rank(row(X       ⃗ ′ )|H1 (X
+                                                       ⃗ ′ )), there is a solution P ′ of the
+       linear equation row(X       ⃗ ) · P = H1 (X
+                                      ′    ′         ⃗ ′ ).
+                                                                                 (c−1)(d+ℓ1 )
+      As finding c-multicollision of (d + ℓ1 )-bit strings costs O((c!)1/c 2          c         )
+                                     (c−1)(d+ℓ1 )
+      time, our attack costs O(m2 2       c       ) time for small enough c.
+
+
+5.2     Overfitting 3H-GCT or RR22
+
+Garimella et.al. [7] proposed a 3H-GCT OKVS that generalizes PaXoS by using
+3 hashes instead of 2 hashes. Raghuraman and Rindal [10] proposed a similar
+OKVS that has only w 1’s in RX⃗ part, which is almost the same with 3H-GCT for
+w = 3. Precisely, it also follows the form row(X)⃗ = [R ⃗ |D ⃗ ], where R ⃗ ∈ Fn×m
+                                                           X    X          X     2
+                                                                                      ′
+is defined by a triple of hash functions (h1 , h2 , h3 ) each to [m], and DX⃗ ∈ Fn×d
+                                                                                 2 ℓ1
+is a matrix with uniformly random entries; 3H-GCT proposal sets ℓ1 = 1, and
+RR22 sets ℓ1 = κ. We denote d = d′ ℓ1 . Each row of RX⃗ corresponds to an item
+x, and it has only three 1’s whose positions are h1 (x), h2 (x) and h3 (x). Each
+row of DX⃗ also corresponds to the same item x, and it is defined by a uniform
+hash function h0 : {0, 1}∗ → {0, 1}d . We note that m is set to be approximately
+1.3n in [13].
+    As PaXoS and 3H-GCT are similar, the attacks for PaXoS work well on this
+case except some details. The buckets should be labeled with three hash values
+{h1 , h2 , h3 }. In Step 2, since 3H-GCT uses three hash functions, the submatrix
+should be of the different form. Step 2 can be rephrased to attack 3H-GCT as
+follows.
+
+ 2. For an even integer k > 2, make a k × (3k/2)-matrix over F2 of rank k − 1.
+    Each row of this matrix should have only three 1’s. See Figure 7 for examples.
+
+The asymptotic time complexity should be O(m) times larger than that for
+PaXoS.
+
+
+5.3     Overfitting RB-OKVS
+
+RB-OKVS is an OKVS proposed by Bienstock et al. [3], whose row( ⃗  X) has
+no sparse part unlike PaXoS or 3H-GCT. Given a pair of hash functions h1 :
+
+
+                                            14
+                                                                  
+              111000                                110100000
+             0 0 1 0 1 1                         1 0 1 0 1 0 0 0 0
+                                                                  
+             1 0 0 1 0 1                         0 1 0 0 0 1 0 1 0
+                                                                    
+              010110                               0 0 0 1 1 0 1 0 0
+                                                                    
+                                                   0 0 0 0 0 1 1 0 1
+                (a) k = 4                           001000011
+
+                                                         (b) k = 6
+
+           Fig. 7: Examples of submatrices when attacking 3H-GCT.
+
+
+{0, 1}∗ → [m − d] and h0 : {0, 1}∗ → {0, 1}d , row(x) for an item x is defined by
+                       (
+                        h0 (x)[i − h1 (x)] if h1 (x) < i ≤ h1 (x) + d
+           row(x)[i] =
+                        0                    otherwise
+
+where v[n] for a vector v denotes the n-th component of v.
+  The attack can be done in the almost similar way to PaXoS and 3H-GCT.
+The details can be found in Appendix A due to the space limit.
+
+5.4   Efficacy of the Attacks
+To measure the effectiveness of the attacks, we plot three dot graphs of ℓ1 cor-
+responding to the extra-evaluation ratio n′ /m for each OKVS in Figure 8b, 8a,
+and 8c. Common to all the three graphs, the blue curve is the PRTY bound [9]
+for each parameter set, and the yellow line is ℓ1 which was claimed secure in
+[13]. We note that [10,3] follow the choice of ℓ1 . The red dots are the least ℓ1
+to prevent our attacks. Each red dot corresponds to either 3 ≤ k ≤ 20 of the
+k-XOR problem or 2 ≤ c ≤ 3 of the c-multicollision finding problem. The hash
+length ℓ1 to prevent our attacks are much larger than ℓ1 claimed in [13]. Each
+graph is plotted for n = 220 , and the detailed choice of parameters is written in
+each figures.
+     When the attacks are applied in the context of PSI, it implies that a corrupt
+receiver can input n′ random items rather than n chosen items. As data is not
+distributed uniformly at random in practice, n′ random items seem less valuable
+than n chosen items so the attacks are quite useless. However, the attacks can
+still evaluate more items than claimed including n chosen items as follows.
+                             ⃗ = (x1 , . . . , xn ), make the row(X)
+1. For a fixed (ordered) set X                                    ⃗ matrix.
+2. Using Gaussian elimination, find all the non-pivot positions. There are at
+   least (m − n) non-pivot positions.
+3. Let Q be a set of items whose hi (1 ≤ i ≤ 3) values are all in the non-pivot
+   positions.
+4. Mount the attack with Q as if there is no pivot positions.
+
+
+                                       15
+         ℓ1                                                   ℓ1
+    1,500                                                2,000
+                           Claim of RS21                                         Claim of RS21
+                             Our attack                  1,500                     Our attack
+    1,000                  PRTY20 bound                                          PRTY20 bound
+                                                         1,000
+     500
+                                                           500
+     128                                                   128
+       0                                                     0
+            1                 2            3                     1                  2            3
+                       ′                                                     ′
+                     n /m                                                   n /m
+(a) (RR22 [10]) We set the number of                (b) (PaXoS [9]). We set the number of
+hashes 3, the expansion ratio 1.23, and             hashes 2, the expansion ratio 2.4, and the
+the number of F2128 -dense columns 2.               number of dense columns 40.
+                                 ℓ1
+                            2,000
+                                                        Claim of RS21
+                                                          Our attack
+                            1,500
+                                                        PRTY20 bound
+                            1,000
+
+                              500
+                              128
+                                0
+                                    1                      2            3
+                                                    ′
+                                                n /m
+                       (c) (RB-OKVS [3]). We set the expan-
+                       sion ratio 1.1, and the number of dense
+                       columns 206.
+
+                Fig. 8: ℓ1 to prevent the attack to various protocols.
+
+
+It is straightforward that this variation for RS21 and RR22 can evaluate n +
+n′
+m · (m − n) with similar complexities. For BPSY23, it is not always true. If
+a consecutive d positions do not include k − 1 non-pivot positions, the attack
+cannot utilize all the non-pivot positions so that the number of evaluation may
+               ′
+be less than nm · (m − n). For the worst case (most of the consecutive d positions
+do not include k − 1 non-pivot positions), this variation may not evaluate more
+than m items.
+
+
+6     Generic Security Considerations
+
+In this section, we propose generic mitigations for our attacks, and a modified
+OKVS-based OPRF with provably secure choice of parameters.
+
+
+                                               16
+6.1    Mitigations for Attacks and Revised Parameter Selection
+For the semi-honest case, note that the attack in Section 4.1 allows one addi-
+tional PRF evaluation with probability 1/2ℓ1 . Thus, to prevent this attack, we
+recommend to raise ℓ1 to at least κ for the semi-honest case, from the previous
+works choice ℓ1 = λ + 2 log n.
+    For the malicious case, the adversary can try to overfit OKVS, which founds
+additional PRF evaluation more efficiently. Here, observe that the possibility of
+OKVS overfitting depends on the number of H1 queries, say q, as well as the
+length ℓ1 . If we can restrict q less than 2κ , OKVS overfitting would gets harder
+and then we can utilize more efficient OPRF parameters. This can be simply
+done by set a sort of timeout for the (corrupt) receiver. To do this, we modify
+two parts of the protocol, as following.
+ 1. At the beginning of the protocol, the sender samples random salt salt and
+    transmit it to receiver. Then, both parties incorporates salt into all random
+    oracle inputs. This clearly prevents the malicious receiver prepare H1 values
+    before the protocol starts.
+ 2. The sender aborts the protocol if the time between sending the salt and
+    receiving the correction matrix back from the receiver exceeds a certain
+    amount of time.
+Given that the overfitting attack is more effective than the semi-honest attack,
+this mitigation technique has an effect of reducing the number of queries for
+the overfitting attack. We formalize this problem as a new overfitting game as
+follows.
+
+Definition 6 ((n, n′ , qon , qoff )-OKVS online overfitting game). Let (Ecd, Dcd)
+be an OKVS with parameters chosen to support n items, and let A be an arbi-
+trary PPT adversary. Run P ← AH1 (1κ , qon ) where qon is the number of queries
+to H1 before outputting P . Define
+
+             X ′ = {x | A queried H1 at x and Dcd(P, x) = H1 (x)}
+
+where A can query to H1 less than qoff times after P is produced. If |X ′ | > n′ ,
+then the adversary wins the (n, n′ , qon , qoff )-OKVS online overfitting game.
+
+    The online query complexity qon should be determined after reviewing a
+number of factors; such as, computing power of participating parties, timeout
+time, or network environments. Given that recent Bitcoin’s hash rate is about
+269 hashes per second,4 if those factors are unknown beforehand, qon = 296 seems
+a safe choice for not a long timeout time. The offline query complexity qoff is the
+original amount of permitted query, which is usually O(2κ ).
+Concrete Choice of ℓ1 . We provide some concrete choices of ℓ1 that makes
+OKVS online overfitting game. For that, we first consider n′1 by the maximum
+4
+    This data is retrieved from https://www.blockchain.com/explorer/charts/
+    hash-rate in May 2024.
+
+
+                                        17
+number of allowed evaluations following the PRTY bound given that qon random
+oracle queries are permitted. Then we let n′2 be the least integer such that
+
+                                   Pr            [S > n′2 ] < 2−λ ,
+                             S←B(qoff ,2−ℓ1 )
+
+
+which can be rewritten by multiplicative Chernoff bound as follows.
+
+                                                n′2
+                                       eqoff
+                                                        < 2−λ
+                                       n′2 2ℓ1
+
+Then, this ℓ1 is a secure choice of n′ = n′1 + n′2 allowed evaluations. Table 1
+summarizes ℓ1 according to n′ and qon .
+
+
+                               n′ /m
+                                          1.5           2   3     4     5
+                   log qon
+                          32              111       110     109   108   108
+                          64              134       112     109   108   108
+                          96              226       150     113   111   109
+                         128              322       214     160   141   132
+
+Table 1: The choice of ℓ1 depending on qon and n′ , where m is set to be 1.3 × 220 ,
+and qoff is set to be 2128 . For qon = 2128 , the offline complexity qoff is set to be
+0, which is same as the original PRTY bound with q = 2128 .
+
+
+
+
+    In Table 1, a reader might feel that ℓ1 converges to 108 when n′ /m is suffi-
+ciently large, whatever qon is. It is because the semi-honest attack allows 2 times
+more evaluation if ℓ1 is decreased by a single bit. So, ℓ1 can be less than 108 if
+n′ /m is large enough; if n′ /m = 1000, then ℓ1 = 100.
+On ℓ1 for the semi-honest model. At the beginning of this section, we rec-
+ommend to set ℓ1 = κ = 128 for the semi-honest model. Meanwhile, the choices
+of ℓ1 for the malicious model presented in Table 1 for qon ≤ 296 is less than 128.
+One may think this weird, because the malicious model allows smaller ℓ1 than
+the semi-honest model. However, we stress that not only the adversarial model
+that determines the possible attacks, but the bound n′ for the number of PRF
+evaluations is also an important factor for ℓ1 : In the semi-honest model, the
+bound n′ is implicitly set by n, whereas the malicious model allows somewhat
+larger n′ such as c · m for m = (1 + εokvs )n. Finally, it would be possible to
+extend the definition of semi-honest OPRF to allowing further PRF evaluation
+n′ , which is not explicitly done in our OPRF definition, which enables to set
+ℓ1 = 128 − log n′ for the semi-honest model.
+
+
+                                                 18
+6.2     Revised Security Proof
+We present the revised OKVS-based OPRF construction in Figure 9, and The-
+orem 2 that specifies the correct conditions of parameters, which reflects the
+previous works the security flaws.
+Correctness. We check that the set {H2 (Dcd(V, x) + w) | x ∈ X} indeed equals
+to F (X) with the sender’s definition
+                                                 ⃗ ⊙ C(H1 (x, salt))).
+               F (x) = H2 (x, Dcd(W ′ , x) + w − ∆
+
+For the readability, we omit salt in H1 and w for a while, which are common for
+both parties. Then it holds that from the linearity of Dcd and linear code C
+                 ⃗ ⊙ C(H1 (y)) = Dcd(V + ∆
+  Dcd(W ′ , y) − ∆                         ⃗ ⊙ C(P ), y) − ∆
+                                                           ⃗ ⊙ C(H1 (y))
+                               = Dcd(V, y) − ∆⃗ ⊙ (Dcd(C(P ), y) − C(H1 (y))
+                                               ⃗ ⊙ C(Dcd(P, y)) − C(H1 (y)))
+                                 = Dcd(V, y) − ∆
+                                               ⃗ ⊙ C(Dcd(P, y) − H1 (y))
+                                 = Dcd(V, y) − ∆                            (2)
+
+for any y ∈ {0, 1}∗ . Note that Dcd(C(P ), y) = C(Dcd(P, y)) requires that row(y)
+is a vector of Bnc for every y ∈ {0, 1}∗ , which is always true when the underlying
+OKVS is binary. Now, the OKVS correctness property ensures Dcd(P, x) =
+H1 (x) for every x ∈ X, then eq. (2) further becomes
+                      ⃗ ⊙ C(H1 (x)) = Dcd(V, x) − ∆
+       Dcd(W ′ , x) − ∆                           ⃗ ⊙ C(Dcd(P, x) − H1 (x))
+                                                  ⃗ ⊙ C(H1 (x) − H1 (x)))
+                                    = Dcd(V, x) − ∆
+                                    = Dcd(V, x),
+
+which concludes the correctness of our framework.
+Security Proof. The underlying proof idea is similar to the previous works [9,13],
+whose main idea is to show that Dy := Dcd(P, y) − H1 (y) has sufficient (≥ κ)
+entropy. However, our statement and proof have two distinct points. First, it
+provides general conditions on the linear code [nc , kc , d]B for arbitrary choice of
+F and B, which correctly applies to both previous constructions. Second, our
+proof correctly provides the condition on ℓ1 considering our proposed attack;
+namely online OKVS overfitting game.
+Theorem 2. Let F be a field, B be a subfield of F, and ℓ1 > 0 be an integer that
+makes (n, n′ , qon , qoff )-online OKVS overfitting game hard. Let C = [nc , kc , d]B
+be a B-linear code where kc · log |B| ≥ ℓ1 and d · log |F| ≥ κ. Then the protocol
+of Figure 9 securely realizes Foprf against (qon , qoff )-malicious adversary in a
+Fvole (F, B)-hybrid model.
+      We prove the theorem by the following two lemmas.
+Lemma 2. The the protocol of Figure 9 securely realizes Foprf against malicious
+sender A who queries to random oracles at most q times.
+
+
+                                         19
+Parameters: A finite field F with a subfield B, and a [nc , kc , d]B -linear code
+C. The input set size nx , and three random oracles H : {0, 1}∗ →{0, 1}2κ ,
+H1 : {0, 1}∗ →{0, 1}ℓ1 such that ℓ1 ≤ log |B| · kc and H2 : {0, 1}∗ →{0, 1}ℓ2 . A
+linear OKVS algorithm pair (Ecd, Dcd) of expansion factor εokvs .
+
+Protocol: Upon an input set X from the receiver, the protocol runs as follows:
+
+ 1. Two parties execute nc times of (F, B)-sVOLE of length m = (1 + εokvs ) · n. In
+    each i-th execution, the sender obtains W ⃗ i ∈ Fm and ∆i ∈ F and the receiver
+             ⃗              ⃗
+    obtains V ∈ F and U ∈ B . Two parties let W, V ∈ Fm×nc (U ∈ Bm×nc ,
+               i     m        i    m
+
+    resp) as matrices of i-th column vector ⃗       ⃗ i (U
+                                               W i, V    ⃗ i , resp).
+ 2. The sender samples salt ← {0, 1}κ , and ws ← Fnc , and compute cs =
+    H1 (ws ). Then it sends salt and cs to the receiver.
+ 3. The receiver samples wr ← Fnc , and computes an OKVS encoding P ∈
+    {0, 1}m×ℓ1 on the set {(x, vx ) : x ∈ X, vx = H1 (x, salt)}.
+ 4. The receiver applies C on each row vector P⃗i ∈ {0, 1}ℓ1 of P by embedding
+    it into Bkc . Write the resulting matrix by C(P ) ∈ Bm×nc whose i-th row is
+    C(P⃗i ) ∈ Bnc .
+ 5. The receiver sends wr and the correction matrix U ′ = C(P ) − U ∈ Bm×nc
+    to the sender who locally computes W ′ = W + ∆       ⃗ ⊙ U ′.
+ 6. The sender sends w to the receiver, who aborts if cs ̸= H1 (ws ). Two parties
+                         s
+
+    define w := ws + wr .
+ 7. The receiver outputs {H2 (x, Dcd(V, x) + w) | x ∈ X} (as F (X)).
+ 8. The sender defines the OPRF function F : {0, 1}∗ →{0, 1}ℓ2 by
+                                                                       
+                F (y) := H2 y, Dcd(W ′ , y) + w − ∆  ⃗ ⊙ C(H1 (y, salt)) .
+
+
+
+               Fig. 9: Modified OKVS-based OPRF construction.
+
+
+Proof. The S interacts with A as follows:
+                                                      ⃗ i , ∆i )i∈[n ] ∈ (Fm × F)nc .
+ – S plays the role of Fvole . S waits for A to send (W             c
+
+ – On behalf of the receiver, S waits for A to send salt and cs . Then, S sends
+   uniform wr ∈ Fnc and U ′ ∈ Bm×nc . Next, S waits for A to send ws and
+   aborts if cs ̸= H(ws ).
+ – For every queries to H, S abort if there exists output collision.
+ – Whenever A queries H2 (y, q), if q = Dcd(W ′ , y) + w − ∆      ⃗ ⊙ C(H1 (y, salt))
+   and H2 (y, q) has not previously been queried, send y to Foprf and programs
+   H2 to the response. Otherwise, H2 responses normally.
+To prove that this simulation is indistinguishable, consider the following hybrids.
+ – G0 : The same as the real protocol except S plays the role of Fvole .
+
+
+                                        20
+ – G1 : S aborts if there exists output collision in H queries. As H as output
+   length 2κ,
+                                                  q2
+                                Pr [G1 aborts] ≤ 2κ
+                                                 2
+ – G2 : S samples U uniformly instead of computing U ′ = C(P ) − U . Since U
+                     ′
+
+   is chosen uniformly at random, the distribution of A’s view does not change
+   except when Ecd aborts. Since the probability that Ecd abort is less than
+   2−λ , the difference from the previous game is negligible:
+                                                                              1
+          |Pr [A wins G1 ] − Pr [A wins G2 ]| ≤ Pr [Ecd aborts in G0 ] ≤
+                                                                             2λ
+ – G3 : When S samples U ′ and wr , abort if there exists (y, σ) such that H2 (y, σ)
+   has previously been queried and σ = Dcd(W ′ , y) + w − ∆      ⃗ ⊙ C(H1 (y)). As
+   wr is chosen uniformly at random, we have
+                                                  q      q
+                             Pr[G3 aborts.] ≤      n
+                                                       ≤ κ
+                                                |F|  c  2
+   Note this hybrid represents why wr should be sampled by the receiver and
+   sent to the sender.
+ – G3 : Whenever A queries H2 (y, σ) after U ′ is sampled, if σ = Dcd(W ′ , y) +
+   w−∆  ⃗ ⊙ C(H1 (y)) and H2 (y, σ) has not previously been queried, send y to
+   Foprf and programs H2 to the response. Otherwise, H2 responses normally.
+   As output distribution of Foprf is random, the distribution of A’s view is
+   identical.                                                                  ⊔
+                                                                               ⊓
+Lemma 3. The the protocol of Figure 9 securely realizes Foprf against (qon , qoff )-
+malicious receiver A.
+Proof. The S interacts with A as follows:
+                                                      ⃗i , U
+ – S plays the role of Fvole . S waits for A to send (V    ⃗ i )i∈[n ] ∈ (Fm × Bm )nc .
+                                                                    c
+                                                      s
+ – On behalf of sender, S sends uniform salt and c to A.
+ – When A sends wr , sample uniform ws and program H(ws ) = cs .
+ – When A sends U ′ , compute U ′ − U = C(P ). For H1 (x) queries made by A,
+   S checks if Dcd(C(P ), x) = C(H1 (x, salt)), S sends x to Foprf and receives it
+   as F (x).
+ – For each x ∈ X, S programs H2 (x, Dcd(W ′ , x) + w − ∆    ⃗ ⊙ C(H1 (x))) as F (x).
+
+To prove that this simulation is indistinguishable, consider the following hybrids.
+ – G0 : The same as the real protocol except S plays the role of Fvole , so S waits
+                  ⃗i , U
+   for A to send (V    ⃗ i )i∈[n ] ∈ (Fm × Bm )nc .
+                                c
+
+ – G1 : When S samples uniform salt, S abort if there exists a prior query from
+   A to H1 with form H1 (·, salt). As |salt| ≥ κ, we have
+                                                     qoff
+                                  Pr [G1 aborts] ≤
+                                                     2κ
+
+                                         21
+ – G2 : When A sends U ′ and wr , compute U ′ −U = C(P ). For each of the previ-
+   ous H1 (x, salt) queries made by A, S checks if Dcd(C(P ), x) = C(H1 (x, salt))
+   and if so adds x to X. S sends X to Foprf and receives {F (x) | x ∈ X} in
+   response.
+ – G3 : S samples uniform cs instead of computing H, but programs H(ws ) = cs
+   after sampling ws uniformly at random. G3 aborts if there exists a previous
+   query to H with input collision or there exists a previous query H2 (x, σ)
+   such that σ = Dcd(V, x) + w. Then, as ws is chosen uniformly at random
+   from Fnc
+                                              qoff    qoff
+                              Pr [G2 aborts] ≤ nc ≤ κ
+                                              F       2
+   Next, S programs H2 (x, Dcd(V, x) + w) = F (x) for x ∈ X and by the unifor-
+   mity of F (x), it does not change A’s view. Note that this hybrid represents
+   why ws is required.
+ – G4 : For each query H2 (x, σ), S add x into X and programs H2 (x, σ) =
+   Foprf (x) if           (
+                            σ = Dcd(V, x) + w
+                            Dcd(C(P ), x) = C(H1 (x, salt))
+      then, add x to X and program H2 (x, σ) = Foprf (x). Similarly, for each query
+      H1 (x, salt), S add x into X and programs H2 (x, Dcd(V, x) + w) = Foprf (x) if
+                             Dcd(C(P ), x) = C(H1 (x, salt)).
+   By the uniformity of Foprf (x), this does not change the view of A. Note
+   that |X| ≤ n′ , by the hardness of (n, n′ , qon , qoff )-online OKVS overfitting
+   problem.
+ – G5 : At the end of protocol, S samples ∆ and aborts if A ever makes an
+   H2 (x, σ) query for x ∈
+                         / X such that
+                                             ⃗ ⊙ C(H1 (x, salt)).
+                          σ = Dcd(W ′ , x) − ∆
+      By (2), for queries H2 (x, σ) such that Dcd(P, x) ̸= H1 (x, salt), as there is at
+                                       ⃗ we have
+      least d log |F|-bit entropy from ∆,
+                                                      q
+                                    Pr[G5 abort] ≤      .
+                                                     2κ
+                                                                                     ⊔
+                                                                                     ⊓
+
+6.3     Double Execution of OPRF
+This section proposes a novel idea for the extreme case where much tighter n′ ≈
+m is required. Recall that the underlying idea of preventing OKVS overfitting
+is to limit the number of H1 queries that the malicious receiver can obtain.
+The basic idea of what we call double execution of OPRF is to change H1 by
+another OPRF, say F , and using the value again to encode OKVS. Precisely, for
+a given OPRF functionality OPRFn for n items with variable number of allowed
+evaluations, the double execution proceeds as follows.
+
+
+                                           22
+1. The sender and the receiver invoke OPRFn with n′′ ≫ m allowed evaluations.
+   The receiver gets at most n′′ evaluated items {F (x1 ), . . . , F (xn′′ )}. We will
+   denote the bit-length of H1 in this phase ℓ′′1 .
+2. The sender and the receiver invoke OPRFn one more time. But the value
+   set VX at OKVS encoding step at receiver’s side becomes {F (x) : x ∈ X}
+   instead of {H1 (x) : x ∈ X}. As a result, the receiver gets at most n′ evaluated
+   items {G(xi1 )), . . . , G(xin′ ))} where ik ∈ [n′ ].
+   The double execution has in fact the same effect of constraining online com-
+plexity. In the second phase, since the receiver use F (x) instead of H1 (x), a
+corrupt receiver can try to overfit an OKVS with only n′′ random oracle queries.
+As ℓ1 required for tight n′ ≈ m is so huge in the PRTY bound, the double exe-
+cution is an economic choice for a tight n′ ≈ m. For example, if a sender and a
+receiver want to achieve n′ = 1.02m in [10] with qon = 2128 , n = 220 , ℓ1 should
+be no less than 5492 bits by PRTY bound. If they use double execution in this
+case, it is sufficient that ℓ′′1 = 109 for n′′ = 24m and ℓ1 = 307 for n′ = 1.02m.
+The communication of double execution is 13.2 ≈ 5492/(109+307) times smaller
+than the single execution.
+
+7     Better OPRFs from Intermediate Fields
+Although the original purpose of Figure 9 was to address both the PRTY con-
+struction (with F = GF(2)) and the RS construction (with F = GF(2128 )) si-
+multaneously, it also demonstrates another instantiation with F = GF(2f ) for
+1 < f < κ, beyond the binary field GF(2) and the full κ-degree field GF(2κ ).
+This section discusses these alternative instantiations and reveals more efficient
+OKVS-based OPRF protocols compared to previous ones.
+
+7.1   Concrete Instantiations
+We first consider the instantiation with small-sized F, for example, F = GF(2f )
+with f ≤ 10. In this case, the underlying VOLE can be efficiently realized by
+the protocol due to [14], referred to as SoftSpokenVOLE, which is based solely
+on Minicrypt assumptions. The computation cost of the VOLE scheme grows
+exponentially with respect to the parameter f , limiting its practical application
+when f becomes too large. As a result, the experiments conducted in [14] were
+restricted to values of f up to 10.
+    For larger fields F, the LPN-based VOLE protocol, known as SilentVOLE
+[5], offers a more efficient solution compared to the SoftSpokenVOLE protocol.
+It has a linear computational complexity with respect to the field size, making
+it suitable for handling large fields without incurring excessive computational
+costs. However, due to the linear complexity of the VOLE, there is no benefit to
+using nc > 1. Therefore, we only consider small-sized F hereafter.
+Choice of B. To complete the instantiation, we need to specify the choice of
+the subfield degree b that determines B = GF(2b ), which can be freely chosen
+among the divisors of f . Here, we highlight two advantages of taking b = 1.
+
+
+                                         23
+    First, the main computation of SoftSpokenVOLE consists of B operations, so
+taking b = 1 makes every computation in the VOLE as bit-operations, resulting
+in the fastest performance. In fact, the original proposal and its application
+[2] used b = 1 for efficiency. Second, the transmission of the correction matrix
+U ′ ∈ Bm×nc (from the receiver to the sender) dominates the communication cost
+of our OPRF protocol with m · nc · log |B| = m · nc · b bits. As m is determined
+by the input set size n and OKVS expansion factor εokvs , the choice of b only
+affects nc · b. Considering the general bound nc ≥ dc + kc − 1 for every linear code
+and the conditions kc ≥ ℓ1 /b and dc ≥ κ/f in Theorem 2, we have the inequality
+nc ·b ≥ κ·b/f +ℓ1 −b. This implies that b = 1 allows the minimal communication
+cost. However, for b = 1, the linear code achieving nc = dc +kc −1 (called maximal
+distance separable code) does not always exist, and that argument cannot assure
+that b = 1 is the best choice. For these reasons, we investigate the known lower
+bounds of nc such that the linear code [nc , kc , dc ]B exists in [1] for given kc and
+dc in Table 2, which shows that b = 1 provides the minimal nc · b.
+
+
+                 ℓ1 = 109                                  ℓ1 = 150
+   F     dc     B     kc    nc     nc · b        F   dc   B     kc    nc      nc · b
+              GF(2) 109     149     149                 GF(2) 150     192      192
+GF(28 ) 16    GF(22 ) 55     78     156      GF(28 ) 16 GF(22 ) 75     99      198
+              GF(28 ) 14     29     232                 GF(28 ) 19     34      272
+              GF(2) 109     162     162                 GF(2) 150     206      206
+              GF(22 ) 55     86     172                 GF(22 ) 75    107      214
+GF(26 ) 22                                       6
+                                             GF(2 ) 22
+              GF(23 ) 37     62     186                 GF(23 ) 50     75      225
+              GF(26 ) 19     40     240                 GF(26 ) 25     46      276
+              GF(2) 109     184     184                 GF(2) 150     230      230
+GF(24 ) 32    GF(22 ) 55     99     198      GF(24 ) 32 GF(22 ) 75    120      240
+              GF(24 ) 28     59     236                 GF(24 ) 38     69      276
+              GF(2) 109     250     250
+GF(22 ) 64
+              GF(22 ) 55    145     290
+
+Table 2: Some minimal possible values of nc and corresponding nc · b where
+[nc , kc , dc ]B can exist. The length ℓ1 = 109 (resp., 150) is taken from Table 1
+with qon = 296 with n′ = 5m (resp., 2m).
+
+
+
+
+    Meanwhile, the choice of b affects other computational parts. The compu-
+tation of F (·), particularly the OKVS decoding Dcd(W ′ , x) or Dcd(V, x) where
+W ′ , V ∈ Fm×nc , becomes maximal when b = 1 since it consists of XOR opera-
+tions of (nc · f )-bit strings. Furthermore, two parties need to execute nc times of
+(F, B)-VOLE, and the number of VOLE instances would be maximal for b = 1.
+   Considering these facts, another choice of b other than 1 could provide a
+trade-off between computation and communication costs. As verifying the com-
+putational benefit of other choices of b requires another extensive experimental
+
+
+                                            24
+effort, we choose to fix b = 1 for its clear communication advantage and leave
+the investigation of further trade-offs with other choices of b ̸= 1 for future work.
+Communication Cost. This framework consists of two phases of interaction:
+VOLE, and the transmission of U ′ = C(P ) − U ∈ Bm×nc from the receiver
+to the sender. Assuming the VOLE communication is negligible (a reasonable
+assumption due to recent advances in VOLE), the second phase dominates the
+total communication cost, specifically
+
+             commoprf = (nc log |B|) · m = (nc log |B|) · (1 + εokvs ) · n.      (3)
+
+Comparison with RS constructions. As the RS construction that combines
+LPN-based VOLE and OKVS represents the state-of-the-art for OPRF and PSI,
+we provide some comparisons with it. To recall, the RS construction can be un-
+derstood as Figure 9 with ℓ1 = 128, F = B = GF(2128 ) and the identity linear
+map [1, 1, 1]B , which requires 128 · m bits of communication, as shown in Equa-
+tion (3). As the value of nc · b in Table 2 always exceeds 128, the RS construction
+still incurs a smaller communication cost. However, another important factor is
+the bound for PRF evaluation n′ . The RS construction itself does not have the
+online hash mitigation, and the PRF bound n′ should be calculated with respect
+to 2128 queries, resulting in n′ = 5.6m with m = 1.3n (assuming OKVS from
+[10]). On the other hand, our choice of ℓ1 = 109 and 150 comes from n′ = 5m
+and 2m, respectively, which is smaller than the RS construction’s n′ = 5.6m. In
+other words, for the original RS construction to achieve n′ = 5m or 2m, their ℓ1
+should be taken larger.
+
+
+7.2   Performance Evaluation
+
+We present some experimental results to evaluate performance of our newly
+proposed protocol. Since there is a trade-off between computational and com-
+munication complexities, our evaluation was carried out under different network
+settings with varying the field degree f from 1 to 8 (while fixing the subfield
+degree by b = 1), and the set size n = 220 .
+    For the SoftSpokenVOLE realization, we utilize the implementation of libOTe
+library [12]. We also choose to employ the OKVS algorithm proposed by [10],
+whose implementation is publicly available at [16]. Note that this the okvs ex-
+pansion factor εokvs ≈ 0.3, so every m below can be regarded as 1.3n. We remark
+that RB-OKVS [3] is claimed to have smaller εokvs while having similar perfor-
+mance with [10]. However, we found no public implementation of RB-OKVS,
+and our internal implementation of RB-OKVS cannot reproduce the numbers in
+the original paper, so we simply use [10] for experiments. Note that the choice of
+OKVS might change the absolute numbers in this section, but our main contents
+are almost independent to the choice of OKVS.
+    The tests were performed using a machine equipped with 3.50 GHz Intel
+Xeon E5-1650 v3 (Haswell) CPU and 128 GB RAM, using a single thread. For
+concrete parameters, we use λ = 40 bit of statistical security and κ = 128 bits of
+
+
+                                          25
+computational security. To simulate various network environments, we employed
+the tc command in conjunction with a local network setup.
+
+
+                    ℓ1     f     nc     Binary code
+                           1    550     RS[50, 19, 32]64 + [11, 6, 4]2
+                           2    350     RS[50, 19, 32]64 + [7, 6, 2]2
+                   109     4    238     RS[34, 19, 16]64 + [7, 6, 2]2
+                           6    192     RS[32, 22, 11]32 + [6, 5, 2]2
+                           8    174     RS[29, 22, 8]32 + [6, 5, 2]2
+                           1    616     RS[56, 25, 32]64 + [11, 6, 4]2
+                           2    392     RS[56, 25, 32]64 + [7, 6, 2]2
+                   150     4    280     RS[40, 25, 16]64 + [7, 6, 2]2
+                           6    245     RS[35, 25, 11]64 + [7, 6, 2]2
+                           8    224     RS[32, 25, 8]64 + [7, 6, 2]2
+
+      Table 3: Specification of the binary linear codes for our experiments.
+
+
+
+   In this evaluation, we focus on the maliciously secure version. We consider
+two values of ℓ1 in Table 1 with qon = 296 ; ℓ1 = 109 for n′ = 5 · m for m ≈ 1.3n,
+and ℓ1 = 150 for n′ = 2 · m for m ≈ 1.3n.
+Main Comparison Target. Our main comparison target is the state-of-the-
+art OPRF protocol [10] in the RS construction (fast version) that using LPN-
+based VOLE over GF(2128 ). The performance of those performance strongly
+depends on the specific choice of the code for LPN. We consider quasi-cyclic
+LDPC code [5] which we denote below by QC, and a new family of codes named
+expand-convolute codes proposed by Rindal et al. [11], especially ExConv7x24
+(resp. ExConv21x24) implemented in libOTe by EC1 (resp. EC2).
+
+Remark 3. There was another recent proposal of code family called Silver [6] that
+retains quite aggressive structure to have blazing-fast performance. However, we
+do not compare with this family, as it turns out to be vulnerable [11].
+Concrete Linear Codes. Although Table 2 provides the minimal length of
+nc such that [nc , ℓ1 , ⌈128/f ⌉]2 , the concrete construction of such linear code is
+not known for most cases. Thus, for our experiments, we use the binary linear
+code constructed by combining a Reed-Solomon (RS) code and another binary
+code, which method is already used in [9]: To be precise, given ℓ1 -bit input, we
+first apply some RS code RS[nrs , krs , drs ]q by embedding ℓ1 -bit inputs into krs
+elements of GF(q), which outputs nrs elements of GF(q). After then, we apply
+[nb , log q, db ]2 code for each GF(q) element by understanding it as log q-bits.
+This implies a binary code [nrs · nb , ℓ1 , drs · db ]2 . Given ℓ1 and dc , we exhaustively
+searched through all possible RS codes and binary linear codes to find the one
+
+
+                                            26
+                   n = 220 , m ≈ 1.3n        Ours           [10]
+                         n′ /m             5      2          5.6
+                            ℓ1            109    150        128
+                                  f =1   93.56   104.8
+                                  f =2   59.56   66.71   22.23(QC)
+                Communication
+                                  f =4   40.53   47.68   22.78(EC1)
+                   (MB)
+                                  f =6   32.71   41.75   22.42(EC2)
+                                  f =8   29.67   38.20
+
+Table 4: Total communication costs of our OPRF and [10] for n = 220 items.
+The ‘n′ /m’ row shows the number of PRF values that malicious receiver can
+obtain. Our protocols can set qon = 296 and qoff = 2128 thanks to our mitigation,
+which is not applicable to the previous work.
+
+
+
+
+satisfying drs · db = dc with the shortest nrs · nb , and the concrete codes are
+obtained from SageMath. The results are summarized in Table 3.
+
+
+Remark 4. There would be another construction of linear code [nc , ℓ1 , dc ] shorter
+than our found RS code & binary code combination; for example, it is known a
+construction of [164, 109, 16]2 linear code [1] for ℓ1 = 109 and f = 8 case, which
+is 10-bit shorter than our construction [174, 110, 16]2 . One might try to replace
+our codes by investigating further shorter linear code, which directly improves
+the performance without any harm on security.
+Communication Costs. Recall that the transmission of the correction matrix
+U ′ ∈ Bm×nc dominates the communincation cost, precisely nc · b · (1 + ϵokvs )nx
+bits. Thus the communication cost would be totally proportional to nc · b, which
+is nc in our case, and b = 128 in [10]. Table 4 shows the communication cost
+based on the concrete linear codes found in Table 3, and one can check that
+indeed the communication cost is exactly proportional to nc · b. We have to
+say that [10] requires smaller communication than ours, as it has nc · b = 128.
+However, we would like to remark that the f = 1 case is actually corresponds to
+the original PRTY construction [9] while replacing the subroutines to latest one.
+In this view, our generalized f choice narrows the gap between [10] protocols
+and our one: for example ℓ1 = 109 (or n′ = 5m), the communication cost gap
+between Minicrypt and LPN drops to 4.2x (f = 1) to 1.3x (f = 8).
+Running Time. To check the total running time of OPRF in various network
+setting, we used 3 settings. The first one is 100Mbps with 100ms rtt (round trip
+time), and the second one is 1Gbps with 1ms rtt, the last one is 5Gbps with 1ms
+rtt. These settings are done by using linux tc command in local host network.
+We further note that the public implementation [16] of [10] only supports fixed
+ℓ1 = 128 now, which translates to n′ = 5.6m. As a fair comparison, we provide
+the performances for ℓ1 = 109 case of n′ = 5m in Table 5.
+
+
+                                         27
+                 n = 220      100Mbps    1Gbps    5Gbps    Assumption
+                      f =1      14.2      2.62     2.03
+                      f =2      10.0      2.18     1.80
+              Ours    f =4     7.787      2.25     1.99     Minicrypt
+                      f =6     7.783      2.96     2.74
+                      f =8      9.37      4.75     4.55
+                      QC        5.304      2.32     2.31
+               [10]   EC1       4.647     0.990    0.980    dual-LPN
+                      EC2       5.056     1.629    1.577
+
+Table 5: Total running time (in second) of our OPRF and [10] on various network
+settings for n = 220 items. Under the parameters used in this evaluation, our
+protocol allows at most n′ = 5m PRF evaluations, and [10] allows at most
+n′ = 5.6m PRF evaluations.
+
+
+
+
+    Table 5 shows OPRF running time with f = 1, 2, 4, 6, 8 at our construction
+and the previous work [10]. The implementation of the previous work is in pub-
+lic [16], so we re-run the code in our evaluation setting for fair comparison. In
+the fast (5Gbps and 1Gbps) network environments, our f = 2 case is even faster
+than [10] with QC. Since our protocol only requires Minicrypt assumption while
+QC is not, we might say our protocol is strictly better than it.
+    In slower network (100Mbps) environment where the communication cost
+affects a lot, the protocols of [10] are clearly still better. However, we can confirm
+again the generalized field choice helps to narrow the gap between [10] protocols
+and our one. Specifically, the f = 1 case that corresponds to revised PRTY
+construction takes 14.2s, which is 2.7 − 3x than [10] protocols, while our f = 6
+of 7.783s decreases the gap by 1.5 − 1.7x.
+
+Discussion with Breakdown. Table 6 shows the breakdown for of our protocol
+timing results in Table 5. The ‘Transpose V ’ row is an implementation-specific
+part, which cannot be seen in Figure 9: The VOLE outputs V, W ∈ Fm×nc are
+obtained by nc independent call of VOLE, and they are naturally arranged in
+a column-wise manner. However, the OKVS decoding understands V (and W )
+as a length m vector of nc · log |F|-bits, we need to transpose them. As Table 6
+shows, such transpose also takes quite a large computational cost.
+   We finally remark that the first two steps (VOLE and transpose) can be
+done in offline, before the input set X is determined. In other words, they can
+be understood as a setup phase before the main OPRF starts. Concretely, for
+f = 8, the first two steps occupy from 77% in the total timings un the 5Gbps
+network. Thus, we can conclude that our protocol with f = 8 would be a nice
+choice for the situations where some offline computation is allowed, probably
+even better than [10] protocol with EC-LPN-based VOLE .
+
+
+                                         28
+                            100Mbps                    1Gbps                   5Gbps
+        f             1        4       8           1     4      8       1        4      8
+     VOLE           0.670    0.822    2.673   0.246    0.430   2.333   0.244   0.414   2.324
+   Transpose        0.133    0.263    0.664   0.132    0.265   0.675   0.134   0.263   0.667
+ OKVS Encode        0.356    0.350    0.348   0.356    0.361   0.354   0.352   0.354   0.354
+Apply Lin. Code     0.373    0.114    0.100   0.378    0.116   0.100   0.379   0.116   0.101
+Send/Recv Corr.     12.14    5.568    4.580   0.995    0.418   0.331   0.404   0.182   0.140
+ OKVS Decode        0.343    0.491    0.615   0.332    0.485   0.620   0.336   0.485   0.627
+
+      Table 6: Breakdown of our protocol timings (in second) in Table 5.
+
+
+
+Acknowledgments
+The authors would like to thank Peter Rindal for helpful comments and discus-
+sions, especially for verifying the early discovery of the flaw and providing clear
+understanding on the current state of OPRF and PSI protocols.
+
+
+References
+ 1. Code Tables: Bounds on the parameters of various types of codes (2022), http:
+    //codetables.de/
+ 2. Baum, C., Braun, L., de Saint Guilhem, C.D., Klooß, M., Orsini, E., Roy, L., Scholl,
+    P.: Publicly Verifiable Zero-Knowledge and Post-Quantum Signatures from VOLE-
+    in-the-Head. In: Handschuh, H., Lysyanskaya, A. (eds.) Advances in Cryptology –
+    CRYPTO 2023. pp. 581–615. Springer Nature Switzerland, Cham (2023)
+ 3. Bienstock, A., Patel, S., Seo, J.Y., Yeo, K.: Near-Optimal Oblivious Key-
+    Value Stores for Efficient PSI, PSU and Volume-Hiding Multi-Maps. In: 32nd
+    USENIX Security Symposium (USENIX Security 23). pp. 301–318. USENIX
+    Association, Anaheim, CA (Aug 2023), https://www.usenix.org/conference/
+    usenixsecurity23/presentation/bienstock
+ 4. Boyle, E., Couteau, G., Gilboa, N., Ishai, Y., Kohl, L., Resch, N., Scholl, P.: Corre-
+    lated Pseudorandomness from Expand-Accumulate Codes. In: Dodis, Y., Shrimp-
+    ton, T. (eds.) Advances in Cryptology – CRYPTO 2022. Springer Nature Switzer-
+    land, Cham (2022)
+ 5. Boyle, E., Couteau, G., Gilboa, N., Ishai, Y., Kohl, L., Rindal, P., Scholl, P.: Effi-
+    cient Two-Round OT Extension and Silent Non-Interactive Secure Computation.
+    In: CCS 2019. pp. 291–308 (2019)
+ 6. Couteau, G., Rindal, P., Raghuraman, S.: Silver: Silent VOLE and Oblivious Trans-
+    fer from Hardness of Decoding Structured LDPC Codes. In: CRYPTO 2021. pp.
+    502–534. Springer, Cham (2021)
+ 7. Garimella, G., Pinkas, B., Rosulek, M., Trieu, N., Yanai, A.: Oblivious key-value
+    stores and amplification for private set intersection. In: CRYPTO 2021. pp. 395–
+    425. Springer (2021)
+ 8. Orrù, M., Orsini, E., Scholl, P.: Actively Secure 1-out-of-N OT Extension with Ap-
+    plication to Private Set Intersection. In: Handschuh, H. (ed.) Topics in Cryptology
+    – CT-RSA 2017. pp. 381–396. Springer International Publishing, Cham (2017)
+
+
+                                              29
+ 9. Pinkas, B., Rosulek, M., Trieu, N., Yanai, A.: PSI from PaXoS: fast, malicious
+    Private Set Intersection. In: EUROCRYPT 2020. pp. 739–767. Springer (2020)
+10. Raghuraman, S., Rindal, P.: Blazing Fast PSI from Improved OKVS and Subfield
+    VOLE. In: CCS 2022. pp. 2505–2517. ACM, New York, NY, USA (2022)
+11. Raghuraman, S., Rindal, P., Tanguy, T.: Expand-Convolute Codes for Pseudoran-
+    dom Correlation Generators from LPN. In: Handschuh, H., Lysyanskaya, A. (eds.)
+    Advances in Cryptology – CRYPTO 2023. Springer Nature Switzerland, Cham
+    (2023)
+12. Rindal, P.: libOTe: an efficient, portable, and easy to use Oblivious Transfer Library
+    (2022), https://github.com/osu-crypto/libOTe
+13. Rindal, P., Schoppmann, P.: VOLE-PSI: Fast OPRF and Circuit-PSI from Vector-
+    OLE. In: EUROCRYPT 2021. pp. 901–930. Springer, Cham (2021)
+14. Roy, L.: SoftSpokenOT: Quieter OT Extension from Small-Field Silent VOLE
+    in the Minicrypt Model. In: Dodis, Y., Shrimpton, T. (eds.) Advances in Cryp-
+    tology - CRYPTO 2022 - 42nd Annual International Cryptology Conference,
+    CRYPTO 2022, Santa Barbara, CA, USA, August 15-18, 2022, Proceedings, Part
+    I. Lecture Notes in Computer Science, vol. 13507, pp. 657–687. Springer (2022).
+    https://doi.org/10.1007/978-3-031-15802-5_23, https://doi.org/10.1007/
+    978-3-031-15802-5_23
+15. Suzuki, K., Tonien, D., Kurosawa, K., Toyota, K.: Birthday Paradox for Multi-
+    collisions. In: Rhee, M.S., Lee, B. (eds.) Information Security and Cryptology –
+    ICISC 2006. pp. 29–40. Springer Berlin Heidelberg, Berlin, Heidelberg (2006)
+16. Visa-Research: volepsi: Efficient private set intersection base on vole (2022), https:
+    //github.com/Visa-Research/volepsi
+17. Wagner, D.: A Generalized Birthday Problem. In: Yung, M. (ed.) Advances in
+    Cryptology — CRYPTO 2002. pp. 288–304. Springer Berlin Heidelberg, Berlin,
+    Heidelberg (2002)
+
+
+
+
+                                           30
+A     Details for RB-OKVS Overfitting Attack
+
+Case n′ < 2m. Similarly to PaXoS, we reduce the (n, k−1
+                                                     km
+                                                        )-overfitting game to a
+k-XOR problem for k > 2 as follows. As solving a k-XOR problem of (d + ℓ1 )-bit
+                       d+ℓ1                                       d+ℓ1
+strings costs O(k2 1+⌊log k⌋ ) time, our attack costs O(m2 1+⌊log k⌋ ) time including
+time for querying to the random oracle.
+
+ 1. Let Q = {x1 , . . . , xq } be an arbitrary subset in {0, 1}∗ . Query all the items
+    in Q to h0 , h1 , and H1 . Bucketize Q by h1 , denoting Bh1 the corresponding
+    bucket. Then, there are m buckets, and there are expectedly q/m items per
+    bucket. For simplicity, we assume that (k − 1)|d and (k − 1)|m.
+ 2. For j ∈ {1, k, . . . , m − d − k + 2}, do the following with initialization X ′ ←
+    {}.
+    (a) Solve a k-XOR problem for h0 (x)∥H1 (x) in buckets Bj . If leftmost k ×
+        (k − 1)-submatrix has rank strictly less than k − 1, then repeat this step
+        to find another solution.
+    (b) Gather the proper solutions of the k-XOR problem to X ′ .
+ 3. For j ∈ {m − d + 1, m − d + k, . . . , m − k + 2}, do the following with initial-
+    ization Y ← {}.
+    (a) Solve a k-XOR problem for h0 (x)∥H1 (x) in buckets Bm−d+1 and let
+        x′1 , . . . , x′k are solutions.
+                                  k×(m+ℓ1 )
+    (b) Make a matrix K ∈ F2                  from row(xi )∥H1 (xi ).
+                                                   k×(k−1)
+    (c) Let K ′ be a submatrix of K in F2                , whose i-th column is equal to
+        the (j + i − 1)-th column of K.
+    (d) If rank(K ′ ) = k − 1, then add x′1 , . . . , x′k to Y . Otherwise, repeat step 3
+        for same j.
+ 4. Denote X ′ = {x′1 , . . . , x′n′ } where n′ = k · m−d               d      km
+                                                           k−1 + k · k−1 = k−1 . Since
+    rank(row(X ⃗ ′ )) = rank(row(X    ⃗ ′ )|H1 (X
+                                                ⃗ )), there is a solution P of the linear
+                                                  ′                        ′
+
+    equation row(X ′ ) · P ′ = H1 (X ′ ).
+
+Case n′ ≥ 2m. Similarly to PaXoS, we reduce the OKVS overfitting problem to
+a c-multicollision finding problem as follows. As finding c-multicollision of (d +
+                                   (c−1)(d+ℓ1 )                               (c−1)(d+ℓ1 )
+ℓ1 )-bit strings costs O((c!)1/c 2      c       ) time, our attack costs O(m2      c       )
+time for small enough c.
+
+ 1. Let Q = {x1 , . . . , xq } be an arbitrary subset in {0, 1}∗ . Query all the items
+    in Q to h0 , h1 , and H1 . Bucketize Q by h1 , denoting Bh1 the corresponding
+    bucket. Then, there are m buckets, and there are expectedly q/m items per
+    bucket.
+ 2. Let k > 2. For j ∈ {1, 2, . . . , m − d}, do the following with initialization
+    X ′ ← {}.
+    (a) Find a c-multicollision for h0 (x)∥H1 (x) from bucket Bj . If the first bit
+        of h0 (x) is 0, find another solution.
+
+
+                                              31
+   (b) Gather the proper solutions of the problem to X ′ .
+3. For j ∈ {m − d + 1, m − d, . . . , m}, do the following with initialization Y ←
+   {}.
+   (a) Find a c-multicollision for h0 (x)∥H1 (x) in buckets Bm−d+1 and let x′1 , . . . , x′c
+        are those solutions.
+   (b) Add proper solutions x′1 , . . . , x′c to Y .
+4. If row(Y ) has rank less than d, go back to Step 3. Otherwise, X ′ ← X ′ ∪ Y .
+                                                                    ⃗ ′ )) = rank(row(X
+5. Denote X ′ = {x′1 , . . . , x′n′ } where n′ = cm. Since rank(row(X                   ⃗ ′ )|H1 (X
+                                                                                                  ⃗ ′ )),
+                            ′                                ′    ′          ′
+   there is a solution P of the linear equation row(X ) · P = H1 (X ).
+
+
+
+
+                                           32
+

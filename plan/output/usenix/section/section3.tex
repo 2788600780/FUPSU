@@ -1,0 +1,393 @@
+\section{The F-PSU Protocol}
+\label{sec:protocol}
+
+	
+\subsection{System Model and Threat Model}
+% ============================================================
+
+\textbf{System model.} Two parties $P_0, P_1$ hold private sets $X_0, Y_0
+\subseteq \{0,1\}^\sigma$. The protocol runs over $T = \poly(\kappa)$ epochs.
+At epoch $t$, each party provides a delta: elements to add ($\Delta^+$) and
+delete ($\Delta^-$), disjoint from each other and from the current set. After
+epoch $t$, both parties learn the updated union $X_{\cup,t}$.
+
+\textbf{Updatable efficiency.} A protocol is \emph{$1$-updatable} if per-epoch
+communication $|\mathsf{trans}_t| = O(|\Delta_t| \cdot \poly(\sigma, \kappa))$,
+scaling with delta size rather than total set size.
+
+\textbf{Threat model.} Semi-honest adversary with adaptive corruption of one
+party at epoch $\tau$ (corrupting both simultaneously voids security guarantees). The adversary observes all
+transcripts. Upon corruption, it learns the corrupted party's current state
+(set $X_\tau$, key $K_\tau$, IBLT, VOLE/OKVS state). Forward privacy requires
+learning \emph{nothing} about sets from epochs $t < \tau$ beyond what union
+outputs already reveal. Post-compromise security is not required in the main
+protocol; a self-healing extension appears in Appendix~\ref{sec:selfheal}.
+
+The formal ideal functionality $\cF_{\mathsf{updPSU}}$
+(Fig.~\ref{fig:f-fpsu}) and UC definitions appear in
+Sections~\ref{sec:protocol} and~\ref{sec:security}.
+$\cF_{\mathsf{updPSU}}$ receives deltas, computes the updated union and
+intersection, and returns the output corresponding to a mode parameter
+($\mathsf{PSU}, \mathsf{PSI}, \mathsf{PSU}\text{-}\mathsf{CA},
+\mathsf{PSI}\text{-}\mathsf{CA}$). Theorem~\ref{thm:lower} proves the
+leaked delta counts are unavoidable.
+
+% ============================================================
+\subsection{Leakage Lower Bound}\label{sec:lower}
+
+\begin{theorem}[Efficiency-Leakage Trade-off]\label{thm:lower}
+Any correct, semi-honest secure, 1-updatable PSU protocol necessarily reveals
+$(|\Delta^+_0|, |\Delta^-_0|, |\Delta^+_1|, |\Delta^-_1|)$. Any protocol
+hiding these counts must have $|\mathsf{trans}| = \Omega(N\sigma)$---defeating
+updatability.
+\end{theorem}
+
+F-PSU leaks these four counts through OT query counts and delta IBLT sizes.
+The proof uses a Shannon source-coding argument. F-PSU leaks exactly these
+four counts; by Theorem~\ref{thm:lower}, it is \textbf{strictly
+leakage-optimal}. The full proof appears in Appendix~\ref{sec:lower-proof}.
+
+\subsection{Protocol Overview}
+
+We sketch one incremental epoch (the full specification is
+Figure~\ref{fig:protocol}). After Epoch~0 establishes the shared-element
+IBLT, each subsequent epoch proceeds in three stages.
+
+\smallskip\noindent\textbf{Additions (MiniPeel).} Each party encodes its
+new elements into a compact IBLT. A fresh UnionPeel on these IBLTs
+recovers the union of additions deterministically, with zero cascade.
+
+\smallskip\noindent\textbf{Deletions (OT-masked).} Before modifying the
+IBLT, each party queries the other via batched OPRF plus one deletion-intent
+bit. Only when both parties delete the same shared element (rare) is the
+IBLT modified; otherwise deletions are handled purely locally or via $k$
+cell updates, without cascade.
+
+\smallskip\noindent\textbf{Output and forward privacy.} The new union is
+assembled from the old union and classified deltas, then the PRF key is
+evolved, the IBLT encrypted, and the old key erased.
+
+The per-epoch cost is $O(|\Delta|)$. The detailed protocol follows in
+Sections~\ref{sec:ideal}--\ref{sec:complexity}.
+
+\subsection{Ideal Functionality}\label{sec:ideal}
+
+	In the UC framework~\cite{Can01}, an ideal functionality $\cF_{f}$ is
+	parameterized by the function $f$ it computes. We define
+	$\cF_{\mathsf{updPSU}}$ for forward-private updatable Private Set Union
+	(Fig.~\ref{fig:f-fpsu}).
+
+	\begin{center}
+	\fbox{\begin{minipage}{0.95\columnwidth}
+	\smallskip
+	\noindent\textbf{Functionality $\cF_{\mathsf{updPSU}}$}
+
+	\noindent\textbf{Parameters:} Two parties $P_0, P_1$, security parameter
+	$\kappa$, element domain $\U$, and max set size $N$. The functionality
+	maintains set state $(X_0, X_1)$ and epoch counter $t$ (initially $0$).
+
+	\smallskip\noindent\textbf{Behavior:}
+	\begin{enumerate}
+	\item Upon receiving $(\textsf{Update}, \Delta^+_b, \Delta^-_b)$ from $P_b$:
+	update $X_b \leftarrow (X_b \cup \Delta^+_b) \setminus \Delta^-_b$.
+	\item Once both parties have submitted their updates, set $t \leftarrow t+1$,
+	compute $\mathsf{out} \leftarrow X_0 \cup X_1$, and send $\mathsf{out}$
+	to both parties.
+	\item Upon adaptive corruption of $P_b$ at epoch $\tau$: send
+	$X_b^{(\tau)}$ to $\cS$. Historical states $\{X_b^{(t)}\}_{t < \tau}$.
+	\end{enumerate}
+	\smallskip\noindent\textbf{Leakage:} At step~2, $\cL = (|\Delta^+_0|,
+	|\Delta^-_0|, |\Delta^+_1|, |\Delta^-_1|)$ to the simulator.
+	\smallskip
+	\end{minipage}}
+\captionof{figure}{The ideal functionality $\cF_{\mathsf{updPSU}}$ for forward-private updatable Private Set Union.}
+\label{fig:f-fpsu}
+
+\smallskip\noindent\textbf{Remark (PSI and cardinality as a byproduct).}
+The UnionPeel sub-protocol naturally classifies each peeled element as unique
+to $P_0$, unique to $P_1$, or shared. The same protocol execution therefore
+also yields the intersection (shared elements) and the cardinalities of both
+the union and the intersection, at zero additional communication or computation.
+The security proof is unchanged since the protocol transcript is independent
+of which output elements the parties retain. We focus on $\cF_{\mathsf{updPSU}}$
+throughout; the PSI and CA variants follow identically.
+\end{center}
+
+	We state the main security theorem for $\cF_{\mathsf{updPSU}}$;
+	the proofs for the PSI and cardinality variants follow identically
+	(Remark above), since the protocol transcript is independent of which
+	peeled elements the parties retain.
+
+\subsection{Extension: PSI and Cardinality from Pure Cells}
+\label{sec:psi-ext}
+
+The $\uPeel$ function (Definition~\ref{def:upeel}) naturally reveals whether a
+peeled element belongs to the intersection. When $\uPeel$ peels a cell
+$(i,j)$, it distinguishes three cases: (1)~$\mathsf{cnt}_0[i][j]=1,
+\mathsf{cnt}_1[i][j]=0$---the element is unique to $P_0$;
+(2)~$\mathsf{cnt}_0[i][j]=0, \mathsf{cnt}_1[i][j]=1$---unique to $P_1$;
+(3)~$\mathsf{cnt}_0[i][j]=1, \mathsf{cnt}_1[i][j]=1, \mathsf{sum}_0=
+\mathsf{sum}_1$---the element belongs to \textbf{both} parties, i.e., the
+intersection $X_0 \cap X_1$. Case~(3) occurs because each party independently
+encodes its elements into its own IBLT; when the same element $x$ is encoded
+by both, it lands in the same cell $(i,j)$ with identical sum $x$, and
+$\uPeel$ detects the match.
+
+Consequently, a single execution of the UnionPeel sub-protocol simultaneously
+recovers the union (all peeled elements) and the intersection (Case~3
+elements). This yields four output types at zero additional communication:
+\begin{itemize}
+\item \textbf{PSU:} output all peeled elements ($X_0 \cup X_1$).
+\item \textbf{PSI:} output only Case~3 elements ($X_0 \cap X_1$).
+\item \textbf{PSU-CA:} output the count $|X_0 \cup X_1|$.
+\item \textbf{PSI-CA:} output the count $|X_0 \cap X_1|$.
+\end{itemize}
+
+The mode is selected via a single bit in the protocol initialization and
+requires no change to the protocol messages, the OT/OPRF interaction, the
+IBLT encoding, or the peeling logic. The only modification is that the
+peeling output carries a 2-bit tag per element identifying the case, and the
+parties filter output accordingly.
+
+Security inherits directly from Theorem~\ref{thm:main}: the simulator for
+$\Pi_{\mathsf{fpsu}}$ already extracts the corrupted party's effective input
+and submits it to the ideal functionality. The same simulator, paired with
+$\cF_{\mathsf{updPSU}}$ (which differs only in the output sent to the parties),
+produces an indistinguishable view. The per-mode leakage is identical:
+$X_\cup$ reveals $Y \setminus X$ in all modes; $X_\cap$ additionally reveals
+element equality between the two sets; cardinalities reveal only the sizes.
+The adaptive security argument of Section~\ref{sec:security} applies
+unchanged since the protocol transcript is independent of the output mode.
+
+\subsection{Initialization}
+\label{sec:init}
+
+At setup, $P_0$ and $P_1$ (denoted Client $C$ and Server $S$ in pseudocode
+perform one-time VOLE setup (RR22~\cite{RR22}) reused across all epochs.
+Each party initializes an empty IBLT of capacity $(m, k)$ and samples an
+independent 256-bit PRF key.
+
+\subsection{Epoch Protocol}\label{sec:epoch-protocol}
+
+	We denote the two parties as Client $C$ and Server $S$, each initialized with
+	the one-time setup of Section~\ref{sec:init}.  Let
+	$\mathsf{prm}_t = (M, k, \ell_t, H)$ denote IBLT parameters chosen such that
+	$\List$ fails with probability $\leq 2^{-\lambda}$ for the current set sizes
+	(Theorem~\ref{thm:iblt}), with expansion $e = k\ell_t / (|X_t| + |Y_t|) \in
+	[1.5, 4.5]$.  The per-epoch protocol is specified in
+	Figure~\ref{fig:protocol}; we elaborate on the key design decisions below.
+
+	\smallskip\noindent\textbf{OT-masked deletion.}
+	\smallskip\noindent\textbf{Mini UnionPeel for additions.}
+	Additions are encoded into a separate compact IBLT ($\mathsf{IBLT}^+_C$,
+	$\mathsf{IBLT}^+_S$) with $m_{\Delta} = c_k \cdot k \cdot \max(|\Delta^+_C|,
+	|\Delta^+_S|)$ cells, \emph{without} merging into the main IBLT.  A fresh
+	$\Pi_{\mathsf{UnionPeel}}$ on this compact IBLT recovers the union of
+	additions deterministically (zero cascade, as the IBLT has no prior peeling
+	state).  Recovered elements $V_{\Delta^+}$ are then merged locally.  This
+	separation avoids cross-contamination: without it, deleting $a$ and adding
+	$b$ that share a hash cell would produce a non-singleton with sum $b-a$.
+
+	\smallskip\noindent\textbf{OT-masked deletion.}
+	The critical insight of F-PSU is that deletions need not trigger IBLT
+	cascade. Before modifying any IBLT cell, each party runs a 2-bit OT-based
+	membership check for every deletion candidate (Step~5, Fig.~\ref{fig:protocol}).
+	The other party replies with (i)~whether it holds the element, and
+	(ii)~whether it also intends to delete it. Three cases arise:
+	\begin{itemize}
+	  \item \textbf{Case~1 (unique):} The other party does not hold $x$. Pure
+	    local deletion---no IBLT modification, no communication beyond the OT check.
+	  \item \textbf{Case~2 (one-sided shared):} The other party holds $x$ and
+	    retains it. $x$ remains in the union. The deleting party subtracts $x$
+	    from its own IBLT ($k$ cell updates, no cascade).
+	  \item \textbf{Case~3 (two-sided shared):} Both parties independently
+	    delete $x$. This is the only case requiring IBLT subtraction from both
+	    parties.
+	\end{itemize}
+	By avoiding cascade for Cases~1 and~2, the chain reaction that would
+	otherwise peel through all remaining shared elements is eliminated.
+
+	\smallskip\noindent\textbf{Output construction.}
+	The new union is $X_{\cup, t} = (X_{t-1} \setminus \Delta^-_{\mathsf{Case1}})
+	\cup \Delta^+_C \cup \Delta^+_S \cup V_{\mathsf{main}}$, where
+	$\Delta^-_{\mathsf{Case1}}$ are unique deletions and $V_{\mathsf{main}}$
+	is the (usually empty) set of elements resolved from Case~3 IBLT cells
+	(Step~6).  If the output type is $\mathsf{PSI}$, only Case~3 elements of
+	the original $\uPeel$ definition (equal sums in both IBLTs) are retained.
+
+	\smallskip\noindent\textbf{Key evolution and forward privacy.}
+	Round~3 performs a forward-secure key update: each party derives
+	$K^b_t \leftarrow \PRF(K^b_{t-1}, \text{``evolve-}b\text{''})$ (party-specific
+	domain separator), encrypts its IBLT under $K^b_t$, writes the
+	ciphertext, and \emph{securely erases} $K^b_{t-1}$.  By
+	Lemma~\ref{lem:prf-ow}, an adversary compromising at epoch $\tau$ cannot
+	recover $K^b_{t<\tau}$ or decrypt prior-epoch IBLT ciphertexts.
+
+	\begin{figure*}[p]
+\fbox{\footnotesize\begin{minipage}{\dimexpr\textwidth-2\fboxsep-2\fboxrule\relax}
+\smallskip
+\noindent\textbf{Protocol $\Pi_{\mathsf{fpsu}}$ (Epoch $t$)}
+
+\smallskip\noindent\textbf{Input of $C$:}
+Encrypted IBLT $\mathsf{CT}_C$, set $X_{t-1}$, key $K^C_{t-1}$,
+deltas $\Delta^+_C, \Delta^-_C$.
+
+\noindent\textbf{Input of $S$:}
+Encrypted IBLT $\mathsf{CT}_S$, set $Y_{t-1}$, key $K^S_{t-1}$,
+deltas $\Delta^+_S, \Delta^-_S$.
+
+\noindent\textbf{Common:}
+IBLT parameters $\mathsf{prm}_t = (M, k, \ell_t, H)$ with $k=5$, $e \in [1.5,4.5]$;
+VOLE state $\sigma_{\mathsf{VOLE}}$ (setup once, reused across all epochs).
+
+\noindent\textbf{Output:}
+Both parties output $X_{\cup,t}$. (By filtering in Step~8, also yields
+PSI, PSU-CA, PSI-CA.)
+
+\smallskip\noindent\textbf{Protocol:}
+\begin{enumerate}
+\item $C$ decrypts $\mathsf{IBLT}_C \leftarrow \SE.\mathsf{Dec}(K^C_{t-1}, \mathsf{CT}_C)$;
+      $S$ decrypts $\mathsf{IBLT}_S \leftarrow \SE.\mathsf{Dec}(K^S_{t-1}, \mathsf{CT}_S)$.
+
+\item $C$ encodes additions: $\mathsf{IBLT}^+_C \leftarrow \Encode(\Delta^+_C)$;
+      $S$ encodes additions: $\mathsf{IBLT}^+_S \leftarrow \Encode(\Delta^+_S)$,
+      each with $m_{\Delta} = c_k \cdot k \cdot \max(|\Delta^+_C|, |\Delta^+_S|)$ cells.
+      \emph{(Do not merge into main IBLT yet.)}
+\end{enumerate}
+\begin{enumerate}\setcounter{enumi}{2}
+\item \textbf{[Mini UnionPeel --- additions.]}
+      $C$ and $S$ run $\Pi_{\mathsf{UnionPeel}}(\mathsf{IBLT}^+_C, \mathsf{IBLT}^+_S)$
+      (Fig.~\ref{fig:unionpeel}), scanning all $m_{\Delta}$ cells. The addition IBLT
+      is fresh --- zero cascade, deterministic output $V_{\Delta^+}$.
+
+\item \textbf{[Merge additions.]} [local]
+      Shared additions go to both IBLTs; unique additions go only to the owning party's IBLT.
+\end{enumerate}
+\begin{enumerate}\setcounter{enumi}{4}
+\item \textbf{[OT-masked deletion.]}
+      For each $x \in \Delta^-_C$, $C$ and $S$ run a batched OPRF query. $S$ replies with $F(k,x)$ and two bits:
+      $S$ replies with $(b_1, b_2)$ where $b_1 = \mathbf{1}[x \in Y_{t-1}]$ and
+      $b_2 = \mathbf{1}[x \in \Delta^-_S]$. Three cases:
+      \begin{itemize}
+        \item[Case~1:] $b_1=0$: $x$ unique to $C$, local deletion only.
+        \item[Case~2:] $b_1=1, b_2=0$: $x$ shared, $S$ keeps it ---
+          $\mathsf{IBLT}_C \leftarrow \mathsf{IBLT}_C \ominus \Encode(\{x\})$ (local, $k$ cells, no cascade).
+        \item[Case~3:] $b_1=1, b_2=1$: both delete $x$ --- $\mathsf{IBLT}_C \leftarrow \mathsf{IBLT}_C \ominus \Encode(\{x\})$, record cell to $Q_{\mathsf{del}}$.
+      \end{itemize}
+      $S$ performs the symmetric check for each $y \in \Delta^-_S$.
+      Most deletions are Case~1 or Case~2
+      eliminating cascade propagation.
+
+\item \textbf{[Resolve Case~3 deletions.]}
+      If $Q_{\mathsf{del}} \neq \emptyset$: run $\Pi_{\mathsf{UnionPeel}}$ on $Q_{\mathsf{del}}$.
+      By Lemma~\ref{lem:cascade}, $\leq 2k|\Delta^-_{\mathsf{Case3}}|$ cells examined
+      w.h.p.
+
+\item \textbf{[Transmit recovered elements.]} [$S \to C$]
+      $S$ sends $V_{\mathsf{main}}$ (resolved elements from Steps~4--6, if any) to $C$.
+\end{enumerate}
+
+\begin{enumerate}\setcounter{enumi}{7}
+\item \textbf{[Output.]}
+      $X_{\cup, t} \leftarrow (X_{t-1} \setminus \Delta^-_{\mathsf{Case1}}) \cup
+      \Delta^+_C \cup \Delta^+_S \cup V_{\mathsf{main}}$.
+      Both parties output $X_{\cup, t}$.
+
+\item \textbf{[Key evolution.]}
+      $C$: $K^C_t \leftarrow \PRF(K^C_{t-1}, \text{``evolve-C''})$;\;
+      $S$: $K^S_t \leftarrow \PRF(K^S_{t-1}, \text{``evolve-S''})$.
+
+\item \textbf{[Re-encrypt and erase.]}
+      $C$: $\mathsf{CT}_C \leftarrow \SE.\mathsf{Enc}(K^C_t, \mathsf{IBLT}_C)$,
+      $\mathsf{secure\_erase}(K^C_{t-1})$;
+      $S$: $\mathsf{CT}_S \leftarrow \SE.\mathsf{Enc}(K^S_t, \mathsf{IBLT}_S)$,
+      $\mathsf{secure\_erase}(K^S_{t-1})$.
+\end{enumerate}
+\smallskip
+\end{minipage}}
+\caption{The F-PSU epoch protocol. Steps~2--4: Mini UnionPeel for additions
+(deterministic, zero cascade). Steps~5--7: OT-masked deletion with three-case
+classification.
+Steps~8--10: output, key evolution, and secure erasure. Per-epoch cells
+scanned: $O(|\Delta^+|)$ (MiniPeel) $+$ $O(|\Delta^-_{\mathsf{Case3}}|)$
+(Case~3 cleanup). Forward privacy overhead: $<1$~ms.}
+\label{fig:protocol}
+\end{figure*}
+
+\subsection{Complexity}\label{sec:complexity}
+
+\textbf{Unbalanced settings.} F-PSU operates identically in balanced and
+unbalanced scenarios because IBLT encoding complexity depends only on the
+\emph{local} set size, not the peer's set size. When $P_A$ holds $2^{10}$
+elements and $P_B$ holds $2^{20}$, each party encodes its own IBLT with cost
+proportional to $|\text{local set}|$, independent of the other. The delta
+IBLT mechanism is similarly local: each party applies $\Delta$ only to its
+own IBLT. The UnionPeel sub-protocol treats both IBLTs symmetrically,
+peeling from the virtual union regardless of size disparity. No protocol
+modification is required. The asymptotic complexity is $O(n\sigma)$ for the
+union output and $O(d(\sigma + \kappa))$ for the per-epoch update, where
+$n = |X| + |Y|$ and $d = |\Delta|$.
+
+Let $d = |\Delta| = d^+ + d^-$, $n = |X| + |Y|$.
+\begin{itemize}
+\item \textbf{OT-masked deletion:} $O(d^-)$ OT membership checks (2-bit OT per
+element).
+
+\item \textbf{Mini UnionPeel:} $O(c_k \cdot k \cdot d^+ \cdot (\sigma + \kappa))$ bits,
+deterministic, zero cascade.
+\item \textbf{Output:} $n\sigma$ bits (inherent to any PSU).
+\item \textbf{Forward privacy:} one PRF + one symmetric encryption per epoch ($<1$~ms).
+\end{itemize}
+Total: $O(d(\sigma + \kappa) + n\sigma)$, dominated by MiniPeel for additions
+and OT checks for deletions. For $d/n \approx 0.1\%$, the non-output
+component is $\approx 1000\times$ smaller than static PSU~\cite{PT26}.
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\caption{Asymptotic comparison of PSU protocols ($d = |\Delta|$, $n = |X|+|Y|$).}
+\label{tab:complexity}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lccc}
+\toprule
+\textbf{Protocol} & \textbf{Communication} & \textbf{Computation} & \textbf{Bal./Unbal.} \\
+\midrule
+KRT19~\cite{KRT19} & $O(n\sigma\kappa)$ & $O(n\log n)$ OT & Balanced \\
+PT26~\cite{PT26} & $O(n(\sigma+\kappa))$ & $O(n)$ OT+hash & Balanced \\
+ePSU~\cite{Tu+25} & $O(n\sigma)$ & $O(n)$ symm. & Both \\
+\textbf{F-PSU} & $\mathbf{O(d(\sigma+\kappa)+n\sigma)}$ & $\mathbf{O(d)}$ OT$+\mathbf{O(n)}$ ChCha & \textbf{Both} \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\begin{lemma}[Cascade Bound]\label{lem:cascade}
+With IBLT parameters ensuring 2-core emptiness ($\Pr \geq 1 - 2^{-\lambda}$),
+peeling from $k d^-$ deletion-modified cells examines at most $(1 + C_0) \cdot
+k d^-$ total cells, where $C_0 = O(k^2 d^- / m)$. For $d^- \ll m/k$, the
+cascade is $\leq 2k d^-$ with overwhelming probability.
+\end{lemma}
+
+\subsection{Communication Reduction}
+
+Table~\ref{tab:main-perf} compares per-epoch IBLT data exchange against static
+re-encoding. Communication reduction scales as $\Theta(n/|\Delta|)$,
+ranging from $29\times$ ($n{=}2^{14}, |\Delta|{=}1024$) to
+$23{,}756\times$ ($n{=}2^{20}, |\Delta|{=}64$). This reflects the core
+property of OT-masked deletion: per-epoch cell scanning is dominated by
+MiniPeel ($O(|\Delta^+|)$ cells), with deletion cascade eliminated by
+offloading membership checks to OT. OT/OPRF communication scales
+proportionally with cell count, so the same reduction factor applies to the
+secure computation phase.
+
+\subsection{Incremental Peeling and Parameter Growth}
+
+For $n = 2^{16}$, $|\Delta| = 2^{12}$: incremental peeling examines 32,768
+cells vs.\ 197,000 for full scan ($6\times$ reduction). Per-epoch protocol:
+$20.8$~ms ($n = 2^{14}$, $|\Delta| = 2^{12}$), $97.8$~ms ($n = 2^{16}$,
+$|\Delta| = 2^{14}$). Forward privacy overhead: $<1$~ms.
+
+\textbf{Amortized parameter growth.} 200 epochs, $n_0 = 10^4$, 100 elements
+per epoch: only \textbf{1} full re-encode triggered (epoch~51).
+
+% ============================================================

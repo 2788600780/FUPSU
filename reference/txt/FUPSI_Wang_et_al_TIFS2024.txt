@@ -1,0 +1,969 @@
+IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. 19, 2024                                                                                    8573
+
+
+
+
+                   Updatable Private Set Intersection With
+                              Forward Privacy
+                   Ruochen Wang , Jun Zhou , Member, IEEE, Zhenfu Cao , Senior Member, IEEE,
+                Xiaolei Dong , Member, IEEE, and Kim-Kwang Raymond Choo , Senior Member, IEEE
+
+   Abstract— Private set intersection (PSI) facilitates the compu-              Through the years, the application of PSI and associated
+tation of intersection between the private sets of two parties,                 functionalities has spread in various real-world scenarios
+ensuring that no additional information beyond the intersection                 aimed at preserving privacy, including genetic testing, pattern
+itself is revealed. However, most state-of-the-art are limited
+to static PSI, leaving updatable PSI untouched. Existing PSI                    matching [1], online advertising [2], mobile private contact
+protocols will cost huge computational resources to compute                     discovery [3], vertical federated machine learning [4], and
+intersection on updated sets. More seriously, none of the existing              numerous other domains. Significant strides have been made
+updatable PSI approaches can achieve both secure addition and                   in efficiently implementing PSI with considerations for resist-
+deletion operations in once update. To address these challenges,                ing semi-honest and malicious adversaries, as evidenced by
+we propose Forward Private Updatable PSI (FUPSI) for two-
+party setting. FUPSI is designed to support addition and deletion               notable advancements [5], [6], [7], [8], [9].
+simultaneously, while ensuring forward privacy against semi-                       Despite the huge progress and improvements made in the
+honest adversaries. In this work, we analyze the infeasibility                  efficiency of PSI protocols, a critical limitation of all current
+of secure synchronous addition and deletion in the existing                     protocols is the necessity for parties to conduct a new PSI
+updatable PSI approaches, by presenting a practical attack                      computation each time updating sets for merging new elements
+which would lead to privacy leakages while deletion function
+is performed. Then, to resist this attack against semi-honest                   and removing existing ones. This gives rise to substantial
+adversaries, we demonstrate how FUPSI can protect the forward                   computational and communication overhead, especially in
+privacy of user sets, by utilizing a variant of keyword Private                 scenarios involving frequent updates to existing sets. Real-
+Information Retrieval (PIR) to hide sensitive intermediate param-               world applications such as aggregated ads measurement [2],
+eters. Specifically in FUPSI, two parties execute keyword PIR
+                                                                                cloud computing [10], [11] will involve PSI with updated sets.
+to retrieve a flag indicating that the current element is added
+or deleted so as to determine whether it is in the participants’                   In addition to the naive solution to recompute intersection
+datasets. Finally, we provide the formal security proof for our                 of new sets above, Kiss et al. [12] proposed an approach
+proposed FUPSI, and extensive experimental results demonstrate                  for unbalanced sets with pre-computation. Applying their
+efficiency and the practicality of our proposal. For instance, the              framework, they instantiate four updatable PSI schemes of
+communication complexity of our proposal is only logarithmically
+                                                                                different paradigms, including RSA Blind Signature-based,
+related to the size of update sets and the computational overhead
+is mainly composed of logarithmical times PIR calculations.                     Diffie-Hellman-based, Naor-Reingold PRF-based and AES
+Owing to the variant of keyword PIR, our work also incurs                       GC-based PSI. However, all these schemes cannot satisfy
+minimal communication overhead even for enormous datasets,                      the requirement of simultaneously inserting and changing
+which performs well in updatable settings and slow networks.                    elements, since the server is only allowed to send either the
+  Index Terms— Private set intersection, updatable PSI, forward                 encrypted elements to be inserted into an bloom filter or the
+privacy, keyword private information retrieval.                                 positions of the bloom filter to be changed. This defect makes
+                                                                                it inconvenient for participants to update elements.
+                          I. I NTRODUCTION                                         Subsequently Aydin et al. [13] proposed a delegated PSI
+                                                                                protocol to adapt updatable setting. Their scheme Feather
+P    RIVATE set intersection (PSI) is a crucial technique
+     for computing intersection of two parties without addi-
+tional privacy leakages apart from the output intersection.
+                                                                                makes it possible for a client to efficiently update its externally
+                                                                                stored set via accessing only a minimal subset of this set. The
+                                                                                computational cost of updates in Feather scales quadratically
+  Received 2 April 2024; revised 12 August 2024; accepted 8 September 2024.     proportional to the bin size of the chosen hash table. In the
+Date of publication 16 September 2024; date of current version 26 September
+2024. This work was supported by the National Natural Science Foundation
+                                                                                context of delegated PSI, the responsibilities of data storage
+of China under Grant 62172161, Grant 62132005, and Grant 62172162. The          and computation have been outsourced to the cloud server,
+work of Kim-Kwang Raymond Choo was supported by the Cloud Technology            which is unsuitable for general two-party setting.
+Endowed Professorship. The associate editor coordinating the review of this
+article and approving it for publication was Dr. Paolo Gasti. (Corresponding
+                                                                                   Apart from the Feather scheme [13], Badrinarayanan et al.
+author: Jun Zhou.)                                                              [14] designed schemes that support regular update on a daily
+  Ruochen Wang, Jun Zhou, Zhenfu Cao, and Xiaolei Dong are with Shanghai        basis and perform PSI with updates rather than the entire sets.
+Key Laboratory of Trustworthy Computing, East China Normal University,
+Shanghai 200062, China (e-mail: lyc_rice@163.com; jzhou@sei.ecnu.edu.cn;        However, this day-based mechanism is not flexible, especially
+zfcao@sei.ecnu.edu.cn; dongxiaolei@sei.ecnu.edu.cn).                            when timeliness of data is required. There are two main
+  Kim-Kwang Raymond Choo is with the Department of Information Systems          protocols proposed in [14] called UPSI with addition and UPSI
+and Cyber Security, The University of Texas at San Antonio, San Antonio,
+TX 78249 USA (e-mail: raymond.choo@fulbrightmail.org).                          with weak deletion. The latter scheme is unable to achieve
+  Digital Object Identifier 10.1109/TIFS.2024.3461475                           real deletion since it removes all elements that were added
+                       1556-6021 © 2024 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission.
+                                     See https://www.ieee.org/publications/rights/index.html for more information.
+
+      Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+8574                                                                      IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. 19, 2024
+
+
+
+t days previously, which looks more like clearing rather than                    pose FUPSI and give a formal security proof in Section IV,
+deleting.                                                                        followed by the experimental evaluation in Section V. Finally,
+   Existing updatable PSI protocols have deficiencies in                         we draw the conclusion in Section VI.
+application scenarios, functions, and practicality. Besides,
+none of the above protocols considers additional privacy                                                  II. R ELATED W ORKS
+leakage brought by updates. In this paper, we only consider
+two parties’ setting. [13] is a delegated PSI protocol with                        In this section, we mainly review the current research
+a trusted third server, which is not adaptable for two-party                     progress of PSI protocols and keyword PIR.
+setting. So our work mainly refers and compares with [14].
+Reference [14] cannot support simultaneous secure addition                       A. State-of-the-Art PSI
+and deletion. Since in update phase, the leakages of                                Several methodologies exist for efficiently accomplishing
+intermediate parameters will provide adversaries with crucial                    semi-honest Private Set Intersection (PSI) in either two-party
+information to inference currently update elements out of the                    or multi-party setting. According to underlying cryptographic
+intersection, which significantly violates the essential privacy                 primitive or protocol, PSI protocols can be roughly classi-
+property of PSI protocols.                                                       fied into DiffieHellman-based [15], [16], fully homomorphic
+   To settle these problems, we propose a novel forward private                  encryption (FHE)-based [17], circuit-based [18], [19], [20],
+protocol with both addition and deletion, which improves                         [21], oblivious transfer (OT)-based [5], [6], [22] and VOLE-
+the security and practicality of updatable PSI. The main                         based [7], [23] protocols. At present, protocols based on
+contributions are outlined below:                                                Oblivious Transfer are the most widely used in practical appli-
+   • We state the infeasibility of delete operation in the                       cation due to the efficient implementation of OT extension
+      existing updatable PSI [14] through an attack. After                       [24], [25].
+      analyzing the scheme proposed by Badrinarayanan et al.                        With the emergence of updatable requirements, Kiss et al.
+      [14], we found that their UPSI with addition does not                      [12] propose the pre-computation scheme between two unbal-
+      support deletion (not weak deletion), since it cannot resist               anced sets at first. They instantiate four updatable PSI schemes
+      semi-honest adversary attacks for synchronous addition                     of different paradigms to show their Bloom Filter (BF)-based
+      and deletion. We instantiate this attack and introduce                     PSI framework. But whether RSA-PSI, DH-PSI or the other
+      the conception of forward privacy, which should have                       schemes, they cannot satisfy the requirement of simultaneously
+      been preserved from adversaries. Accordingly, a formal                     inserting and changing elements. The reason is that the server
+      definition forward privacy in PSI is presented.                            can only send either the ciphertext of the element to be
+   • We propose an updatable PSI protocol with forward
+                                                                                 inserted into an bloom filter or positions of the bloom filter to
+      privacy — FUPSI. Specifically, FUPSI utilizes a variant                    be changed, which makes it inconvenient for participants to
+      of keyword Private Information Retrieval (PIR) to hide                     update elements.
+      intermediate parameters so as to prevent forward privacy                      Subsequent to [12], Abadi et al. [13] consider to outsource
+      leakage, and further, resist the privacy attack. Thus, our                 computations to the server and thus construct a delegated PSI
+      work allows both parties to add or delete an element in                    protocol for multi-party setting. The client inserts all elements
+      an update while keeping privacy preserving.                                into the hash table and uploads it to the server. During updating
+   • We formally prove the security of our FUPSI and demon-
+                                                                                 an element, the client only needs to download and update
+      strate the efficiency through substantial experiments in                   the bin where the element is located. Nonetheless, the total
+      aspects of communication and computational cost. Using                     computation and communication costs increase as the entire
+      the assumptions that hash functions in FUPSI can be                        sets. Besides, this protocol needs an extra server, which is
+      modeled as random oracle and the underlying PIR is                         unfitting for two-party setting.
+      lattice-based PIR protocol, we prove our scheme to be                         The recent work [14] also publishes their study of updatable
+      adaptively-secure. For performance, since only the update                  PSI, which allows computing the intersection on a daily basis.
+      sets (the set of elements to be added or deleted) are                      Saikrishna et al. construct two protocols called UPSI with
+      operated on each time, the calculation and communication                   addition and UPSI with weak deletion. It is obvious that they
+      complexity are mainly related to the size of the update                    do not achieve real deletion for elements while just removing
+      sets and the communication complexity of our FUPSI                         data out of t-day period.
+      is logarithmically related to it. As the size of entire                       The above updatable PSI protocols do not support secure
+      sets grows, the computational efficiency of our scheme                     and efficient operations to elements in two-party setting. So we
+      gradually becomes more advantageous. Especially in low                     design an innovational updatable PSI to solve the problems.
+      communication bandwidth, our FUPSI is 2-10x more                           Our work allows participants to add or delete elements on each
+      efficient in the aspect of computational cost than the                     update and guarantees the forward privacy.
+      existing PSI protocols.
+   The subsequent structure of this paper is as follows.
+We review the related works of PSI and keyword PIR in                            B. Keyword PIR
+Section II. Then we present the system model, security model                        PIR [26] is a functional cryptographic primitive that solves
+and analyze the infeasibility with a privacy attack of the                       the problem of protecting the client’s query privacy. It has
+existing PSI approaches in Section III. After that, we pro-                      been abroad applicated in real-life scenarios like biometrics
+
+       Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+WANG et al.: UPDATABLE PRIVATE SET INTERSECTION WITH FORWARD PRIVACY                                                                                     8575
+
+
+
+authentications [27], [28], advertisements [29], anonymous
+communication [30], [31].
+   In the standard PIR protocol, the client aims at retrieving the
+i-th item in database while preventing the server from getting
+index i. The server is in possession of a public database.
+However, in most real applications, the data in the database
+is more similar to key-value pairs, that is, the client hopes
+to search the value corresponding to some key. Consider the
+content of the database to be movies, names or websites.
+                                                                                                     Fig. 1.   UPSI ideal functionality.
+In response to this issue, keyword PIR [32] was introduced,
+enabling the client to fetch the value linked to a specific key
+from databases comprised of key-value pairs.                                   role of the server in keyword PIR in turn and cooperate to
+   A naive solution to address the issue of keyword PIR entails                compute the final intersection. FUPSI allows them to add and
+duplicating mappings of keys and array indices, which must be                  delete elements in once update, and only needs an additional
+archived by all participating clients. Upon initiating a query,                bit for different operations.
+the client utilizes the mapping and ascertains the index con-                     Since the size of the entire dataset is much larger than that
+taining the entry associated with its query key, subsequently                  of each update set, FUPSI remains efficient even after several
+employing an index PIR scheme. However, this solution takes                    updates. Therefore, FUPSI is practical in two-party updatable
+up huge storage space on the client, which is linear with                      PSI setting. 防止前向隐私的关键字PIR半诚实模型
+the size of the database. Ali et al. [33] presented another                       2) Security Model: We define the security model in the
+approach to address keyword PIR involves the implementation                    semi-honest setting with the property of keyword PIR and the
+of cuckoo hashing in a single round, while this method incurs                  concept of forward privacy.
+a double response overhead as that in standard PIR. A recent                         a) Updatable PSI: Considering two parties P0 , P1 , they 可更新
+                                                                                                                                                 PSI的理
+study [34] develops a single-round keyword PIR solution                        participate in the intersection computation and could update 想功能函
+utilizing constant-weight equality operators. Although online                  sets at all times. Along with this, the intersection will be 数
+interaction rounds between the two parties are reduced, this                   constantly updated. We formalize UPSI ideal functionality in
+scheme still spends more overhead than recent PIR solutions.                   Figure 1, which allows two parties to update datasets and gain
+   In the previously outlined solutions, transitioning from                    new intersection without revealing any additional information.
+standard PIR to keyword PIR raises new issues like an                                b) Forward privacy in UPSI: Instead of giving the defi-
+escalation in roundtrips, double response size or extra huge                   nition of forward privacy in PSI directly, we firstly introduce
+client storage. To address these issues, the latest scheme [35]                the conception of forward privacy in SSE. Forward privacy 前向隐私
+presents SparsePIR which ensures unchanged request size,                       appears as a robust property of searchable symmetric encryp- 最初在对称加密泄
+response size and client storage compared with underlying                      tion (SSE) leakage function in dynamic SSE schemes [36]. 露有该概
+                                                                                                                                                念
+standard PIR. It is inspired by encoding algorithms and band                   Essentially, this property signifies that during an update,
+matrix for high dimensions.                                                    no details regarding the updated keywords are divulged.
+   Different from the state-of-the-art, an updatable PSI with                  Specifically, the server is unable to discern if the updated
+forward privacy is proposed in this paper. It supports both                    document corresponds to a keyword previously queried by the
+secure add and delete operations during updates, by exploiting                 client. The formal definition is given in Definition 1.
+a variant of keyword PIR.                                                         Definition 1 (Forward Privacy): A        L-adaptively-secure
+                                                                               SSE scheme 6 is forward private if the update leakage
+             III. I NFEASIBILITY OF D ELETION IN                               function LUpdt can be written as
+                  P REVIOUS U PDATABLE PSI
+                                                                                               LUpdt (op, in) = L′ (op,{(indi , µi )})
+   In this section, we firstly describe the system model and
+security model of our proposed scheme. Then we briefly                         where {(indi , µi )} is the set of modified documents paired with
+introduce the technical approach of an existing updatable PSI                  the number µi of modified keywords for the updated document
+protocol and state the infeasibility of deletion in previous                   indi .
+updatable PSI.                                                                    Slightly different from SSE, there are some unavoidable 泄露
+                                                                               information leaks in the PSI protocol. As an example, the example
+                                                                               intersection was {2, 4} at time t1 and {4} at t2 . There is no
+A. Model Definition                                                            doubt that the intersection is reduced by one element {2}.
+   1) System Model: Our FUPSI runs between two parties                         Therefore, elements of the intersection and changes of the
+whose datasets are constantly updated. Assume that the two                     intersection before and after the update are unavoidable leak-
+parties are P0 , P1 and own dataset X , Y respectively.                        ages, which are publicly known by both parties.
+   For each update, P0 and P1 hope to get the updated inter-                      For each update, these already existing, unavoidable leak-
+section efficiently. Rather than straightforwardly recomputing                 ages are denoted by L I (X, Y ), meaning the leakage function
+the intersection between two new datasets which are named                      of executing traditional PSI with X and Y . Informally, forward
+X ′ and Y ′ , FUPSI calculates the intersection by only operating              privacy in PSI requires that an update cannot leak additional
+on the update parts. In FUPSI, the two parties will play the                   information about elements out of the intersection. In other
+
+     Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+8576                                                                      IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. 19, 2024
+
+
+
+words, the semi-honest party cannot obtain the association
+between old data and update data of the other participant.
+Formal definition of forward privacy in PSI is given below.
+LUpdt (op, (x, y)) represents leakage function of computing
+new intersection for an update with operations op on x and y.
+  Definition 2 (Forward Privacy in UPSI): A L-adaptively-
+secure PSI scheme 6 is forward private if the update leakage
+function LUpdt can be written as
+
+                    LUpdt (op, (x, y)) = L I (X, Y )
+
+where (op, (x, y)) is the operations (addition or deletion) on
+element x and y.
+   The definition given here focuses on both added and
+deleted elements. In addition to the unavoidable leakage,
+LFrwd (op, (X, Y )) is denoted as privacy leakage due to the                                                                          标准的UPSI协议中
+                                                                                                                                      ，只允许让双方知
+previous set intersection computation and current operations.                                                                         道交集信息，而不
+                                                                                                                                      能让对方知道中间
+It is the additional privacy leakage of the UPSI protocol which                                                                       是否进行了删除和
+                                                                                                                                      添加操作
+violates forward security. There are a few studies related to
+updatable PSI and the known schemes are Feather [13] and
+UPSI [14]. However, none of them considered forward privacy
+in the constructions.
+   We consider only adaptive security, where adaptivity refers
+(in part) to whether the adversary attacks before or after the
+                                                                                                       Fig. 2.   An Example of UPSIα .
+update is made. In particular, in a non-adaptive attack, the
+adversary’s ability can be used to break all future queries; an
+adaptive adversary crafts the attack using the leaked informa-                   an extension to Two-Sided UPSI with Addition and name this
+tion. Correspondingly, adaptive security refers to the ability to                UPSIα . In section III-C, we construct a method to successfully
+resist adaptive attacks, and the same for non-adaptive security.                 attack UPSIα , which proves the correctness of our statement.
+
+B. Two-Sided UPSI With Addition                                                  C. Privacy Attack to UPSIα 攻击的泄
+                                                                                                            露行为
+   In this part, we review the protocol two-sided UPSI with                         As we described in section III-B, UPSIα preliminarily
+addition proposed in [14].                                                       realized both addition and deletion to elements for two parties.
+   Badrinarayanan et al. [14] mainly proposed two protocols                      A secure updatable PSI protocol should consider the security
+in different settings—UPSI with addition and UPSI with weak                      requirements in static scenarios while ensuring that updates
+deletion. The latter by default, deletes two parties’ entries                    will not introduce additional privacy leaks. We show an
+which were added t days ago. This makes the valid period of                      example of UPSIα ’s general process in Figure 2.
+the intersection only t days. It is impractical and may delete                      In UPSIα , P0 , P1 input their original datasets X, Y at time t1
+critical data automatically.                                                     and compute H (X )γ = {H (1)γ , . . . , H (5)γ }, H (Y )β =
+   So we mainly pay attention to the former scheme. On each                      {H (2)β , . . . , H (6)β } respectively, where γ , β are random 常见的密钥交
+                                                                                                                                                     换协议
+day, new elements in two sets are added to existing sets of                      factors. They execute a simple DH-based PSI protocol, trans-
+two parties. And the output is the new intersection of two                       fer intermediate parameters H (X )γβ , H (Y )βγ over a secure
+updated sets. Finally, two sides are both allowed to gain the                    channel and get intersection Iold = [2, 4] of t1 . At t2 , they
+intersection. Reference [14] designed Two-Sided UPSI with                        both delete the element 2. Under common circumstances, two
+Addition based on Diffie-Hellman protocol. The computational                     sides will get updated intersection I = [4] and end this
+and communication complexity of the scheme scale linearly                        protocol. Note that, to distinguish the two opposite operations,
+with the size of the newly added sets and remains unaffected                     we consider simply using a flag which equals 1 or 0 for
+by the size of the existing old sets.                                            addition or deletion. The flag does not affect the interaction
+   In a high level, they divide the updated sets into two parts:                 based on Diffie-Hellman of two parties.
+the first part (X ∩Y ′ ) can be calculated by utilizing DDH-based                   There is no problem with the above process when both
+PSI protocol, while for the second (X ′ ∩ (Y ∪ Y ′ )), a new PSI                 parties are honest. P0 and P1 naturally assume that the
+instance is employed with smaller input sizes. Denote that X ′ ,                 removal of 2 by themselves resulted in the new intersec-
+Y ′ represents update set, and X , Y represents the original set                 tion. But now we consider a semi-honest participant, without
+of two parties respectively.                                                     loss of generality, as P0 . In their interaction of computing
+   To confirm our idea of the infeasibility of deletion in                       X ∩ Y ′ , P0 compares the intermediate parameters and get
+                                                                                 (H (2)β )γ = (H (2)γ )β . In P0 ’s view, it will first hypothesize
+                                                                                         ′    ′             ′ ′
+previous updatable PSI, we might as well simulate achieving
+delete operation in Two-Sided UPSI with Addition. We can                         that P1 adds a new element equal to an element in X . Then,
+naively allow both addition and deletion on each update as                       at time t2 , since no elements are added to the intersection,
+
+       Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+WANG et al.: UPDATABLE PRIVATE SET INTERSECTION WITH FORWARD PRIVACY                                                                                     8577
+
+
+
+this hypothesis does not hold. Therefore, P1 can only delete                   (2) If we add the delete function to the above solutions,
+an existing element. From the intersection at t1 , it is known                     they will have serious privacy leakage issues. From the
+that only 2 and 4 in P1 ’s set could meet the conditions. At t2 ,                  attack proposed earlier, it is evident that UPSIα cannot
+the intersection I still contains element 4, so P0 successfully                    resist semi-honest adversaries. The adversary completes an
+infers two facts—P1 deletes an element and the element is 2,                       attack successfully exploiting previous information leaks,
+which should not have been leaked to P0 .                                          which is similar with the concept of forward privacy
+   It seems that the privacy leakage does not make huge impact                     leakage. So we introduce forward privacy to PSI and
+on P1 . But now consider the following scenario that P0 and                        propose UPSI with forward privacy (FUPSI).
+P1 are in sample alignment of Vertical Federated Learning                               会泄露前向隐私性
+(VFL) [37]. P0 serves as the payment platform and P1 as                                   IV. FUPSI: PSI W ITH F ORWARD P RIVACY
+the bank. Two parties pay efforts to obtain a whitelist of                     A. Overview
+transaction credit, and the users in the intersection are those
+                                                                                  Reviewing the development of searchable encryption, there
+with good credit. Following the process of UPSIα , assume
+that user1 ∈ Iold at t1 . At t2 , the payment platform and the                 appears new leakages during the transition from static [38] to
+bank both delete user1 , leading to the removal of user1 in                    dynamic searchable encryption [39]. Exploiting compromised
+the intersection. Same as the attack, the payment platform                     privacy, i.e. access patterns, file injection attack [40] becomes
+speculates that the bank also deletes user1 from his whitelist,                an effective method for adversary to recover query keywords.
+which leaks user1 ’s privacy completely.                                       Its success lies in using old trapdoors to obtain responses
+   We just show a plain case to make readers easy to under-                    to newly injected files. Therefore, to ensure forward privacy,
+stand. Actually, extra information will be leaked as long as                   old trapdoors cannot query updated files, so as to guarantee
+the elements operated by two parties are equal. Set the equal                  resistance to file injection attack.
+element as m. Next, we briefly give instances to illustrate.                      Similarly, there are privacy leakages when extending plain
+   - m ∈ Iold at t1 and at t2 , both parties delete m. P0 infers               PSI to updatable PSI as described in section III-C. Adversary
+      that P1 deletes m at t2 since m ∈ / I at t2 .                            utilizes previous parameters to inference update elements out
+   - m ∈  / Iold at t1 and at t2 , both parties add m. P0 infers               of the intersection, which exactly corresponds to the scenario
+      that P1 adds m at t2 since m ∈ I .                                       of forward privacy leakage. Therefore, we introduce the con-
+   - m ∈  / Iold at t1 . At t2 , P0 adds m and P1 deletes m.                   cept of forward privacy which is widely used in Searchable
+       P0 infers that P1 deletes m since m ∈  / I at t2 .                      Encryption [41].
+   - m ∈  / Iold at t1 . At t2 , P0 deletes m and P1 adds m.                      Consider P0 , P1 as two parties in updatable PSI scenarios.
+       P0 infers that P1 adds m since m does not belongs to                    In a semi-honest setting, P0 (or P1 ) cannot prevent the
+      intersection at t1 .                                半诚实场景                other party from storing its previous intermediate parameters.
+   UPSIα cannot resist semi-honest adversary obviously, when-                  To address this issue, our work utilizes PIR technique, so that
+ever both parties update the same element. Only an example                     the attacker mentioned above is not able to dig out the relation
+of privacy leakage when updating a single element is pro-                      of previous parameters with current update elements.
+vided here. When both parties update multiple elements, the                       PIR includes index PIR and keyword PIR. The former 索引要求
+aforementioned privacy leakage still occurs. As the update set                 requires the database to be continuous and dense. The client 数据连续 且密集
+decreases, the semi-honest party’s inference becomes more                      sends a request with an index i and the server responses
+accurate. Therefore, UPSIα faces serious risks of privacy                      with the i th data in database. In our PSI setting, it is hard
+leakage, indicating that it is infeasible to achieve addition and              for two parties to negotiate consistent indexes. Therefore,
+deletion simultaneously in previous updatable PSI.                             we choose keyword PIR to realize our vision. The database
+                                                                               stores (key,value)-like pairs. As to retrieve data, the client
+D. Problems With Prior Approach                                                sends keywords and the server returns matched values.
+   As innovative solutions, [12], [13], [14] firstly con-                         In prior updatable private set intersection UPSI [14], they
+structed different protocols to accomplish updatable in PSI.                   proposed UPSI with weak deletion in deletion setting. Both
+Reference [12] cannot satisfy the requirement of simulta-                      parties are allowed to augment their sets daily by incorporating
+neously inserting and changing elements in once update,                        a new set of elements and remove items that were added
+making it inconvenient to update elements. Reference [13]                      to their set t days before. However, this scheme does not
+only supports outsourced computation in multi-party setting.                   allow parties to delete elements flexibly, causing inpractical 可用于垂直
+Badrinarayanan et al. [14] proposes two-sided UPSI with                        in real life such as updating datasets in vertical federated 联邦学习
+addition and weak deletion. It does not support normal delete                  learning. To improve practicality, we allow parties to “delete”
+operation as well and only allows daily basis update.                          data in every update and use an additional flag to indicate
+   We conclude the following two problems in previous                          the operation performed to each element. Table I provides the
+updatable PSI schemes: 不能同时支撑添加和删除                                             notations presented in this paper. 代替弱删除，提出了在更新时可以删除
+                                                                                                                            的新方法
+(1) They cannot support the existence of both adding and
+    deleting on each update, which is inflexible and inpractical               B. SparsePIR
+    in real life. Our scheme allows participants to delete                        Sarvar at al. present SparsePIR [35] which is a framework
+    and add elements in the same update and use a flag to                      for constructing keyword PIR with an underlying standard
+    distinguish the two operations.           我们使用flag区分                       PIR. The fundamental technique of SparsePIR lies in the
+
+     Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+            8578                                                                      IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. 19, 2024
+
+
+
+                                              TABLE I                                        is generated randomly using K2 and key ki . Compute yiT =
+                                             N OTATIONS                                      [rep(Kr , k1 , vi ) . . . rep(Kr , k|Pi | , v|Pi | )], where rep(K, k, v) =
+                                                                                             F(K, k)||v. After that, calculate the encoding ei of each part Pi
+                                                                                             by solving the linear system Mi · ei = yi . e是分区的压缩表示
+                                                                                                Embed all solutions e1 , . . . , eb to E as columns and form a
+                                                                                             d1 × b matrix. Consider that solving the linear system within
+                                                                                             each partition incurs a computational cost of O(d13 ), with the
+                                                                                             cumulative time across all b = O(n/d1 ) parts amounting to
+                                                                                             O(n · d12 ).
+                                                                                                In the process of querying for a key k, the client initially
+                                                                                             computes i = F1 (K1 , k) to seek the partition containing k.
+                                                                                             Next, the client generates the corresponding random vector v1
+                                                                                             in a randomized manner. The server applies v1 to the first
+                                                                                             dimension of E and gains the outcome [v1 · e1 . . . v1 · eb ]. The
+                                                                                             server just needs to retrieve v1 · ei , since k is allotted to the
+                                                                                             i-th partition. Hence, this issue is converted to executing an
+                                                                                             standard PIR query within a database containing b entries.
+                                                                                             Note that SparsePIR builds keyword PIR from lattice-based
+                                                                                             standard PIR schemes.
+
+                                                                                             C. UPSI Utilizing Keyword PIR
+                                                                                                 Based on SparsePIR [35], this paper proposes an updatable
+   旧集合
+                                                                                             PSI with forward privacy. Our scheme allows two parties
+    新集合
+                                                                                             to add or delete elements on-the-fly, which increases its
+                                                                                             practicality. We formally state the proposal in our FUPSI
+                                                                                             construction below.                包括一些基础算法：加密、查询、带状向量
+                                                                                                 1) Foundation Algorithm: Our final scheme FUPSI is
+                                                                                             formed by several foundation algorithms, including Encode,
+                                                                                             Query and RandVector. They are presented in detail in this
+                                                                                             section.
+                                                                                                   a) Encode the database: The encoding algorithm is
+                                                                                             an independent algorithm called by XPSI and FUPSI
+       encoding technique designed to encode entries in the database,                        later. It is shown in Algorithm 1 which exploits the par-
+       as opposed to the conventional method of assigning each                               titioning ideas. The algorithm receives database D =
+       key-value pair to a singular entry. SparsePIR ensures consistent                      {(x1 , f lag1 ), . . . , (xn , f lagn )} and hash keys K1 ,K2 ,Kr as
+       response and request sizes with the underlying index PIR pro-                         input and outputs a triplet of parameters and the encoding
+       tocols without extra storage on the client’s end. Consequently,                       of D.
+       SparsePIR exhibits a reduction in response size by half in                                In common keyword PIR, the database stores key-value
+       contrast to the keyword PIR using cuckoo hashing [33]. The                            pairs owned by the server. Assume there are total n items in the
+       only limitation of SparsePIR manifests as a slight growth in                          database. The client sends keyi to retrieve the corresponding
+       server computational overhead.                                                        valuei . For ease of understanding, our description here omits
+           Now we briefly introduce the ideas of SparsePIR.                                  the encryption process.
+           SparsePIR [35] employs the idea of partitioning to decom-                             The PSI protocol only requires to determine whether an
+底层PIR方 pose the issue into smaller sub-problems. Their target is to                          element is in the intersection, but does not want to obtain 设计了KPIR
+案递归，   treat the retrieval as a recursion of the underlying PIR scheme                       the value of the element. Therefore, we design a variant of 变体，引入
+存储在超
+立方体数   which stores a hypercube database.                                                    keyword PIR where the database stores the pair (x, f lag). flag
+据库之中
+           As a brief overview, the server creates b = (1 + ε)n/d1 par-                      Note that x is an element of participants’ datasets, and f lag
+       titions in which d1 is the maximum capacity of each part. ε is a                      represents the existence of x. The flag of all elements in
+       constant chosen through their experimentation. Then the server                        current datasets is marked as a single bit 1. When two parties
+       randomly distributes n key-value pairs from the database D =                          input update sets for update, the flag is set to 1 if the operation
+       (k1 , v1 ), . . . , (kn , vn ) across b partitions. Consequently, the                 is addition otherwise set to 0. 初始设置为1，如果为加法操作flag=1，否则flag=0
+简化成分区 anticipated count of key-value pairs in each partition amounts                             Same as SparsePIR, every (x, f lag) pair in database D is
+，从而复杂
+度也降低为 to n/b = d1 /(1 + ε) < d1 . In that way, the problem has been                          assigned into b = (1 + ε)n/d1 partitions, in which (xi , f lagi )
+O（d）   reduced to efficient encoding of databases with size O(d1 ).                          is assigned into the F1 (K1 , xi )-th partition. We name the b
+           For each part Pi = {(k1 , v1 ),. . . ,(k|Pi | , v|Pi | )}, construct the          parts as P1 , . . . , Pb . Each part Pi will be encoded to ei and
+       partition iteratively with a simplified scheme in [35]—keyword                        the entire encoding E combines e1 ,. . . , eb together as columns.
+       PIR without recursion. Mi is sized by |Pi | × d1 with elements                            For each part Pi , it will be used to generate a matrix Mi ,
+       uniformly selected from {0, 1}, except for the i-th row which                         the vector yi and the encoding ei . For each (x, f lag) ∈ Pi ,
+
+                   Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+WANG et al.: UPDATABLE PRIVATE SET INTERSECTION WITH FORWARD PRIVACY                                                                                     8579
+
+
+Algorithm 1 Encode                                                             (disregarding the constant factors of ε for now), resulting in
+Input: 1λ : security parameter                                                 an overall encoding time merely O(n). Time cost will not
+    D = {(x1 , f lag1 ), . . . , (xn , f lagn )}: database                     grow significantly as d1 increases. Therefore, we can choose
+    K1 ,K2 ,Kr : hash keys                                                     arbitrary values of d1 .
+Output: (prms, E): parameters and encoding                                        After encoding all parts Pi , i ∈ [b], we get b vectors e1 ,. . . ,
+ 1: b ← (1 + ε)n/d1                                                            eb . Then construct the final d1 × b matrix E = [e1 . . . eb ]
+ 2: m ← (1 + ε)n                                                               in which each ei is a column vector. Finally, the encoding
+ 3: P1 ← ∅, . . . , Pb ← ∅                                                     algorithm outputs the encoding E and prms = (K1 ,K2 ,Kr ).
+ 4: for i = 1, . . . , n do                      ▷ Partition database                b) Query for an element: The client sends a query as
+ 5:    j ← F1 (K1 , xi ) K1用于分区                                                Algorithm 2. The query algorithm will be provided with
+ 6:    P j+1 ← P j+1 ∪ {(xi , f lagi )}                                        parameters prms = (K1 ,K2 ,Kr ) and take as input a query
+ 7: end for                                                                    element x ∈ X . For z dimensions, it is required to generate z
+ 8: for j = 1, . . . , b do                                                    vectors v1 , . . . , vz so as to apply standard PIR with recursion
+ 9:   for (x, f lag) ∈ P j do                                                  along with E to decode the f lag associated with query
+10:       M, y ← [ ]          K2用于生成随机向量               ▷ empty array           element x.
+11:       Append RandVector(K2 , x)T to M as row
+12:       Append rep(Kr , x, f lag) to y                                       Algorithm 2 Query
+13:   end for 用于生成元素的表示值                                                       Input: (ck, prms,x): client key, parameters and the query
+14:   Arrange the rows of matrices M and y based on the                            element
+      first non-zero entry in the corresponding rows of M                      Output: (st, req): state in the standard PIR and request
+15:   Perform Gaussian elimination to solve linear system M·                    1: b ← (1 + ε)n/d1
+      e = y and get e j                                                         2: Parse prms as (K1 ,K2 ,Kr )
+16: end for                                                                     3: v1 ← RandVector(K2 , x)
+17: prms ← (K1 ,K2 ,Kr )                                                        4: j ← F1 (K1 , x)
+18: E ← [e1 , . . . , eb ]   数据结构和参数作为返回值                                       5: for i = 2, . . . , z do ▷ Generate index for z dimensions
+19: return (prms, E)                                                            6:    ji ← ⌊ j/ ⌈b/di ⌉⌋
+                                                                                7:    vi ← [0]di
+                                                                                8:    vi [ ji + 1] ← 1
+                                                                                9:    b ← ⌈b/di ⌉
+we iteratively put the vector (F2 (K2 , x||1), . . . , F2 (K2 , x||d1 ))       10:    j ← j mod b
+                                                                                                           分别是后续解密和发送给
+as a row into Mi where each F2 (K2 , x||·) outputs a binary                    11: end for                 服务器的req查询请求
+value, either 0 or 1. Mi is equivalent to an encoding                          12: (stPIR ,req)← 5PIR .Query(ck,v1 , . . . , vz )
+of Pi according to position and the generation process                         13: return (st,req)
+calls the RandVector algorithm described later. Addition-
+ally, we append rep(K) into yi , where rep(Kr , x, f lag) =                       Firstly, we compute j = F1 (K1 , x), indicating the partition
+F(Kr , x)|| f lag. So yi records the correlation between x and                 P j associated with x. Next, for all i ∈ [d1 ], get the random
+ f lag. To summarize, Mi is a |Pi | × d1 matrix and yi is a                    bit vector v1 by appending F2 (K2 , x||i). Suppose we call
+|Pi |-row vector.                                                              a response algorithm in standard PIR schemes that employ
+    Then we compute a solution ei for the matrix equation                      recursion and apply the first dimension vertor v1 . Then we
+Mi · ei = yi . To efficiently solve the linear system, we firstly              get [v1 · e1 . . . v1 · eb ]. Furthermore, recall that x locates in
+introduce our random band matrices constructed refer to [42].                  the j-th part, which can be easily retrieved from b parts to
+Every row vector comprises a short band of random w bits,                      obtain the entry v1 · e j . That is to say, the remaining portion
+with all entries outside this band set to zero. The specific                   of the issue transforms into a standard PIR query, which
+placement of this short segment is uniformly randomized.                       involves retrieving the j-th entry from a database with b items.
+Dietzfelbinger and Walzer [42] showed an efficient method                      Therefore, we generate encoding of the index j and vectors
+to construct a full-row-rank matrix from random band with                      used for the standard PIR query over a z-dimension database.
+high probability. Only if matrix M has full row rank will the                     The output of the Query algorithm is temporary state st
+equation have a solution. In other words, using random band                    containing PIR state and query element x, as well as the
+matrixs can increase the probability of successful encoding.                   request req that is transmitted to the server.
+    To address the related linear system, one should initially                       c) Answer a request: This algorithm receives (E,sk,req)
+arrange the rows based on the initial position of the non-zero                 as inputs and outputs a response resp. On receiving the
+band of width w to utilize Gaussian elimination effectively.                   request, the server simply utilizes a standard PIR scheme and
+In essence, for Gaussian elimination, it is only necessary to                  returns resp to the client for req.
+focus on the columns within the w-length band for each row.                          d) Random vector: The method to generate random vec-
+If for all i ∈ [b], the equation does not exist a solution, then               tors is shown in Algorithm 4. In this algorithm, we randomly
+conclude the algorithm and outputs ⊥.                                          generate vx for each element in the partition. Recall that w is
+    Solving a linear system for each of the O(n/d1 )                           the size of random band. F3 is used to generate the random p
+parts required O(d1 ) operations using Gaussian elimination                    according to the position of x in its partition. After the position
+
+     Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+8580                                                                      IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. 19, 2024
+
+
+Algorithm 3 Answer                                                          Algorithm 5 XPSI
+Input: (E, sk, req): the encoded database, server key and the Input: 1λ : security parameter
+     request                                                                     Q = {(q1 , f lag1 ), . . . , (qt , f lagt )}, 客户端的小集合
+Output: resp: the response 私钥，数据结构E和req请求来得到resp响应                               D = {(x1 , f lag1 ), . . . , (xn , f lagn )}: query set, database
+  1: resp ← 5PIR .Answer(sk, E, req)                                             ck, sk: client and server key                                  服务器的大集合
+  2: return resp                                                            Output: Icross : intersection of the two sets Q and D
+                                                                                 Iold : updated intersection of original datasets X old and
+                                                                                 Yold
+Algorithm 4 RandVector
+                                                                              1: Icr oss ← [ ]
+Input: (K2 , x): hash key and a database element
+                                                                              2: Server :
+Output: vx : a randomly generated vector
+                                                                              3: Sample hash keys K1 ,K2 and Kr
+  1: p ← F3 (K2 , x||“position”)
+                                                                              4: (prms, E)← Encode(D, K1 , K2 , Kr ) 三个hash密钥加密
+                        ▷ F3 outputs elements in {0, . . . , d − w}
+                                                                              5: Client :
+  2: vx ← [0]d1
+                                                                              6: for (qi , f lagi ) ∈ Q such that f lagi = 1 do
+  3: for i = 1, . . . , w do              ▷ Compute non-zero band
+                                                                              7:     (st,req)← Query(prms, ck, qi )
+  4:    vx [ p + i + 1] ← F2 (K2 , k||i)
+                                                                              8:     Server :
+  5: end for
+                                                                              9:     resp ← Answer((sk,E,req))
+  6: return vx                                                                                                                PIR的加解密查询过程
+                                                                             10:     Client :
+                                                                             11:     Parse prms as (K1 , K2 , Kr )
+                                                                             12:     Parse st as (stPIR , x)
+p of each non-zero band is determined, we set each bit within 13: u ← 5PIR.Decrypt (ck, stPIR , resp)
+this band as F2 (K2 , k||i) ∈ {0, 1}, with the others set to 0. All 14: Parse u as (key,r )                                           ▷ single bit r
+these vectors vx form the random band matrices M for the 15: if key=F(Kr , qi ) and r = 1 then
+i-th part.                                                                   16:         Add qi into Icr oss 添加标识
+   2) XPSI—PSI of Cross Sets: The ‘X’ in XPSI means 17: else if key=F(Kr , qi ) and r = 0 then
+“cross”, and this algorithm represents the process in private 18:                        Iold = Iold \ qi            查询标识
+set intersection of a query set Q and database D.                            19:     end if
+   Q = {(q1 , f lagt ), . . . , (qt , f lagt )}, D ={(x1 , f lag1 ),. . . , 20: end for
+(xn , f lagn )} and ck, sk are input, two parties participate in 21: return (Icr oss , Iold )
+calculating Icr oss . Firstly the server chooses different hash
+keys: K1 , K2 and Kr . K1 determines which partition the entry Algorithm 6 FUPSI.Init
+of the database locates in and F1 (K1 , ·) ∈ {0, . . . , b − 1}.
+                                                                            Input: 1λ : security parameter.
+K2 will be utilized to create the random row vectors
+                                                                            Output: (ck, sk): client and server key.
+vx and determine the position of non-zero band where
+                                                                              1: X ← ∅, Y ← ∅
+F2 (K2 , ·) ∈ {0, 1}. The key Kr is used to generate representa-                                              计算初始交集，flag均为1
+                                                                              2: return (ck, sk)              ，得到初始交集I
+tions rep(Kr , x, f lag) for the (x, f lag) pairs. After gaining
+(prms, E) from Encode algorithm, server sends this pair to
+client.
+   Note that, the single bit f lag marks operation “Add” or represent their newly updated sets. Apparently, they get thier
+“Delete” performed to current element qi and xi . 1 for addition new sets X = X old ∪ X upd , Y = Yold ∪ Yupd .
+and 0 for deletion. If a participant hopes to update a certain                 We divide I = X ∩ Y into three parts: Iold , X upd ∩ Y and
+element, it has to delete the element and then add the updated              Y upd ∩ X , in which Iold has been computed in last PSI process.
+one. The client only queries elements that are newly added,                 Therefore,      P0 , P1 plays the role of server and client in turn to
+so it checks whether f lag = 1 or not. Client calls Query                   execute     XPSI     protocol. They get intersection of cross sets and
+to generate a request. Then the server uses a standard PIR                  send  I x   and    I y  to each other through a secure channel. Apart
+                                                                            from   I        , they                  ′ . Actually, to avert confusion
+                                                                                                      also obtain Iold
+protocol to make a response.                                                         cr oss
+   To decode the received response, the client parses prms, st if the current deleted element is relative to Iold , we make an
+and likewise utilizes standard PIR to decrypt the answer. In the inspection in XPSI algorithm. If key = F(Kr , qi ) and r = 0,
+same way, check the value of one bit r . If key = F(Kr , qi ) delete element qi from Iold , since pi may be in Iold previously
+and r = 1, which means that qi is in both Q and D, add qi but deleted now.
+into intersection Icr oss .                                                    After completing the intersection calculation, two parties
+   XPSI is a subprotocol of our complete protocol FUPSI, but                actually     delete elements flagged 0. Finally, reset X upd and
+it can also stand alone as a secure protocol for private set                Y upd to   empty       set, so as to participate in the next update. The
+intersection of unbalanced sets.                                            whole    process       of the protocol is depicted in Figure 3.
+   3) FUSPI: Now we delineate an integral protocol named
+as Forward-private Updatable Private Set Intersection(FUPSI) D. Security Proof
+in Algorithm 6 and 7. Define X old , Yold as the previous sets                 In this section, we formally prove the forward privacy of
+belonging to parties P0 and P1 respectively, and let X upd , Yupd FUPSI in the semi-honest setting.
+
+       Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+WANG et al.: UPDATABLE PRIVATE SET INTERSECTION WITH FORWARD PRIVACY                                                                                     8581
+
+
+
+Algorithm 7 FUPSI.Update                                                       the adaptive adversary lacks leakage to craft his attack, and
+Input:       相比之前多了两个flag                                                      LFrwd (op, (X, Y )) =⊥.
+    X upd = {(x1 , f lag1 ), . . . , (xn 1 , f lagn 1 )}: update datasets            a) Game G 0 : G 0 is exactly identical to the real world
+    of P0                                                                      game RealFUPSI (λ). P0 and P1 running semi-honestly with
+    Yupd = {(y1 , f lag1 ), . . . , (yn 2 , f lagn 2 )}: update datasets       input X upd , Yupd and gain output I according to the protocol
+    of P1                                                                      specification.
+Output: I           输入更新集合，输出新交集                                                     b) Game G 1 : This game is the same as G 0 , except for
+ 1: X = X old ∪ X upd , Y = Yold ∪ Yupd                                        the manner to generate rep. Instead of calling F, we pick
+ 2: if X = ∅ or Y = ∅ then                                                     a random value in Zq . Then, during XPSI algorithm, the
+ 3:    I ←∅                                                                    random oracle F is programmed so that F(Kr , qi )|| f lag =
+ 4: else                                                                       rep(Kr , qi , f lag). We call the random oracle F and keep track
+ 5:    (1) P0 and P1 execute XPSI protocol as the server and                   of the transcripts via a table F. If a query is accessed for the
+       the client respectively                                                 first time, it is first randomly chosen and then returned.
+                   ′ ) ← XPSI(Y
+ 6:        (I y , Iold               upd , X )                                    F is never programmed to two different values for the same
+                    ′ ) ← XPSI(X
+ 7:         (I x , Iold                upd , Y )                               input by XPSI’ line 15, 17. Instead of immediately generating
+ 8:    (2) Send I x and I y to each other                                      rep with key Kr and the query q from F, G 1 randomly either
+ 9:        P0 gets I = Iold ′ ∪I ∪I
+                                     x      y                                  choses them if rep(Kr , q, f lag) does not already appear in
+10:                         ′
+           P1 gets I = Iold ∪ I y ∪ I x                                        F’s transcript, or, if this is already the case, sets F(Kr , q)
+11: end if                                                                     to the already chosen value F[Kr , q]. Then, G 1 programs the
+12: for i ∈ [1, n 1 ] ( j ∈ [1, n 2 ]) do                                      RO when needed by the XPSI algorithm (line 15, 17) or by an
+13:    if f lagi = 0 ( f lag j = 0) then                                       adversary’s query, so that its outputs are corresponding to the
+14:       X old = X \ xi (Yold = Y \ yi )              ▷ Update datasets       chosen values. The adversary A accesses RO with a challenge
+15:    end if                                                                  query and the output of RO is uniformly random. A cannot
+16: end for                                                                    distinguish this query with a random query with 1/2λ collision
+17: X upd = ∅, Yupd = ∅                                                        probability, since it does not have access to 5PIR.Decrypt .
+18: return I                                                                   F’s outputs in G 1 and G 0 are indistinguishable, and so are
+                                                                               the games:
+ 大致过程差不多，就看如何防止前向隐私
+                                                                                              |P[G 1 = 1] − P[G 0 = 1]| ≤ negl(λ).
+                                                                                    c) Game G 2−a : Game G 2−a does exactly what game G 2
+                                                                               did for F, but for F1 . In the Update algorithm, G 2−a
+                                                                               relpaces hash evaluation F1 (·) with a uniformly random j
+                                                                               when encoding a database. Subsequently, during the Query
+                                                                               step, F1 is programmed such that F1 (K 1 , x) = j. Hence,
+                                                                                             |P[G 2−a = 1] − P[G 1 = 1]| ≤ negl(λ).
+                                                                                    d) Game G 2−b : G 2−b is identical to G 2−a , except that
+                       Fig. 3.   Iteration of FUPSI.
+                                                                               when generating vx and its transcript, we use a random vector
+                                                                               but not F2 (·). Subsequently, during the Query step, F2 is
+                                                                               programmed such that RandVector(K 2 , x) = v1 . Hence,
+  Theorem 1: Assuming that PIR is lattice-based standard
+PIR and F, F1 , F2 , F3 modeled as a random oracles. Define                                |P[G 2−b = 1] − P[G 2−a = 1]| ≤ negl(λ).
+L = (LUpdt , LFrwd ) as
+                                                                                    e) Game G 2−c : G 2−c is identical to G 2 −b, except that
+                  LUpdt (op, (x, y)) = L I (X, Y )                             when generating p and its transcript, we use a random value
+                                                                               but not F3 (·). Subsequently, during the Query step, F3 is
+                  LFrwd (op, (X, Y )) =⊥ .
+                                                                               programmed such that F3 (K2 , x||“position”)= p. Hence,
+Then FUPSI is L-adaptively secure.
+                                                                                           |P[G 2−c = 1] − P[G 2−b = 1]| ≤ negl(λ).
+   Proof: We prove Theorem 1 via a sequence of games from
+the real world game RealFUPSI (λ) to the ideal world game                            f) Game G 3 : In our protocol, 5PIR is an oracle exe-
+IdealFUPSI
+      A,S ,LUpdt
+                 (λ).                                                          cuting a lattice-based standard PIR protocol for the query x.
+  We have explained the definition of adaptive security and                    In Update algorithm, when inputting a query , 5PIR returns
+corresponding adversary attacks in Section III-A.2. In UPSIα ,                 u kept in transcripts (if it exists). Actually, the adversary A
+the adaptive adversary gains crucial information when compar-                  is allowed to access 5PIR.Query and 5PIR.Decrypt outputs u
+ing immediate parameters in each update. However, in FUPSI,                    in XPSI line 13. The challenger chooses q0 and q1 to query
+the adversary has no access to immediate parameters. It can                    oracle 5PIR and it returns the corresponding u c . The adver-
+only eavesdrop the query and response from the server,                         sary attempts to distinguish whether u c was computed from
+and the comparison is done by client locally. Therefore,                       q0 or q1 . Intuitively, we can see that, if A can successfully
+
+     Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+8582                                                                      IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. 19, 2024
+
+
+
+distinguish them, we can break the security of lattice-based                                                       TABLE II
+PIR. So                                                                                    C OMPARISON OF O UR W ORK AND E XISTING S CHEMES
+
+            |P[G 3 = 1] − P[G 2−c = 1]| ≤ AdvPIR
+                                             5,B1 (λ).
+
+     g) the simulator: We can now cut G 3 into two parts: the
+leakage and the simulator. The leakage function LUpdt is
+                    LUpdt (op, (x, y)) = L I (X, Y ).
+L I (X, Y ) is the necessary leakage when computing the new
+intersection of X and Y . The simulator S is described in
+G 3 and has access to LUpdt . Hence,                                             in once update. Our FUPSI and UPSI [14] satisfy this require-
+                                                                                 ment. However, UPSI [14] only supports weak deletion, which
+           |P[G 3 = 1] − P[IdealFUPSI
+                                A,S ,LUpdt
+                                           (λ) = 1]| = 0.                        is definitely inflexible in real applications. They are applied
+                                                                                 for two-party setting, apart from Feather [13], which needs an
+    h) Conclusion: Through combining all the contributions
+                                                                                 additional server for outsourced computing.
+from all the games, there exists an adversary B1 such that
+                                                                                    Denote that N is the size of the new set and Nd represents
+       |P[RealFUPSI (λ) = 1] − P[IdealFUPSI
+                                      A,S ,LUpdt
+                                                 (λ) = 1]|                       the size of update set. We utilize standard PIR as a module
+                                                                                 and state s as the sum of request size and response size, c as
+        ≤ negl(λ) + AdvPIR
+                       5,B1 (λ).                                                 the sum of Query and Answer complexity in the underlying
+  We conclude by stating that PIR is lattice-based PIR and                       PIR scheme. w is the size of non-zero band in random rand
+F, F1 , F2 , F3 are modeled as random oracles.          □                        matrix. In the following part, we analyze FUPSI from the
+                                                                                 communication and computational complexity respectively.
+E. Applications 应用场景                                                                1) Communication Complexity: In our FUPSI, communica-
+                                                                                 tion overhead mainly comes from the underlying PIR. During
+   In real life, most of the data is constantly growing and
+                                                                                 update phase, for each iteration, two parties transmit the
+updating. Therefore, it is necessary to dynamically obtain the
+                                                                                 parameters of update elements. There are two operations for
+private set intersection in most cases. In the following, we list
+                                                                                 each element in our setting, allowing two parties to add or
+an application of our updatable PSI protocol.
+                                                                                 delete data. Since the client only queries added elements but
+   1) Bank Credit Loan: The bank will conduct a detailed
+                                                                                 not deleted elements, the parameters generated for queries will 跟底层
+                                                                                                                                                   PIR有关
+investigation of the borrower’s overall credit status to reduce
+                                                                                 be only O(log Nd ) ultimately. Two parties serve as the server
+the risk of credit loans, such as whether the borrower has
+                                                                                 in turn, and require executing O(2log Nd ) times standard PIR.
+loans from multiple other financial institutions at the same
+                                                                                 Assumed that the total communication overhead of request
+time. Without loss of generality, supposed there are only two
+                                                                                 and response in standard PIR is s, we get O(2slog Nd ) for
+banks and the above problem can be solved by comparing
+                                                                                 calculating PSI of cross sets.
+the borrower lists of the two banks (as bank A and B). It is
+                                                                                    After gaining the intersection of cross sets, two parties will
+frequently feasible to recognize users at both ends by utilizing
+                                                                                 transmit it to each other. The size of the intersection I x and
+identifiers such as identification numbers and email addresses.
+                                                                                 I y does not exceed Nd . For simplicity, we consider the size 除去中
+A simple solution, the bank recalculates the latest private set
+                                                                                 to be log Nd , due to two opposite operations. Therefore, the 间计算
+intersection whenever a customer applies for a credit loan.
+                                                                                 asymptotic communication overhead is O(2slog Nd +2log Nd ). 的通信   量，还
+Nevertheless, the voluminous data repositories within financial
+institutions demand substantial computational resources for                         2) Computational Complexity: In our work, we need to 有最后       结果分
+each exhaustive data computation. Utilizing FUPSI can avoid                      call standard PIR protocols to achieve intersection calculation, 发的通
+redundant computations by only processing the updated por-                       which is the primary contributor to the computational over- 信
+tions of the dataset, efficiently achieving dynamic updates of                   head. As we explained in communication complexity, we will
+the intersection. This helps to prevent financial losses to banks                call 5PIR .Query and 5PIR .Answer for O(2log Nd ) times.
+due to the outdated updating of intersecting borrower lists,                     Assumed that the computational cost of Query and Answer
+as well as the waste of resources caused by high-frequency,                      adds up to c, the asymptotic computational complexity of
+massive computations.                                                            FUPSI is O(2clog Nd ).
+                                                                                    Apart from Query and Answer time of underlying PIR,
+                                                                                 our computational cost also contains hash calculations. In the
+                  V. P ERFORMANCE E VALUATION
+                                                                                 called Encode algorithm, the server performs N times hash
+A. Theoretical Analysis                                                          function computing for partitioning. Then for each partition,
+   In this section, we review our FUPSI protocol and analyze                     computing random band matrix M needs wN hash calcula-
+its features and efficiency theoretically. We firstly give the                   tions. For the representation rep, two parties can precompute it
+comparison of PSI features of protocols in Table II.                             offline. Next, we need to call RandVector again, which brings
+   We compare our work with other three PSI protocols in                         wlog Nd times hash calculation. So finally FUPSI requires
+terms of three properties. Firstly, the four protocols all achieve               (w + 1)N + wlog Nd times hash computation. However, hash
+updatable based on different techniques. Here Parallel means                     calculations are so fast and cheap that we can ignore them in
+the protocol allows parties to add and delete simultaneously                     asymptotic computational complexity.
+
+       Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+WANG et al.: UPDATABLE PRIVATE SET INTERSECTION WITH FORWARD PRIVACY                                                                                     8583
+
+
+
+                               TABLE III                                                                        TABLE IV
+  C OMMUNICATION AND C OMPUTATIONAL C OSTS OF [5], [14], [22],                        A MORTIZED C OMMUNICATION C OST ( IN MB) AND RUNTIME
+                  AND [43] AND O UR FUPSI                                                  ( IN S ECONDS ) C OMPARISON OF O UR P ROTOCOL
+                                                                                                 FUPSI W ITH [5], [14], [22], AND [43]
+
+
+
+
+   We compare our FUPSI with several protocols in terms
+of theoretical communication and computational complexity
+as shown in Table III. UPSI [14] is the latest solution of
+updatable PSI. KKRT16 [5], spot-fast [43] and CM20 [22]
+are efficient semi-honest PSI protocols and they have best
+performance under different bandwidths. Assumed that the set
+size of two parties both equals to N , and ℓ is the width of OT
+extension matrix [5]. From this table it is oblivious that the
+communication cost of UPSI [14] and our FUPSI only grows
+with Nd , but the others’ communication cost grows with N .
+As the entire database size increases, communication overhead
+in KKRT16, spot-fast and CM20 will increase dramatically,
+since N ≫ Nd . So UPSI and FUPSI have better performance
+in communication overhead.                                                     Ubuntu PCs equipped with 12 cores, 3.7 GHz Intel Xeon
+   For computational complexity, compared with other pro-                      W-2135 and 64 GB of RAM. We leverage the AVX2,
+tocols, our work calls standard PIR schemes and requires                       AVX-512 instruction sets with SIMD instructions activated.
+relatively more public key operations when Nd and N are                        Our experiments are executed with single-thread. The results
+both small. So the advantages of our protocol are not in                       we report are the averages derived from a minimum of
+evidence initially. Nevertheless, our computational amount                     10 experimental runs, with a standard deviation of less than
+increases slowly with Nd while the computational cost of                       10% from these averages.
+KKRT16, spot-fast and CM20 grows with N . Therefore,                              UPSI [14] is the latest two-party updatable private set inter-
+FUPSI is more efficient than them when N is enormous.                          section protocol, which supports two-sided PSI with addition
+Among the five schemes, UPSI has the smallest computational                    on a daily basis. Although UPSI does not assure deletable
+complexity. However, it cannot support addition and deletion                   and forward privacy, we still compare the performance with
+simultaneously compared with our FUPSI.                                        two-sided UPSI with addition for the completeness of our
+   Rather than retrieving a single entry, we execute O(log Nd )                comparison.
+times keyword PIR on each update. Therefore, we consider it                       In addition to UPSI, we also compare our FUPSI with
+will be more efficient to construct batch updatable PSI, which                 current efficient semi-honest PSI approaches in different band-
+reduces both communication and computational overhead.                         width settings. KKRT16 [5] is a lightweight OT-based PSI
+Different from FUPSI, batch PSI will utilize batch keyword                     protocol, which is extremely efficient to generate enormous
+PIR. We just give an idea and do not present this scheme in                    amounts of OPRF instances. Through the defined BaRK-OPRF
+detail. To implement this solution, readers can refer to batch                 protocol, KKRT16 can realize private keyword search func-
+PIR in [35] and [44].                                                          tion. SpOT [43] achieves a balance between communication
+                                                                               and computation and has best performance on slow networks.
+                                                                               It has two variants: spot-fast for optimized speed and spot-slow
+B. Implementation and Experimental Results                                     for optimized communication. In this paper, we only compare
+   We implemented FUPSI by integrating it with open-source                     our work with spot-fast. CM20 [22] attains a superior trade-
+schemes OnionPIR [45], Spiral [46] and choose the param-                       off between computational complexity and communication
+eters used in PIR consistent with sparsePIR [35]. OnionPIR                     overhead and demonstrates the highest operational speed in
+only costs 4.2x response size overhead (in comparison to an                    moderate networks.
+insecure baseline), as opposed to the 100x overhead observed                      Refer to Table IV for the experimental results.
+in recent schemes such as SealPIR. But it holds a comparable                      From the above table, we find that UPSI and our FUPSI
+computational cost to SealPIR. Besides, the request size for                   remains unchanged in communication cost, since their trans-
+OnionPIR remains fixed at 64 KB, regardless of the practical                   mission consumption only grows with the size of update
+magnitude of the database, which ensures the high efficiency                   set Nd . The communication overhead of UPSI is overall
+of FUPSI. We initial the computational security parameter as                   much lower than ours because its complexity is approximately
+λ = 128. Our experiments setup utilizes machines running                       O(Nd ) while ours is O(2(s +1)log Nd ). The poor performance
+
+     Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+8584                                                                      IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. 19, 2024
+
+
+
+
+                                        Fig. 4.   Running time comparison of [5], [14], [22], and [43] and our FUPSI.
+
+
+
+at N = 216 setting is resulted by the small difference between                                              VI. C ONCLUSION
+N and Nd . Our scheme has a fixed standard PIR communi-                             In this paper, we proposed a FUPSI protocol for updatable
+cation cost, so that it will be inferior in initial stage. As the                PSI in two-party setting. Apart from supporting deletion and
+dataset size N grows to 220 , our FUPSI performs obviously                       addition simultaneously in once update, the proposed protocol
+better than the other three schemes [5], [22], and [43]. With                    ensures forward privacy of two parties against semi-honest
+each update, N will be reassigned as N +Nd , while Nd remains                    adversaries. To ensure secure update and no additional leakage,
+almost the same. So our solution maintains absolute advan-                       we introduce a variant of keyword PIR to protect the privacy
+tages compared with naive solutions (i.e. recomputing PSI of                     of intermediate parameters. By this way, our protocol can
+entire sets) in communication costs in updatable scenario.                       resist the privacy attack presented in this paper. Besides,
+   UPSI runs faster than our work in every setting for the                       our protocol is of high efficiency, since the communication
+O(Nd ) computational complexity, but it does not consider                        complexity is solely dependent on the size of small update
+deletable and forward privacy. In N = 216 and N = 218                            set and the computational cost contains merely logarithmical
+setting, FUPSI is a little slower than [5], [22], and [43] due                   times standard PIR overhead and cheap hash calculations.
+to the computational overhead of underlying PIR protocol.                        Ultimately, we conduct experiments to demonstrate that our
+However when N increases to 218 , FUPSI performs better                          work remains efficient as the dataset size grows, and has the
+than [5] and [43], since the rounds of running PIR increases                     optimized performance in low bandwidth.
+only logarithmically with Nd . In conclusion, FUPSI is slightly                     In the future, updatable PSI requires further study and our
+slower than others in initial datasets, but has outstanding                      work gives rise to a series of open issues. For example,
+performance when datasets increase. The reason is that our                       a problem at hand is to construct a batch updatable PSI which
+FUPSI involves only cheap hash function calculations apart                       reduces communication overhead and improves the efficiency.
+from underlying PIR, which ensures efficient PSI of each                         It is not straightforward since utilizing batch PIR may bring
+update.                                                                          other privacy leakages. Apart from batch updatable PSI,
+   We set three different sizes of bandwidth in our experiments.                 extending FUPSI to multi-party setting is another interesting
+The running time of these protocols under different bandwidth                    direction of future work. Finally, we leave it open to construct
+settings is shown in Figure 4. As the bandwidth is reduced                       updatable PSI schemes resisting malicious adversaries.
+from 200 Mbps to 50 Mbps, [5] is limited greatly in running
+time, for it has dependency on high bandwidth. For [22],                                                       R EFERENCES
+the running time explodes as the bandwidth decreases to                           [1] J. R. Troncoso-Pastoriza, S. Katzenbeisser, and M. Celik, “Privacy
+5Mbps. Since [22] demonstrates the most efficient in moderate                         preserving error resilient dna searching through oblivious automata,” in
+networks and its running time increases exponentially with                            Proc. 14th ACM Conf. Comput. Commun. Secur., vol. 163, Oct. 2007,
+                                                                                      pp. 519–528.
+reduced bandwidth. When the bandwidth is set to 5 Mbps, the
+                                                                                  [2] M. Ion et al., “On deploying secure computing: Private intersection-sum-
+performance of [43] also drops drastically, but our running                           with-cardinality,” in Proc. IEEE Eur. Symp. Secur. Privacy (EuroSP),
+time is almost unlimited. Although the total communication                            Sep. 2020, pp. 370–389.
+cost remains 12 MB, the communication overhead of each                            [3] D. Kales, C. Rechberger, M. Senker, C. Weinert, and T. Schneider,
+                                                                                      “Mobile private contact discovery at scale,” in Proc. 28th USENIX
+query in PIR is extremely small, which is not restricted by                           Security Symp., 2019, pp. 1447–1464.
+slow networks. Therefore, observe the column of 5 Mbps, our                       [4] F. Fu, H. Xue, Y. Cheng, Y. Tao, and B. Cui, “BlindFL: Vertical federated
+protocol is superior in every setting, especially when the data                       machine learning without peeking into your data,” in Proc. Int. Conf.
+                                                                                      Manage. Data, Jun. 2022, pp. 1316–1330.
+volume substantially grows.                                                       [5] V. Kolesnikov, R. Kumaresan, M. Rosulek, and N. Trieu, “Efficient
+   In conclusion, FUPSI can adapt well to updatable PSI                               batched oblivious PRF with applications to private set intersection,”
+settings. Our scheme remains small communication costs even                           in Proc. ACM SIGSAC Conf. Comput. Commun. Secur., Oct. 2016,
+                                                                                      pp. 818–829.
+when the datasets are tremendous. Besides, it is not limited
+                                                                                  [6] B. Pinkas, M. Rosulek, N. Trieu, and A. Yanai, “PSI from PaXoS: Fast,
+by communication bandwidth and has the best performance in                            malicious private set intersection,” in Proc. Annu. Int. Conf. Theory Appl.
+slow networks. 由于PIR的特性，我们的方案不受带宽                                                     Cryptograph. Techn. Cham, Switzerland: Springer, 2020, pp. 739–767.
+                     限制，在低带宽下的表现最优
+       Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+WANG et al.: UPDATABLE PRIVATE SET INTERSECTION WITH FORWARD PRIVACY                                                                                          8585
+
+
+
+ [7] S. Raghuraman and P. Rindal, “Blazing fast PSI from improved OKVS              [31] C. Gentry, S. Halevi, B. Magri, J. B. Nielsen, and S. Yakoubov,
+     and subfield VOLE,” in Proc. ACM SIGSAC Conf. Comput. Commun.                       “Random-index PIR and applications,” in Proc. 19th Int. Theory Cryp-
+     Secur., Nov. 2022, pp. 2505–2517.                                                   togr. Conf. TCC, Raleigh, NC, USA. Cham, Switzerland: Springer,
+ [8] W. Chongchitmate, Y. Ishai, S. Lu, and R. Ostrovsky, “PSI from                      Nov. 2021, pp. 32–61.
+     ring-OLE,” in Proc. ACM SIGSAC Conf. Comput. Commun. Secur.,                   [32] B. Chor, N. Gilboa, and M. Naor, “Private information retrieval by
+     Nov. 2022, pp. 531–545.                                                             keywords,” Rep., 1997.
+ [9] A. Bienstock, S. Patel, J. Y. Seo, and K. Yeo, “Near-optimal oblivious         [33] A. Ali et al., “Communication–computation trade-offs in PIR,” in Proc.
+     key-value stores for efficient PSI, PSU and volume-hiding multi-maps,”              30th USENIX Secur. Symp., 2021, pp. 1811–1828.
+     in Proc. 32nd USENIX Secur. Symp. (USENIX Security). Anaheim, CA,              [34] R. A. Mahdavi and F. Kerschbaum, “Constant-weight PIR: Single-round
+     USA: USENIX Association, Aug. 2023, pp. 301–318.                                    keyword PIR via constant-weight equality operators,” in Proc. USENIX
+[10] Q. Wang, F. Zhou, J. Xu, and S. Peng, “Tag-based verifiable delegated               Secur. Symp. (USENIX Security), 2022, pp. 1723–1740.
+     set intersection over outsourced private datasets,” IEEE Trans. Cloud          [35] S. Patel, J. Y. Seo, and K. Yeo, “Don’t be dense: Efficient keyword PIR
+     Comput., vol. 10, no. 2, pp. 1201–1214, Apr. 2022.                                  for sparse databases,” in Proc. 32nd USENIX Secur. Symp. (USENIX
+[11] O. Ruan, X. Huang, and H. Mao, “An efficient private set intersection               Security). Anaheim, CA, USA: USENIX Association, Aug. 2023,
+     protocol for the cloud computing environments,” in Proc. IEEE IEEE                  pp. 3853–3870.
+     6th Int. Conf. Big Data Secur. Cloud (BigDataSecurity) Int. Conf. High         [36] R. Bost, “Sophos—Forward secure searchable encryption,” in Proc.
+     Perform. Smart Comput., (HPSC) IEEE Int. Conf. Intell. Data Secur.                  ACM SIGSAC Conf. Comput. Commun. Secur., E. R. Weippl, S. Katzen-
+     (IDS), May 2020, pp. 254–259.                                                       beisse, C. Kruegel, A. C. Myers, and S. Halevi, Eds. Vienna, Austria:
+[12] Á. Kiss, J. Liu, T. Schneider, N. Asokan, and B. Pinkas, “Private                   ACM, Oct. 2016, pp. 1143–1154, doi: 10.1145/2976749.2978303.
+     set intersection for unequal set sizes with mobile applications,” in           [37] K. Bonawitz et al., “Practical secure aggregation for privacy-preserving
+     Proc. Privacy Enhancing Technol. Symp., no. 4. Germany: De Gruyter,                 machine learning,” in Proc. ACM SIGSAC Conf. Comput. Commun.
+     Oct. 2017, pp. 177–197.                                                             Secur., Oct. 2017, pp. 1175–1191.
+[13] A. Abadi, C. Dong, S. J. Murdoch, and S. Terzis, “Multi-party updatable        [38] D. Cash, S. Jarecki, C. Jutla, H. Krawczyk, M.-C. Roşu, and M. Steiner,
+     delegated private set intersection,” in Proc. Int. Conf. Financial Cryptogr.        “Highly-scalable searchable symmetric encryption with support for
+     Data Secur. Cham, Switzerland: Springer, 2022, pp. 100–119.                         Boolean queries,” in Proc. 33rd Annu. Cryptol. Conf. (CRYPTO),
+[14] S. Badrinarayanan, P. Miao, and T. Xie, “Updatable private set intersec-            Santa Barbara, CA, USA. Berlin, Germany: Springer, Aug. 2013,
+     tion,” Proc. Privacy Enhancing Technol., vol. 2022, no. 2, pp. 378–406,             pp. 353–373.
+     Apr. 2022.                                                                     [39] L. Chen, J. Li, and J. Li, “Towards forward and backward private
+[15] C. Meadows, “A more efficient cryptographic matchmaking protocol for                dynamic searchable symmetric encryption supporting data deduplication
+     use in the absence of a continuously available third party,” in Proc. IEEE          and conjunctive queries,” IEEE Internet Things J., vol. 10, no. 19,
+     Symp. Secur. Privacy, Apr. 1986, p. 134.                                            pp. 17408–17423, Oct. 2023, doi: 10.1109/JIOT.2023.3274390.
+[16] B. A. Huberman, M. Franklin, and T. Hogg, “Enhancing privacy and               [40] Y. Zhang, J. Katz, and C. Papamanthou, “All your queries are belong
+     trust in electronic communities,” in Proc. 1st ACM Conf. Electron.                  to us: The power of file-injection attacks on searchable encryption,” in
+     Commerce, Nov. 1999, pp. 78–86.                                                     Proc. USENIX Secur. Symp., 2016, pp. 707–720.
+[17] H. Chen, K. Laine, and P. Rindal, “Fast private set intersection from          [41] K. S. Kim, M. Kim, D. Lee, J. H. Park, and W.-H. Kim, “Forward
+     homomorphic encryption,” in Proc. ACM SIGSAC Conf. Comput. Com-                     secure dynamic searchable symmetric encryption with efficient updates,”
+     mun. Secur., Oct. 2017, pp. 1243–1255.                                              in Proc. ACM SIGSAC Conf. Comput. Commun. Secur., Oct. 2017,
+[18] Y. Huang, D. Evans, and J. Katz, “Private set intersection: Are garbled             pp. 1449–1463.
+     circuits better than custom protocols?” in Proc. NDSS, 2012.                   [42] M. Dietzfelbinger and S. Walzer, “Efficient Gauss elimination for
+[19] B. Pinkas, T. Schneider, G. Segev, and M. Zohner, “Phasing: Private set             near-quadratic matrices with one short random block per row, with
+     intersection using permutation-based hashing,” in Proc. 24th USENIX                 applications,” 2019, arXiv:1907.04750.
+     Conf. Secur. Symp., 2015, pp. 515–530.                                         [43] B. Pinkas, M. Rosulek, N. Trieu, and A. Yanai, “SpOT-light: Lightweight
+[20] B. Pinkas, T. Schneider, C. Weinert, and U. Wieder, “Efficient circuit-             private set intersection from sparse OT extension,” in Proc. 39th Annu.
+     based psi via cuckoo hashing,” in Proc. Annu. Int. Conf. Theory Appl.               Int. Cryptol. Conf. Adv. Cryptol., Santa Barbara, CA, USA. Cham,
+     Cryptograph. Techn. Cham, Switzerland: Springer, 2018, pp. 125–157.                 Switzerland: Springer, Aug. 2019, pp. 401–431.
+[21] B. Pinkas, T. Schneider, O. Tkachenko, and A. Yanai, “Efficient circuit-       [44] S. Angel, H. Chen, K. Laine, and S. Setty, “PIR with compressed queries
+     based PSI with linear communication,” in Proc. 38th Annu. Int. Conf.                and amortized query processing,” in Proc. IEEE Symp. Secur. Privacy
+     Theory Appl. Cryptograph. Techn., Darmstadt, Germany. Cham, Switzer-                (SP), May 2018, pp. 962–979.
+     land: Springer, May 2019, pp. 122–153.                                         [45] M. H. Mughees, H. Chen, and L. Ren, “OnionPIR: Response efficient
+[22] M. Chase and P. Miao, “Private set intersection in the internet setting             single-server PIR,” in Proc. ACM SIGSAC Conf. Comput. Commun.
+     from lightweight oblivious PRF,” in Proc. 40th Annu. Int. Cryptol.                  Secur., Nov. 2021, pp. 2292–2306.
+     Conf., Santa Barbar, CA, USA. Cham, Switzerland: Springer, Aug. 2020,          [46] S. J. Menon and D. J. Wu, “SPIRAL: Fast, high-rate single-server
+     pp. 34–63.                                                                          PIR via FHE composition,” in Proc. IEEE Symp. Secur. Privacy (SP),
+[23] P. Rindal and P. Schoppmann, “VOLE-PSI: Fast OPRF and circuit-psi                   May 2022, pp. 930–947.
+     from vector-ole,” in Proc. Annu. Int. Conf. Theory Appl. Cryptograph.
+     Techn. Cham, Switzerland: Springer, Oct. 2021, pp. 901–930.
+[24] Y. Ishai, J. Kilian, K. Nissim, and E. Petrank, “Extending oblivious
+     transfers efficiently,” in Proc. Annu. Int. Cryptol. Conf. Berlin, Germany:
+     Springer, Aug. 2003, pp. 145–161.
+[25] G. Asharov, Y. Lindell, T. Schneider, and M. Zohner, “More efficient
+     oblivious transfer and extensions for faster secure computation,” in
+     Proc. ACM SIGSAC Conf. Comput. Commun. Secur. (CCS), 2013,
+     pp. 535–548.
+[26] B. Chor, E. Kushilevitz, O. Goldreich, and M. Sudan, “Private informa-
+     tion retrieval,” J. ACM, vol. 45, no. 6, pp. 965–981, 1998.
+[27] J. Bringer, H. Chabanne, D. Pointcheval, and Q. Tang, “Extended private
+     information retrieval and its application in biometrics authentications,” in
+     Proc. Int. Conf. Cryptol. Netw. Secur. Berlin, Germany: Springer, 2007,
+     pp. 175–193.                                                                                            Ruochen Wang is currently pursuing the Ph.D.
+[28] S. Colombo, K. Nikitin, C. Tech, H. Corrigan-Gibbs, D. J. Wu, and                                       degree with the Department of Cryptography
+     B. Ford, “Authenticated private information retrieval,” in Proc. 32nd                                   and Network Security, East China Normal Uni-
+     USENIX Secur. Symp., 2023, pp. 3835–3851.                                                               versity, Shanghai, China. Her research interests
+[29] M. Green, W. Ladd, and I. Miers, “A protocol for privately reporting ad                                 include private set intersection and secure multiparty
+     impressions at scale,” in Proc. ACM SIGSAC Conf. Comput. Commun.                                        computation.
+     Secur., Oct. 2016, pp. 1591–1601.
+[30] P. Mittal, F. Olumofin, C. Troncoso, N. Borisov, and I. Goldberg,
+     “PIR-Tor: Scalable anonymous communication using private information
+     retrieval,” in Proc. 20th USENIX Secur. Symp. (USENIX Security), 2011.
+
+      Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+8586                                                                       IEEE TRANSACTIONS ON INFORMATION FORENSICS AND SECURITY, VOL. 19, 2024
+
+
+
+                          Jun Zhou (Member, IEEE) received the Ph.D.                                      Xiaolei Dong (Member, IEEE) is currently a
+                          degree in computer science from the Trusted Digital                             Distinguished Professor with East China Normal
+                          Technology Laboratory, Department of Computer                                   University. She hosts several research projects sup-
+                          Science and Engineering, Shanghai Jiao Tong Uni-                                ported by the National Basic Research Program
+                          versity, Shanghai, China. He is currently a Professor                           of China (973 Program) and the special funds on
+                          with East China Normal University, China. His                                   information security of the National Development
+                          research interests include cloud computing security,                            and Reform Commission and the National Natural
+                          secure multiparty computation, blockchain security,                             Science Foundation of China. Her research interests
+                          and artificial intelligence security in cryptography                            include number theory, cryptography, and trusted
+                          and information security.                                                       computing.
+
+
+
+
+                                                                                                          Kim-Kwang Raymond Choo (Senior Member,
+                                                                                                          IEEE) received the Ph.D. degree in information
+                                                                                                          security from the Queensland University of Tech-
+                                                                                                          nology, Australia, in 2006. He currently holds the
+                                                                                                          Cloud Technology Endowed Professorship with The
+                                                                                                          University of Texas at San Antonio. He was a
+                          Zhenfu Cao (Senior Member, IEEE) is currently                                   recipient of the 2022 IEEE Hyper-Intelligence TC
+                          a Distinguished Professor with East China                                       Award for Excellence in Hyper-Intelligence Systems
+                          Normal University, China. He is the Leader of                                   (Technical Achievement Award), the 2022 IEEE
+                          Asia 3 Foresight Program and the Key Project of                                 TC on Homeland Security Research and Innovation
+                          the National Natural Science Foundation of China.                               Award, the 2022 IEEE TC on Secure and Depend-
+                          Since 1981, he has published over 400 academic          able Measurement Mid-Career Award, and the 2019 IEEE TC on Scalable
+                          papers in journals or conferences. His research         Computing Award for Excellence in Scalable Computing (Middle Career
+                          interests include number theory, cryptography, and      Researcher). He is the Founding Co-Editor-in-Chief of Distributed Ledger
+                          information security. He was a member of the            Technologies: Research and Practice (ACM) and the Founding Chair of IEEE
+                          Expert Panel of the National Nature Science Fund        Technology and Engineering Management Society Technical Committee (TC)
+                          of China. He has received several awards.               on Blockchain and Distributed Ledger Technologies.
+
+
+
+
+       Authorized licensed use limited to: Henan Normal University. Downloaded on December 22,2025 at 12:27:35 UTC from IEEE Xplore. Restrictions apply.
+

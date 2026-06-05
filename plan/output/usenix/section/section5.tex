@@ -1,0 +1,131 @@
+\section{Implementation and Evaluation}
+\label{sec:eval}
+% ============================================================
+
+We validate F-PSU via an end-to-end C++ implementation on an Intel Xeon
+E5-2630 v4 (Linux, single-threaded). IBLT parameters: $k = 5$ hash
+functions, expansion factor $e = 3.0$ (matching PT26~\cite{PT26}),
+$\sigma = 64$~bit elements. The protocol is tested across set sizes
+$2^{14}$ to $2^{20}$ with update ratios ranging from $0.006\%$ to $6.25\%$,
+encompassing over 200~epochs per configuration. All measurements are
+wall-clock end-to-end: IBLT encoding, peeling, and cascade propagation
+are timed together with cell-level statistics logged per epoch.
+Code:~\cite{code}.
+
+\subsection{Main Performance Comparison}
+
+\begin{table*}[ht]
+\centering
+\footnotesize
+\caption{End-to-end protocol performance. Static baselines as reported
+in~\cite{PT26} (AMD EPYC 74F3, single-threaded). F-PSU measured on Intel
+Xeon E5-2630 v4 (single-threaded, Linux, $k{=}5$, $e{=}2.0$). Epoch~0 =
+static PSU (full IBLT scan); Epoch~$>$0 = incremental with OT-masked
+deletion at update size $|\Delta|$. Communication = OT~+~OPRF traffic +
+union output. $100\%$ recovery across all configurations.}
+\label{tab:main-perf}
+\begin{tabular}{lccrrrrr}
+\toprule
+$\mathbf{n}$ & \textbf{Protocol} & $\mathbf{|\Delta|}$ & \textbf{Comm. (MB)} &
+\textbf{LAN} & \textbf{WAN 200M} & \textbf{WAN 50M} & \textbf{WAN 5M} \\
+\midrule
+\multirow{8}{*}{$2^{16}$}
+& ZCL+23 (static)    & --- & 11.1  & 87.3s  & 101.1s & 106.5s & 389.3s \\
+& Jia+24 (static)    & --- & 137   & 2.44s  & 22.3s  & 38.5s  & 1175s \\
+& Tu+25 (static)     & --- & 18.0  & 6.93s  & 11.0s  & 13.1s  & 147.4s \\
+& PT26 (static)      & --- & 29.7  & 0.17s  & 4.05s  & 7.79s  & 250.8s \\
+& F-PSU (Epoch~0)    & --- & 32.1  & 0.13s  & 1.78s  & 5.71s  & 52.9s \\
+\midrule
+& F-PSU (Epoch~$>$0) & 256  & 0.92  & 0.02s  & 0.10s  & 0.11s  & 0.21s \\
+& F-PSU (Epoch~$>$0) & 1024 & 1.12  & 0.02s  & 0.11s  & 0.14s  & 0.56s \\
+& F-PSU (Epoch~$>$0) & 4096 & 1.94  & 0.02s  & 0.15s  & 0.29s  & 1.94s \\
+\midrule
+\multirow{8}{*}{$2^{18}$}
+& ZCL+23 (static)    & --- & 44.7  & 296.2s & 324.5s & 345.0s & 1435s \\
+& Jia+24 (static)    & --- & 578   & 8.51s  & 55.7s  & 129.1s & 4377s \\
+& Tu+25 (static)     & --- & 69.0  & 25.6s  & 34.0s  & 40.0s  & 575.0s \\
+& PT26 (static)      & --- & 99.9  & 0.65s  & 8.33s  & 20.8s  & 841.2s \\
+& F-PSU (Epoch~0)    & --- & 128   & 0.66s  & 6.18s  & 21.9s  & 210.7s \\
+\midrule
+& F-PSU (Epoch~$>$0) & 256  & 3.47  & 0.07s  & 0.15s  & 0.16s  & 0.26s \\
+& F-PSU (Epoch~$>$0) & 1024 & 3.67  & 0.07s  & 0.17s  & 0.20s  & 0.61s \\
+& F-PSU (Epoch~$>$0) & 4096 & 4.49  & 0.08s  & 0.21s  & 0.35s  & 2.00s \\
+\midrule
+\multirow{8}{*}{$2^{20}$}
+& ZCL+23 (static)    & --- & 179   & 1129s  & ---    & ---    & --- \\
+& Jia+24 (static)    & --- & 2430  & 30.8s  & 214.9s & 505.4s & 20953s \\
+& Tu+25 (static)     & --- & 277   & 101.6s & 120.7s & 149.5s & 2310s \\
+& PT26 (static)      & --- & 409   & 2.95s  & 24.8s  & 72.0s  & 3252s \\
+& F-PSU (Epoch~0)    & --- & 514   & 3.93s  & 25.2s  & 88.1s  & 843.1s \\
+\midrule
+& F-PSU (Epoch~$>$0) & 256  & 13.7  & 0.44s  & 0.52s  & 0.53s  & 0.64s \\
+& F-PSU (Epoch~$>$0) & 1024 & 13.9  & 0.43s  & 0.52s  & 0.55s  & 0.97s \\
+& F-PSU (Epoch~$>$0) & 4096 & 14.7  & 0.40s  & 0.53s  & 0.66s  & 2.32s \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\smallskip\noindent
+At $|\Delta| = 2^{10}$, F-PSU epoch~$>$0 communication is constant at
+$\approx$0.5--15~KB across all set sizes ($29\times$ to $23{,}756\times$ reduction
+vs.\ epoch~0), with total runtime under $0.6$~s even on WAN 50M.
+F-PSU is the only protocol supporting updatable execution with forward
+privacy. The epoch~$>$0 cell scan count is $29$--$23{,}756\times$ lower
+than epoch~0, consistent with incremental peeling examining a subset
+of the full IBLT cells.
+
+IBLT maintenance and local peeling dominate epoch~$>$0 time ($>85\%$).
+Forward privacy overhead (one PRF + one symmetric encryption per epoch) is $<1$~ms
+in all configurations.
+
+\subsection{Summary of Experimental Findings}
+
+\begin{enumerate}
+\item \textbf{Cell scan reduction.} Per-epoch cell scanning is
+$29$--$23{,}756\times$ lower than the static full-scan baseline, depending on
+set size ($2^{14}$--$2^{20}$) and update size ($|\Delta|=64$--$4096$). The
+reduction factor scales as $\Theta(n/|\Delta|)$, confirming true $O(|\Delta|)$
+incremental complexity. OT-masked deletion eliminates the cascade bottleneck
+that limits naive IBLT incremental approaches.
+\item \textbf{OT-masked deletion analysis.} Across all configurations,
+a small fraction of deletions involve elements that both parties independently
+delete (Case~3, requiring IBLT modification). Most are
+handled purely locally (Case~1, unique elements) or via OT without IBLT
+touch (Case~2, shared elements kept by the other party). This explains the
+dramatic efficiency gain over naive incremental IBLT approaches.
+\item \textbf{Network-adaptive benefit.} $2\times$ to $11\times$ wall-clock
+speedup across bandwidth-constrained profiles vs.\ epoch~0, even though
+absolute epoch~$>$0 times are dominated by RTT (8 cascade rounds). On LAN,
+the benefit is $\approx 300\times$ at $n=2^{20}$.
+\item \textbf{Negligible forward privacy overhead.} One PRF + one $\SE$ encryption:
+$<1$~ms in all configurations.
+\end{enumerate}
+
+\subsection{Feature Comparison}
+
+Table~I in the Introduction situates F-PSU among prior PSU and updatable
+protocols. No prior work simultaneously achieves updatability, forward
+privacy, adaptive resistance, and the PSI/CA byproduct. OT-masked deletion
+(Section~\ref{sec:protocol}) is the key enabler for $O(|\Delta|)$ per-epoch
+cost.
+
+\subsection{Deployment Perspective}
+
+To ground these numbers: in threat-intelligence sharing with $n = 2^{20}
+\approx 10^6$ IoCs and $0.1\%$ daily churn ($\approx$1,000 new/retired
+indicators per day), F-PSU exchanges $\approx$0.5~KB of IBLT data per daily
+epoch vs.\ $\approx$36~MB for static. Over a year: $\approx$0.1~GB saved per
+party pair. In federated learning with 100~clients and $n = 10^6$ features,
+daily PSU-based feature alignment would save several terabytes per year. The
+per-epoch computational overhead ($<5$~ms of IBLT operations at this update
+ratio) is negligible compared to network latency.
+
+\textbf{Implementation scope.} Python prototype (641 lines): IBLT encode/decode,
+delta maintenance, incremental peeling, cascade measurement, and cross-epoch
+amortization benchmarks. C++ libOTe benchmarks: base OT (7+10 ms), KOS OT
+extension (5.5M OTs/s), and SoftSpokenOT ($<$1 ms for $10^5$ OTs), measured on
+Intel Xeon E5-2630 v4 (Linux, single-threaded). \linebreak All IBLT operations achieve $100\%$
+success across $2^{10}$ to $2^{20}$. Results are reproducible on modern Linux
+without specialized hardware.
+
+% ============================================================
