@@ -125,67 +125,58 @@ For union-peelable IBLTs: $\Peel(\mathsf{IBLT}_\cup, i, j) =
 \end{theorem}
 
 \begin{center}
+\fbox{\begin{minipage}{0.95\columnwidth}
 \footnotesize
-\noindent\textbf{Protocol $\Pi_{\mathsf{UnionPeel}}$ --- secure union peeling~\cite{PT26}}
-
 \smallskip
-\noindent\textbf{Parameters:}
-Two parties $P_0, P_1$;
-IBLT $\mathsf{prm} = (M, k, \ell, H)$;
-public query set $Q \subseteq [k] \times [\ell]$;
-$\cF_{\mathsf{OT}}$ (1-out-of-2, 1-out-of-3);
-$\cF_{\mathsf{OPRF}}$.
+\noindent\textbf{Protocol: Union Peel}
 
-\smallskip
-\noindent\textbf{Input:}
-Each $P_b$ provides $\mathsf{IBLT}_b = (\mathsf{sum}_b, \mathsf{cnt}_b)$.
+\smallskip\noindent\textbf{Parameters:}
+Two parties $P_0, P_1$; IBLT parameters $\mathsf{prm} = (M, k, \ell, H)$;
+a public query set $Q \subseteq [k] \times [\ell]$;
+$\cF_{\mathsf{OT}}$ (1-out-of-2, 1-out-of-3) and $\cF_{\mathsf{OPRF}}$.
 
-\smallskip
-\noindent\textbf{Protocol:}\\[-4pt]
+\smallskip\noindent\textbf{Input:}
+Each $P_b$ provides $\mathsf{IBLT}_b = (\mathsf{sum}_b, \mathsf{cnt}_b)$ with parameters $\mathsf{prm}$.
+
+\smallskip\noindent\textbf{Protocol:}
 \begin{enumerate}
-\item \textbf{[Sum retrieval.]}
-For each $(i,j) \in Q$: $P_0$ and $P_1$ run a 1-out-of-2 OT.
-$P_0$ inputs choice bit $c_{i,j} = \mathbf{1}[\mathsf{cnt}_0[i][j] = 0]$.
-$P_1$ inputs $m_0 = \bot$, and $m_1 = \mathsf{sum}_1[i][j]$ if
-$\mathsf{cnt}_1[i][j] = 1$ else $\bot$.
-$P_0$ receives $f_{i,j} \in (\Z_M \cup \{\bot\})$.
+\item \textbf{Sum retrieval.}
+For each $(i,j) \in Q$, $P_0$ and $P_1$ run 1-out-of-2 OT:
+$P_0$ inputs $c_{i,j} = \mathbf{1}[\mathsf{cnt}_0[i][j] = 0]$;
+$P_1$ inputs $m_0 = \bot$ and $m_1 = \mathsf{sum}_1[i][j]$ if $\mathsf{cnt}_1[i][j]=1$ else $\bot$.
+$P_0$ obtains $f_{i,j}$.
 
-\item \textbf{[OPRF evaluation.]}
-For each $(i,j) \in Q$: $P_1$ queries $\cF_{\mathsf{OPRF}}$ on
+\item \textbf{OPRF evaluation.}
+For each $(i,j) \in Q$, $P_1$ queries $\cF_{\mathsf{OPRF}}$ on
 $z_{i,j} = \mathsf{sum}_1[i][j]$ (if $\mathsf{cnt}_1[i][j] = 1$, else $\bot$),
-receiving $y_{i,j}$; $P_0$ receives key $k_{i,j}$.
-$P_0$ then samples $r_{i,j} \sample \{0,1\}^\kappa$ and computes
-\[
-u_{i,j} = \begin{cases}
-F_{k_{i,j}}(\mathsf{sum}_0[i][j]), & \mathsf{cnt}_0[i][j] = 1 \\
-F_{k_{i,j}}(f_{i,j}),               & \mathsf{cnt}_0[i][j] = 0 \land f_{i,j} \neq \bot \\
-r_{i,j},                            & \text{otherwise}.
-\end{cases}
-\]
+receiving $y_{i,j}$; $P_0$ receives PRF key $k_{i,j}$.
+$P_0$ then computes
+$u_{i,j} = F_{k_{i,j}}(\mathsf{sum}_0[i][j])$ if $\mathsf{cnt}_0[i][j] = 1$;
+$F_{k_{i,j}}(f_{i,j})$ if $\mathsf{cnt}_0[i][j] = 0 \land f_{i,j} \neq \bot$;
+a random $r_{i,j}$ otherwise.
 
-\item \textbf{[Result delivery.]}
-$P_0$ and $P_1$ run a 1-out-of-3 OT per cell. $P_1$ inputs
-$d_{i,j} = \mathsf{cnt}_1[i][j]$ if $\mathsf{cnt}_1[i][j] \in \{0,1\}$ else $2$.
+\item \textbf{Result delivery.}
+For each $(i,j) \in Q$, $P_0$ and $P_1$ run 1-out-of-3 OT.
+$P_1$ inputs $d_{i,j} = \mathsf{cnt}_1[i][j]$ (if $\in \{0,1\}$, else $2$).
 $P_0$ inputs $w_{i,j} = (w_0, u_{i,j}, \bot)$ where
 $w_0 = \mathsf{sum}_0[i][j]$ if $\mathsf{cnt}_0[i][j] = 1$ else $\bot$.
 $P_1$ receives $g_{i,j}$.
 
-\item \textbf{[Local output.]}
-$P_1$ computes
+\item \textbf{Output.}
+$P_1$ locally computes
 $v_{i,j} = \mathsf{sum}_1[i][j]$ if $d_{i,j}{=}1 \land g_{i,j}{=}y_{i,j}$;
-$\bot$ if $d_{i,j}{=}1 \land g_{i,j}{\neq}y_{i,j}$;
-$g_{i,j}$ otherwise.
+$\bot$ if $d_{i,j}{=}1 \land g_{i,j}{\neq}y_{i,j}$; $g_{i,j}$ otherwise.
 $P_1$ sends $V = \{(v_{i,j}, i, j)\}$ to $P_0$. Both output $V$.
 \end{enumerate}
 By Theorem~\ref{thm:upeel}, the non-$\bot$ elements in $V$ equal those
-recoverable from $\mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
+recoverable from the virtual union $\mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
 
 \smallskip
-\captionof{figure}{The $\Pi_{\mathsf{UnionPeel}}$ protocol~\cite{PT26}.
-Per-cell secure evaluation of the union-peel function
-(Definition~\ref{def:upeel}) via OT and OPRF.
-UC-security in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model~\cite{PT26}.}
+\captionof{figure}{The Union Peel protocol~\cite{PT26}. Per-cell secure
+evaluation of $\uPeel$ (Definition~\ref{def:upeel}) via OT and OPRF.}
 \label{fig:unionpeel}
+\smallskip
+\end{minipage}}
 \end{center}
 \begin{theorem}[Union Peel Security~\cite{PT26}]\label{thm:unionpeel-sec}
 $\Pi_{\mathsf{UnionPeel}}$ UC-realizes $\cF_{\mathsf{UnionPeel}}$
