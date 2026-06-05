@@ -131,93 +131,60 @@ For union-peelable IBLTs: $\Peel(\mathsf{IBLT}_\cup, i, j) =
 \smallskip
 \noindent\textbf{Parameters:}
 Two parties $P_0, P_1$;
-IBLT parameters $\mathsf{prm} = (M, k, \ell, H)$;
-a public query set $Q \subseteq [k] \times [\ell]$;
-ideal functionalities $\cF_{\mathsf{OT}}$ (1-out-of-2 and 1-out-of-3),
+IBLT $\mathsf{prm} = (M, k, \ell, H)$;
+public query set $Q \subseteq [k] \times [\ell]$;
+$\cF_{\mathsf{OT}}$ (1-out-of-2, 1-out-of-3);
 $\cF_{\mathsf{OPRF}}$.
 
 \smallskip
 \noindent\textbf{Input:}
-$P_0$ provides $\mathsf{IBLT}_0 = (\mathsf{sum}_0, \mathsf{cnt}_0)$;
-$P_1$ provides $\mathsf{IBLT}_1 = (\mathsf{sum}_1, \mathsf{cnt}_1)$,
-both with parameters $\mathsf{prm}$.
+Each $P_b$ provides $\mathsf{IBLT}_b = (\mathsf{sum}_b, \mathsf{cnt}_b)$.
 
 \smallskip
-\noindent\textbf{Protocol:}
+\noindent\textbf{Protocol:}\\[-4pt]
 \begin{enumerate}
-\item \textbf{[OT --- $P_0$ retrieves $P_1$'s cell sums.]}
-For each $(i,j) \in Q$, run a 1-out-of-2 OT where $P_0$ is the receiver
-with choice bit $c_{i,j} = \mathbf{1}[\mathsf{cnt}_0[i][j] = 0]$, and $P_1$
-is the sender with message pair
-\[
-m_{i,j,0} = \bot,\qquad
-m_{i,j,1} = \begin{cases}
-\mathsf{sum}_1[i][j], & \text{if } \mathsf{cnt}_1[i][j] = 1 \\
-\bot,                 & \text{otherwise}.
-\end{cases}
-\]
-$P_0$ obtains $f_{i,j} \in (\Z_M \cup \{\bot\})$.
+\item \textbf{[Sum retrieval.]}
+For each $(i,j) \in Q$: $P_0$ and $P_1$ run a 1-out-of-2 OT.
+$P_0$ inputs choice bit $c_{i,j} = \mathbf{1}[\mathsf{cnt}_0[i][j] = 0]$.
+$P_1$ inputs $m_0 = \bot$, and $m_1 = \mathsf{sum}_1[i][j]$ if
+$\mathsf{cnt}_1[i][j] = 1$ else $\bot$.
+$P_0$ receives $f_{i,j} \in (\Z_M \cup \{\bot\})$.
 
-\item \textbf{[OPRF --- $P_1$ queries its singletons.]}
-For each $(i,j) \in Q$ where $\mathsf{cnt}_1[i][j] = 1$, $P_1$ sets
-$z_{i,j} \leftarrow \mathsf{sum}_1[i][j]$; otherwise $z_{i,j} \leftarrow \bot$.
-$P_1$ and $P_0$ invoke $\cF_{\mathsf{OPRF}}$: $P_1$ inputs $z_{i,j}$ and
-receives $y_{i,j}$; $P_0$ receives the PRF key $k_{i,j}$.
-
-\item \textbf{[OPRF --- $P_0$ computes locally.]}
-$P_0$ samples random $r_{i,j}$ and computes
+\item \textbf{[OPRF evaluation.]}
+For each $(i,j) \in Q$: $P_1$ queries $\cF_{\mathsf{OPRF}}$ on
+$z_{i,j} = \mathsf{sum}_1[i][j]$ (if $\mathsf{cnt}_1[i][j] = 1$, else $\bot$),
+receiving $y_{i,j}$; $P_0$ receives key $k_{i,j}$.
+$P_0$ then samples $r_{i,j} \sample \{0,1\}^\kappa$ and computes
 \[
 u_{i,j} = \begin{cases}
-F_{k_{i,j}}(\mathsf{sum}_0[i][j]), & \text{if } \mathsf{cnt}_0[i][j] = 1 \\
-F_{k_{i,j}}(f_{i,j}),               & \text{if } \mathsf{cnt}_0[i][j] = 0 \land f_{i,j} \neq \bot \\
+F_{k_{i,j}}(\mathsf{sum}_0[i][j]), & \mathsf{cnt}_0[i][j] = 1 \\
+F_{k_{i,j}}(f_{i,j}),               & \mathsf{cnt}_0[i][j] = 0 \land f_{i,j} \neq \bot \\
 r_{i,j},                            & \text{otherwise}.
 \end{cases}
 \]
 
-\item \textbf{[1-out-of-3 OT --- deliver result to $P_1$.]}
-$P_1$ sets selection bit
-\[
-d_{i,j} = \begin{cases}
-\mathsf{cnt}_1[i][j], & \text{if } \mathsf{cnt}_1[i][j] \in \{0,1\} \\
-2,                    & \text{otherwise}.
-\end{cases}
-\]
-$P_0$ provides message vector
-\[
-w_{i,j} = \bigl(\;
-\mathsf{sum}_0[i][j] \text{ if } \mathsf{cnt}_0[i][j]{=}1 \text{ else } \bot,\;
-u_{i,j},\;
-\bot \;\bigr).
-\]
-Via 1-out-of-3 OT, $P_1$ receives $g_{i,j} \in (\Z_M \cup \{\bot\})$.
+\item \textbf{[Result delivery.]}
+$P_0$ and $P_1$ run a 1-out-of-3 OT per cell. $P_1$ inputs
+$d_{i,j} = \mathsf{cnt}_1[i][j]$ if $\mathsf{cnt}_1[i][j] \in \{0,1\}$ else $2$.
+$P_0$ inputs $w_{i,j} = (w_0, u_{i,j}, \bot)$ where
+$w_0 = \mathsf{sum}_0[i][j]$ if $\mathsf{cnt}_0[i][j] = 1$ else $\bot$.
+$P_1$ receives $g_{i,j}$.
 
-\item \textbf{[Local output computation.]}
-$P_1$ locally computes $v_{i,j}$:
-\[
-v_{i,j} = \begin{cases}
-\mathsf{sum}_1[i][j], & \text{if } d_{i,j} = 1 \land g_{i,j} = y_{i,j} \\
-\bot,                 & \text{if } d_{i,j} = 1 \land g_{i,j} \neq y_{i,j} \\
-g_{i,j},              & \text{otherwise}.
-\end{cases}
-\]
-$P_1$ sends $V = \{(v_{i,j}, i, j) \mid (i,j) \in Q\}$ to $P_0$.
-
-\item \textbf{[Output.]}
-Both parties output $V$. The recovered elements are
-$\{v \mid (v, i, j) \in V \land v \neq \bot\}$;
-by Theorem~\ref{thm:upeel}, these equal the elements recoverable from
-the virtual union $\mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
+\item \textbf{[Local output.]}
+$P_1$ computes
+$v_{i,j} = \mathsf{sum}_1[i][j]$ if $d_{i,j}{=}1 \land g_{i,j}{=}y_{i,j}$;
+$\bot$ if $d_{i,j}{=}1 \land g_{i,j}{\neq}y_{i,j}$;
+$g_{i,j}$ otherwise.
+$P_1$ sends $V = \{(v_{i,j}, i, j)\}$ to $P_0$. Both output $V$.
 \end{enumerate}
-$\Pi_{\mathsf{UnionPeel}}$ UC-realizes $\cF_{\mathsf{UnionPeel}}$ in the
-$(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model against
-semi-honest adversaries~\cite{PT26}.
+By Theorem~\ref{thm:upeel}, the non-$\bot$ elements in $V$ equal those
+recoverable from $\mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
 
-\medskip
-\captionof{figure}{The $\Pi_{\mathsf{UnionPeel}}$ protocol~\cite{PT26}. Steps~1--2
-securely evaluate the union-peel function (Definition~\ref{def:upeel}) via OT and OPRF.
-Step~3 allows $P_0$ to compute matching OPRF values on its own singletons and
-the OT-retrieved values. Steps~4--5 deliver the result to $P_1$ via 1-out-of-3 OT.
-Step~6 outputs the recovered elements to both parties.}
+\smallskip
+\captionof{figure}{The $\Pi_{\mathsf{UnionPeel}}$ protocol~\cite{PT26}.
+Per-cell secure evaluation of the union-peel function
+(Definition~\ref{def:upeel}) via OT and OPRF.
+UC-security in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model~\cite{PT26}.}
 \label{fig:unionpeel}
 \end{center}
 \begin{theorem}[Union Peel Security~\cite{PT26}]\label{thm:unionpeel-sec}
