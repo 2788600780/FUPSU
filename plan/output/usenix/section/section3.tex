@@ -88,11 +88,11 @@ Sections~\ref{sec:ideal}--\ref{sec:complexity}.
 	\smallskip\noindent\textbf{Input:}
 	Upon receiving $(\text{Update}, \Delta^+_b, \Delta^-_b)$ from both $P_0$ and $P_1$:
 	assert $\Delta^+_b \cap X_b = \emptyset$ and $\Delta^-_b \subseteq X_b$ for $b \in \{0,1\}$;
-	update $X_b \leftarrow (X_b \cup \Delta^+_b) \setminus \Delta^-_b$;
-	set $t \leftarrow t+1$.
+	update $X_b \coloneqq (X_b \cup \Delta^+_b) \setminus \Delta^-_b$;
+	set $t \coloneqq t+1$.
 
 	\smallskip\noindent\textbf{Output:}
-	Compute $X_\cup \leftarrow X_0 \cup X_1$ and output $X_\cup$ to both parties.
+	Compute $X_\cup = X_0 \cup X_1$ and output $X_\cup$ to both parties.
 
 	\smallskip\noindent Upon adaptive corruption of $P_b$ at epoch $\tau$,
 	output $X_b^{(\tau)}$ to $\cS$; historical states $\{X_b^{(t)}\}_{t < \tau}$
