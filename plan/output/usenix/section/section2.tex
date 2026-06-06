@@ -140,13 +140,13 @@ Each $P_b$ provides $\mathsf{IBLT}_b = (\mathsf{sum}_b, \mathsf{cnt}_b)$ with pa
 
 \smallskip\noindent\textbf{Protocol:}
 \begin{enumerate}
-\item \textbf{Sum retrieval.}
+\item \textbf{[Sum retrieval.]}
 For each $(i,j) \in Q$, $P_0$ and $P_1$ run 1-out-of-2 OT:
 $P_0$ inputs $c_{i,j} = \mathbf{1}[\mathsf{cnt}_0[i][j] = 0]$;
 $P_1$ inputs $m_0 = \bot$ and $m_1 = \mathsf{sum}_1[i][j]$ if $\mathsf{cnt}_1[i][j]=1$ else $\bot$.
 $P_0$ obtains $f_{i,j}$.
 
-\item \textbf{OPRF evaluation.}
+\item \textbf{[OPRF evaluation.]}
 For each $(i,j) \in Q$, $P_1$ queries $\cF_{\mathsf{OPRF}}$ on
 $z_{i,j} = \mathsf{sum}_1[i][j]$ (if $\mathsf{cnt}_1[i][j] = 1$, else $\bot$),
 receiving $y_{i,j}$; $P_0$ receives PRF key $k_{i,j}$.
@@ -155,14 +155,14 @@ $u_{i,j} = F_{k_{i,j}}(\mathsf{sum}_0[i][j])$ if $\mathsf{cnt}_0[i][j] = 1$;
 $F_{k_{i,j}}(f_{i,j})$ if $\mathsf{cnt}_0[i][j] = 0 \land f_{i,j} \neq \bot$;
 a random $r_{i,j}$ otherwise.
 
-\item \textbf{Result delivery.}
+\item \textbf{[Result delivery.]}
 For each $(i,j) \in Q$, $P_0$ and $P_1$ run 1-out-of-3 OT.
 $P_1$ inputs $d_{i,j} = \mathsf{cnt}_1[i][j]$ (if $\in \{0,1\}$, else $2$).
 $P_0$ inputs $w_{i,j} = (w_0, u_{i,j}, \bot)$ where
 $w_0 = \mathsf{sum}_0[i][j]$ if $\mathsf{cnt}_0[i][j] = 1$ else $\bot$.
 $P_1$ receives $g_{i,j}$.
 
-\item \textbf{Output.}
+\item \textbf{[Output.]}
 $P_1$ locally computes
 $v_{i,j} = \mathsf{sum}_1[i][j]$ if $d_{i,j}{=}1 \land g_{i,j}{=}y_{i,j}$;
 $\bot$ if $d_{i,j}{=}1 \land g_{i,j}{\neq}y_{i,j}$; $g_{i,j}$ otherwise.
@@ -172,8 +172,7 @@ By Theorem~\ref{thm:upeel}, the non-$\bot$ elements in $V$ equal those
 recoverable from the virtual union $\mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
 
 \smallskip
-\captionof{figure}{The Union Peel protocol~\cite{PT26}. Per-cell secure
-evaluation of $\uPeel$ (Definition~\ref{def:upeel}) via OT and OPRF.}
+\captionof{figure}{The Union Peel protocol~\cite{PT26}.}
 \label{fig:unionpeel}
 \smallskip
 \end{minipage}}

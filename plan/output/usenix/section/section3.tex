@@ -243,24 +243,24 @@ key $K_{b}$, and deltas $\Delta^+_{b}, \Delta^-_{b}$.
 
 \smallskip\noindent\textbf{Protocol:}
 \begin{enumerate}
-\item \textbf{Preparation.}
+\item \textbf{[Preparation.]}
 Each $P_b$ locally decrypts $\mathsf{IBLT}_{b} \leftarrow \SE.\Dec(K_{b}, \mathsf{CT}_{b})$
 and encodes additions into a fresh compact IBLT
 $\mathsf{IBLT}^+_{b} \leftarrow \Encode(\Delta^+_{b})$
 with $m_{\Delta} = c_k \cdot k \cdot \max(|\Delta^+_0|, |\Delta^+_1|)$ cells.
 Do not merge into $\mathsf{IBLT}_{b}$ yet.
 
-\item \textbf{Mini UnionPeel.}
+\item \textbf{[Mini UnionPeel.]}
 $P_0$ and $P_1$ run $\Pi_{\mathsf{UnionPeel}}(\mathsf{IBLT}^+_0, \mathsf{IBLT}^+_1)$
 (Fig.~\ref{fig:unionpeel}) on all $m_{\Delta}$ cells.
 The addition IBLT is fresh---deterministic, zero cascade.
 Recover $V_{\Delta^+} \leftarrow \{ v \mid \uPeel(\cdot) \neq \bot \}$.
 
-\item \textbf{Merge.}
+\item \textbf{[Merge.]}
 Each $P_b$ locally merges: shared additions ($v \in \Delta^+_0 \cap \Delta^+_1$) go to both IBLTs;
 unique additions ($v \in \Delta^+_b \setminus \Delta^+_{1-b}$) go only to $\mathsf{IBLT}_{b}$.
 
-\item \textbf{OT-masked deletion.}
+\item \textbf{[OT-masked deletion.]}
 For each $x \in \Delta^-_b$, $P_b$ queries $x$ via batched $\cF_{\mathsf{OPRF}}$.
 $P_{1-b}$ responds with $F(k, x)$ and classification bits
 $b_1 = \mathbf{1}[x \in S_{1-b}]$,
@@ -275,12 +275,12 @@ b_1 = 1,\; b_2 = 1   & \text{(Case~3) both delete --- each subtracts } \Encode(\
 The symmetric check runs for $P_{1-b}$'s deletions. Most are Case~1 or Case~2;
 only Case~3 triggers cascade.
 
-\item \textbf{Resolve Case~3 deletions.}
+\item \textbf{[Resolve Case~3 deletions.]}
 If $Q_{\mathsf{del}} \neq \emptyset$, $P_0$ and $P_1$ run $\Pi_{\mathsf{UnionPeel}}$ on $Q_{\mathsf{del}}$
 ($\leq 2k|\Delta^-_{\mathsf{Case3}}|$ cells examined by Lemma~\ref{lem:cascade}).
 Recover $V_{\mathsf{del}} \leftarrow \{ v \mid \uPeel(\cdot) \neq \bot \}$.
 
-\item \textbf{Output and key evolution.}
+\item \textbf{[Output and key evolution.]}
 Each $P_b$ locally outputs
 $S_{\cup} \leftarrow (S_{b} \setminus \Delta^-_{\mathsf{Case1}}) \cup
 \Delta^+_0 \cup \Delta^+_1 \cup V_{\mathsf{del}}$.
@@ -289,11 +289,7 @@ $\mathsf{CT}'_{b} \leftarrow \SE.\Enc(K'_{b}, \mathsf{IBLT}_{b})$,
 and $K_{b}$ is securely erased.
 \end{enumerate}
 
-\caption{The F-PSU incremental-epoch protocol. Per-epoch cost:
-$O(|\Delta^+|)$ cells (MiniPeel, Steps~2--3)
-$+$ $O(|\Delta^-|)$ OT checks (Step~4)
-$+$ $O(|\Delta^-_{\mathsf{Case3}}|)$ cells (Case~3 cleanup, Step~5).
-Forward privacy via key evolution (Step~6): $<1$~ms overhead.}
+\caption{The F-PSU incremental-epoch protocol.}
 \label{fig:protocol}
 \smallskip
 \end{minipage}}
