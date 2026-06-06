@@ -4,15 +4,12 @@
 
 \subsection{Notation}
 
-\begin{table}[ht]
-\centering
+\begin{center}
 \footnotesize
-\caption{Summary of notation used throughout the paper.}
-\label{tab:notation}
-\begin{tabular}{l l}
-\toprule
+\begin{tabular}{|l|l|}
+\hline
 \textbf{Symbol} & \textbf{Meaning} \\
-\midrule
+\hline
 $[n]$        & Set $\{1, 2, \dots, n\}$ \\
 $\kappa$      & Computational security parameter \\
 $\U$          & Element domain (typically $\{0,1\}^\sigma$) \\
@@ -21,22 +18,19 @@ $P_0, P_1$   & The two protocol parties \\
 $X, Y$       & Private input sets of $P_0, P_1$ \\
 $\Delta^+_b, \Delta^-_b$ & Elements added / deleted by $P_b$ at the current epoch \\
 $X_\cup$     & Union output $X \cup Y$ \\
-$M$          & IBLT modulus (typically $2^{64}$) \\
-$k$          & Number of IBLT hash functions \\
-$\ell$       & IBLT subtable size \\
-$m = k\ell$  & Total IBLT cells \\
-$\mathsf{prm}$ & IBLT parameters $(M, k, \ell, H)$ \\
-$\mathsf{sum}, \mathsf{cnt}$ & IBLT cell fields (value and count) \\
-$\oplus, \ominus$ & Cell-wise IBLT addition / subtraction \\
-$c_k$        & $2$-core emergence threshold ($c_4 \approx 1.295$, $c_5 \approx 1.425$) \\
-$e = m/n$    & IBLT expansion factor \\
-\bottomrule
+$\cF$        & An ideal UC functionality \\
+$x \sample S$ & Uniform sampling from set $S$ \\
+$\mathbf{1}[\cdot]$ & Indicator function \\
+$\bot$        & Special failure symbol \\
+$\negl(\kappa)$ & Negligible function in $\kappa$ \\
+\hline
 \end{tabular}
-\end{table}
+\end{center}
 
-For a variable $x$, $x \sample S$ denotes uniform sampling from set $S$.
-$\mathbf{1}[\cdot]$ denotes the indicator function.
-$\bot$ is a special failure symbol.
+\noindent For an integer $n$, $[n]$ denotes $\{1, \dots, n\}$. $\kappa$ and $\sigma$
+denote the computational security parameter and the element bit-length,
+respectively. IBLT-specific parameters ($\mathsf{prm}$, $\mathsf{sum}$,
+$\mathsf{cnt}$, $M$, $k$, $\ell$, $c_k$) are defined in the next subsection.
 
 % ============================================================
 
