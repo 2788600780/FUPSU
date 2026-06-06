@@ -116,35 +116,42 @@ on UPSI~\cite{LMR+26}, requiring no protocol modification.
 
 \smallskip
 \noindent\textbf{Comparison with prior work.}
-Table~I situates F-PSU among prior PSU and updatable protocols.
+Table~\ref{tab:intro-compare} situates F-PSU among prior PSU and
+updatable protocols.
 
 \begin{table*}[t]
 \centering
 \footnotesize
-\caption{Comparison with prior PSU and updatable protocols.
-$\dagger$: enhanced security (no within-execution leakage);
-$\ddagger$: PSI only; $\mathsection$: unified PSO (PSU$+$PSI$+$CA in one execution).
-$\checkmark$ = property satisfied; --- = not supported.
-F-PSU's adaptive resistance follows from PSU's superset output (see Section~\ref{sec:security}).}
-\label{tab:intro-compare}
 \begin{tabular}{lccccccc}
-\toprule
-\textbf{Protocol} & \textbf{Type} & \textbf{Upd.} & \textbf{FW} & \textbf{UC} & \textbf{Adp.} & \textbf{Unif.} & \textbf{Cost/Epoch} \\
-\midrule
-KRT19~\cite{KRT19} & PSU & --- & --- & \checkmark & --- & --- & $O(n)$ \\
-ZCL+23~\cite{ZCL+23} & PSU & --- & --- & \checkmark & --- & --- & $O(n)$ \\
-Jia+24~\cite{Jia+24} & PSU & --- & ---$^\dagger$ & --- & --- & --- & $O(n\log n)$ \\
-Tu+25~\cite{Tu+25} & PSU & --- & ---$^\dagger$ & \checkmark & --- & --- & $O(n)$ \\
-PT26~\cite{PT26} & PSU & --- & --- & \checkmark & --- & --- & $O(n)$ \\
-FUPSI~\cite{WZC+24} & PSI$^\ddagger$ & \checkmark & \checkmark & --- & --- & --- & $O(\log n)$ \\
-LMR+26~\cite{LMR+26} & PSI$^\ddagger$ & \checkmark & --- & \checkmark & \checkmark & --- & $O(|\Delta|)$ \\
-\midrule
-\textbf{F-PSU (ours)} & \textbf{PSU} & \textbf{\checkmark} & \textbf{\checkmark} & \textbf{\checkmark} & \textbf{\checkmark} & $\mathsection$ & $\mathbf{O(|\Delta|)}$ \\
-\bottomrule
+\hline
+\textbf{Protocol} & \textbf{Updatable} & \textbf{Fwd. Priv.} & \textbf{UC} & \textbf{Adaptive} & \textbf{Unified} & \textbf{Complexity} \\
+\hline
+\multicolumn{7}{c}{\textit{Static PSU}} \\
+\hline
+KRT19~\cite{KRT19} & -- & -- & \checkmark & -- & -- & $O(n)$ \\
+ZCL+23~\cite{ZCL+23} & -- & -- & \checkmark & -- & -- & $O(n)$ \\
+Jia+24~\cite{Jia+24} & -- & -- & --$^\dagger$ & -- & -- & $O(n \log n)$ \\
+Tu+25~\cite{Tu+25} & -- & -- & --$^\dagger$ & \checkmark & -- & $O(n)$ \\
+PT26~\cite{PT26} & -- & -- & \checkmark & -- & -- & $O(n)$ \\
+\hline
+\multicolumn{7}{c}{\textit{Updatable PSI}} \\
+\hline
+FUPSI~\cite{WZC+24}$^\ddagger$ & \checkmark & \checkmark & -- & -- & -- & $O(\log n)$ \\
+LMR+26~\cite{LMR+26}$^\ddagger$ & \checkmark & -- & \checkmark & \checkmark & -- & $O(|\Delta|)$ \\
+\hline
+\multicolumn{7}{c}{\textit{Updatable PSU (this work)}} \\
+\hline
+\textbf{F-PSU} & \checkmark & \checkmark & \checkmark & \checkmark & $\mathsection$ & $O(|\Delta|)$ \\
+\hline
 \end{tabular}
-\smallskip
 
-\noindent Upd. = updatable; FW = forward privacy; Adp. = adaptive-input resistant; Unif. = unified PSO.
+\smallskip
+\caption{Comparison with prior PSU and updatable protocols.
+$\checkmark$ = property satisfied, -- = not supported or not proved.
+$\dagger$: enhanced security (no within-execution leakage).
+$\ddagger$: PSI-only (all others are PSU).
+$\mathsection$: unified PSO (PSU$+$PSI$+$cardinality in one execution).}
+\label{tab:intro-compare}
 \end{table*}
 
 % ============================================================

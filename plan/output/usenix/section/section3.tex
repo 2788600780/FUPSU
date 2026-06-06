@@ -327,20 +327,23 @@ component is $\approx 1000\times$ smaller than static PSU~\cite{PT26}.
 \begin{table}[ht]
 \centering
 \footnotesize
-\caption{Asymptotic comparison of PSU protocols ($d = |\Delta|$, $n = |X|+|Y|$).}
-\label{tab:complexity}
-\resizebox{\columnwidth}{!}{%
 \begin{tabular}{lccc}
-\toprule
+\hline
 \textbf{Protocol} & \textbf{Communication} & \textbf{Computation} & \textbf{Bal./Unbal.} \\
-\midrule
+\hline
 KRT19~\cite{KRT19} & $O(n\sigma\kappa)$ & $O(n\log n)$ OT & Balanced \\
-PT26~\cite{PT26} & $O(n(\sigma+\kappa))$ & $O(n)$ OT+hash & Balanced \\
-ePSU~\cite{Tu+25} & $O(n\sigma)$ & $O(n)$ symm. & Both \\
-\textbf{F-PSU} & $\mathbf{O(d(\sigma+\kappa)+n\sigma)}$ & $\mathbf{O(d)}$ OT$+\mathbf{O(n)}$ ChCha & \textbf{Both} \\
-\bottomrule
-\end{tabular}%
-}
+PT26~\cite{PT26} & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash & Balanced \\
+Tu+25~\cite{Tu+25} & $O(n\sigma)$ & $O(n)$ symm. & Both \\
+\hline
+\textbf{F-PSU} & $O(d(\sigma+\kappa) + n\sigma)$ & $O(d)$ OT $+$ $O(n)$ Chacha & Both \\
+\hline
+\end{tabular}
+\caption{Asymptotic complexity of PSU protocols.
+$n = |X|+|Y|$ denotes total set size,
+$d = |\Delta|$ denotes per-epoch update size.
+F-PSU static cost (Epoch~0) matches PT26~\cite{PT26};
+per-epoch incremental cost (Epoch $>$0) is $O(d(\sigma+\kappa) + n\sigma)$.}
+\label{tab:complexity}
 \end{table}
 
 \begin{lemma}[Cascade Bound]\label{lem:cascade}
