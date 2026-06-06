@@ -324,10 +324,9 @@ Total: $O(d(\sigma + \kappa) + n\sigma)$, dominated by MiniPeel for additions
 and OT checks for deletions. For $d/n \approx 0.1\%$, the non-output
 component is $\approx 1000\times$ smaller than static PSU~\cite{PT26}.
 
-\begin{table}[ht]
+\begin{table*}[ht]
 \centering
 \footnotesize
-\resizebox{\columnwidth}{!}{%
 \begin{tabular}{|l|l|l|c|c|}
 \hline
 \textbf{Protocol} & \textbf{Output} & \textbf{Update} & \textbf{Comm.} & \textbf{Comp.} \\
@@ -336,18 +335,20 @@ KRT19~\cite{KRT19} & Two-Sided & --- & $O(n\sigma\kappa)$ & $O(n\log n)$ OT \\
 PT26~\cite{PT26}   & Two-Sided & --- & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash \\
 Tu+25~\cite{Tu+25} & Two-Sided & --- & $O(n\sigma)$ & $O(n)$ symm. \\
 \hline\noalign{\vspace{-1pt}}\hline
-Ours (Epoch~0)     & Two-Sided & --- & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash \\
-Ours (Epoch $>$0)  & Two-Sided & Add \& Del & $O(d(\sigma+\kappa) + n\sigma)$ & $O(d)$ OT + $O(n)$ $\SE$ \\
+Ours (Epoch~0)     & Two-Sided & ---      & $O(n(\sigma+\kappa))$              & $O(n)$ OT + hash \\
+Ours (Epoch $>$0)  & Two-Sided & Add      & $O(|\Delta^+|(\sigma+\kappa))$     & $O(|\Delta^+|)$ OT \\
+                   &           & Del      & $O(|\Delta^-|\kappa)$              & $O(|\Delta^-|)$ OT \\
 \hline
-\end{tabular}%
-}
+\end{tabular}
 
 \caption{Asymptotic complexity of PSU protocols.
 $n = |X|+|Y|$, $d = |\Delta|$.
 Ours (Epoch~0) matches PT26; Epoch $>$0 achieves
-per-epoch cost proportional to update size $d$.}
+per-epoch cost $O(|\Delta|(\sigma+\kappa) + n\sigma)$ via MiniPeel (Add)
+and OT-masked deletion (Del). The union output $n\sigma$ contributes
+to both Add and Del communication.}
 \label{tab:complexity}
-\end{table}
+\end{table*}
 
 \begin{lemma}[Cascade Bound]\label{lem:cascade}
 With IBLT parameters ensuring 2-core emptiness ($\Pr \geq 1 - 2^{-\lambda}$),
