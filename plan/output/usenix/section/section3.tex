@@ -327,22 +327,35 @@ component is $\approx 1000\times$ smaller than static PSU~\cite{PT26}.
 \begin{table}[ht]
 \centering
 \footnotesize
-\begin{tabular}{lccc}
+\begin{tabular}{|l|l|l|c|c|}
 \hline
-\textbf{Protocol} & \textbf{Communication} & \textbf{Computation} & \textbf{Bal./Unbal.} \\
-\hline
-KRT19~\cite{KRT19} & $O(n\sigma\kappa)$ & $O(n\log n)$ OT & Balanced \\
-PT26~\cite{PT26} & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash & Balanced \\
-Tu+25~\cite{Tu+25} & $O(n\sigma)$ & $O(n)$ symm. & Both \\
-\hline
-\textbf{Ours} & $O(d(\sigma+\kappa) + n\sigma)$ & $O(d)$ OT $+$ $O(n)$ $\SE$ & Both \\
+\textbf{Protocol} & \textbf{Output} & \textbf{Update} & \textbf{Communication} & \textbf{Computation} \\
 \hline
 \end{tabular}
+
+\vspace{2pt}
+
+\begin{tabular}{|l|l|l|c|c|}
+\hline
+KRT19~\cite{KRT19} & Two-Sided & --- & $O(n\sigma\kappa)$ & $O(n\log n)$ OT \\
+PT26~\cite{PT26}   & Two-Sided & --- & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash \\
+Tu+25~\cite{Tu+25} & Two-Sided & --- & $O(n\sigma)$ & $O(n)$ symm. \\
+\hline
+\end{tabular}
+
+\vspace{2pt}
+
+\begin{tabular}{|l|l|l|c|c|}
+\hline
+Ours (Epoch~0)     & Two-Sided & --- & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash \\
+Ours (Epoch $>$0)  & Two-Sided & Add \& Del & $O(d(\sigma+\kappa) + n\sigma)$ & $O(d)$ OT + $O(n)$ $\SE$ \\
+\hline
+\end{tabular}
+
 \caption{Asymptotic complexity of PSU protocols.
-$n = |X|+|Y|$ denotes total set size,
-$d = |\Delta|$ denotes per-epoch update size.
-Ours (static, Epoch~0) matches PT26~\cite{PT26};
-per-epoch incremental cost (Epoch $>$0) is $O(d(\sigma+\kappa) + n\sigma)$.}
+$n = |X|+|Y|$, $d = |\Delta|$.
+Ours (Epoch~0) matches PT26; Epoch $>$0 achieves
+per-epoch cost proportional to update size $d$.}
 \label{tab:complexity}
 \end{table}
 

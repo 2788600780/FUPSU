@@ -122,27 +122,37 @@ updatable protocols.
 \begin{table*}[t]
 \centering
 \footnotesize
-\begin{tabular}{lccccc}
+\begin{tabular}{|l|l|c|c|c|c|c|}
 \hline
-\textbf{Protocol} & \textbf{Updatable} & \textbf{Fwd. Priv.} & \textbf{UC} & \textbf{Adaptive} & \textbf{Complexity} \\
+\textbf{Protocol} & \textbf{Type} & \textbf{Updatable} & \textbf{Fwd.\ Priv.} & \textbf{UC} & \textbf{Adaptive} & \textbf{Complexity} \\
 \hline
-KRT19~\cite{KRT19}       & -- & -- & \checkmark & -- & $O(n)$ \\
-ZCL+23~\cite{ZCL+23}     & -- & -- & \checkmark & -- & $O(n)$ \\
-Jia+24~\cite{Jia+24}     & -- & -- & --$^\dagger$ & -- & $O(n \log n)$ \\
-Tu+25~\cite{Tu+25}       & -- & -- & --$^\dagger$ & \checkmark & $O(n)$ \\
-PT26~\cite{PT26}         & -- & -- & \checkmark & -- & $O(n)$ \\
-FUPSI~\cite{WZC+24}      & \checkmark & \checkmark & -- & -- & $O(\log n)$ \\
-LMR+26~\cite{LMR+26}     & \checkmark & -- & \checkmark & \checkmark & $O(|\Delta|)$ \\
+\end{tabular}
+
+\vspace{2pt}
+
+\begin{tabular}{|l|l|c|c|c|c|c|}
 \hline
-\textbf{Ours}            & \checkmark & \checkmark & \checkmark & \checkmark & $O(|\Delta|)$ \\
+KRT19~\cite{KRT19}   & PSU & No  & No  & Yes & No  & $O(n)$ \\
+ZCL+23~\cite{ZCL+23} & PSU & No  & No  & Yes & No  & $O(n)$ \\
+Jia+24~\cite{Jia+24} & PSU & No  & No  & No\textsuperscript{a} & No  & $O(n \log n)$ \\
+Tu+25~\cite{Tu+25}   & PSU & No  & No  & No\textsuperscript{a} & No  & $O(n)$ \\
+PT26~\cite{PT26}     & PSU & No  & No  & Yes & No  & $O(n)$ \\
+FUPSI~\cite{WZC+24}  & PSI & Yes & Yes & No  & No  & $O(\log n)$ \\
+LMR+26~\cite{LMR+26} & PSI & Yes & No  & Yes & Yes & $O(|\Delta|)$ \\
+\hline
+\end{tabular}
+
+\vspace{2pt}
+
+\begin{tabular}{|l|l|c|c|c|c|c|}
+\hline
+\textbf{Ours} & PSU & Yes & Yes & Yes & Yes & $O(|\Delta|)$ \\
 \hline
 \end{tabular}
 
 \smallskip
-\caption{Comparison with prior work. $\checkmark$ = property satisfied,
--- = not supported or not proved.
-$\dagger$: enhanced security (no within-execution leakage).
-FUPSI and LMR+26 are PSI-only; all others are PSU.}
+\caption{Comparison with prior PSU and updatable protocols.
+\textsuperscript{a}Enhanced security model (no within-execution leakage).}
 \label{tab:intro-compare}
 \end{table*}
 
