@@ -335,13 +335,13 @@ KRT19~\cite{KRT19} & $O(n\sigma\kappa)$ & $O(n\log n)$ OT & Balanced \\
 PT26~\cite{PT26} & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash & Balanced \\
 Tu+25~\cite{Tu+25} & $O(n\sigma)$ & $O(n)$ symm. & Both \\
 \hline
-\textbf{F-PSU} & $O(d(\sigma+\kappa) + n\sigma)$ & $O(d)$ OT $+$ $O(n)$ Chacha & Both \\
+\textbf{Ours} & $O(d(\sigma+\kappa) + n\sigma)$ & $O(d)$ OT $+$ $O(n)$ $\SE$ & Both \\
 \hline
 \end{tabular}
 \caption{Asymptotic complexity of PSU protocols.
 $n = |X|+|Y|$ denotes total set size,
 $d = |\Delta|$ denotes per-epoch update size.
-F-PSU static cost (Epoch~0) matches PT26~\cite{PT26};
+Ours (static, Epoch~0) matches PT26~\cite{PT26};
 per-epoch incremental cost (Epoch $>$0) is $O(d(\sigma+\kappa) + n\sigma)$.}
 \label{tab:complexity}
 \end{table}

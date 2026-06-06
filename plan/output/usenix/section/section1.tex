@@ -122,35 +122,27 @@ updatable protocols.
 \begin{table*}[t]
 \centering
 \footnotesize
-\begin{tabular}{lccccccc}
+\begin{tabular}{lccccc}
 \hline
-\textbf{Protocol} & \textbf{Updatable} & \textbf{Fwd. Priv.} & \textbf{UC} & \textbf{Adaptive} & \textbf{Unified} & \textbf{Complexity} \\
+\textbf{Protocol} & \textbf{Updatable} & \textbf{Fwd. Priv.} & \textbf{UC} & \textbf{Adaptive} & \textbf{Complexity} \\
 \hline
-\multicolumn{7}{c}{\textit{Static PSU}} \\
+KRT19~\cite{KRT19}       & -- & -- & \checkmark & -- & $O(n)$ \\
+ZCL+23~\cite{ZCL+23}     & -- & -- & \checkmark & -- & $O(n)$ \\
+Jia+24~\cite{Jia+24}     & -- & -- & --$^\dagger$ & -- & $O(n \log n)$ \\
+Tu+25~\cite{Tu+25}       & -- & -- & --$^\dagger$ & \checkmark & $O(n)$ \\
+PT26~\cite{PT26}         & -- & -- & \checkmark & -- & $O(n)$ \\
+FUPSI~\cite{WZC+24}      & \checkmark & \checkmark & -- & -- & $O(\log n)$ \\
+LMR+26~\cite{LMR+26}     & \checkmark & -- & \checkmark & \checkmark & $O(|\Delta|)$ \\
 \hline
-KRT19~\cite{KRT19} & -- & -- & \checkmark & -- & -- & $O(n)$ \\
-ZCL+23~\cite{ZCL+23} & -- & -- & \checkmark & -- & -- & $O(n)$ \\
-Jia+24~\cite{Jia+24} & -- & -- & --$^\dagger$ & -- & -- & $O(n \log n)$ \\
-Tu+25~\cite{Tu+25} & -- & -- & --$^\dagger$ & \checkmark & -- & $O(n)$ \\
-PT26~\cite{PT26} & -- & -- & \checkmark & -- & -- & $O(n)$ \\
-\hline
-\multicolumn{7}{c}{\textit{Updatable PSI}} \\
-\hline
-FUPSI~\cite{WZC+24}$^\ddagger$ & \checkmark & \checkmark & -- & -- & -- & $O(\log n)$ \\
-LMR+26~\cite{LMR+26}$^\ddagger$ & \checkmark & -- & \checkmark & \checkmark & -- & $O(|\Delta|)$ \\
-\hline
-\multicolumn{7}{c}{\textit{Updatable PSU (this work)}} \\
-\hline
-\textbf{F-PSU} & \checkmark & \checkmark & \checkmark & \checkmark & $\mathsection$ & $O(|\Delta|)$ \\
+\textbf{Ours}            & \checkmark & \checkmark & \checkmark & \checkmark & $O(|\Delta|)$ \\
 \hline
 \end{tabular}
 
 \smallskip
-\caption{Comparison with prior PSU and updatable protocols.
-$\checkmark$ = property satisfied, -- = not supported or not proved.
+\caption{Comparison with prior work. $\checkmark$ = property satisfied,
+-- = not supported or not proved.
 $\dagger$: enhanced security (no within-execution leakage).
-$\ddagger$: PSI-only (all others are PSU).
-$\mathsection$: unified PSO (PSU$+$PSI$+$cardinality in one execution).}
+FUPSI and LMR+26 are PSI-only; all others are PSU.}
 \label{tab:intro-compare}
 \end{table*}
 

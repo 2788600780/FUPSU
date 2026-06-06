@@ -17,13 +17,6 @@ Code:~\cite{code}.
 \begin{table*}[ht]
 \centering
 \footnotesize
-\caption{End-to-end protocol performance. Static baselines as reported
-in~\cite{PT26} (AMD EPYC 74F3, single-threaded). F-PSU measured on Intel
-Xeon E5-2630 v4 (single-threaded, Linux, $k{=}5$, $e{=}2.0$). Epoch~0 =
-static PSU (full IBLT scan); Epoch~$>$0 = incremental with OT-masked
-deletion at update size $|\Delta|$. Communication = OT~+~OPRF traffic +
-union output. $100\%$ recovery across all configurations.}
-\label{tab:main-perf}
 \begin{tabular}{lccrrrrr}
 \toprule
 $\mathbf{n}$ & \textbf{Protocol} & $\mathbf{|\Delta|}$ & \textbf{Comm. (MB)} &
@@ -63,6 +56,13 @@ $\mathbf{n}$ & \textbf{Protocol} & $\mathbf{|\Delta|}$ & \textbf{Comm. (MB)} &
 & F-PSU (Epoch~$>$0) & 4096 & 14.7  & 0.40s  & 0.53s  & 0.66s  & 2.32s \\
 \bottomrule
 \end{tabular}
+\caption{End-to-end protocol performance. Static baselines as reported
+in~\cite{PT26} (AMD EPYC 74F3, single-threaded). F-PSU measured on Intel
+Xeon E5-2630 v4 (single-threaded, Linux, $k{=}5$, $e{=}2.0$). Epoch~0 =
+static PSU (full IBLT scan); Epoch~$>$0 = incremental with OT-masked
+deletion at update size $|\Delta|$. Communication = OT~+~OPRF traffic +
+union output. $100\%$ recovery across all configurations.}
+\label{tab:main-perf}
 \end{table*}
 
 \smallskip\noindent
