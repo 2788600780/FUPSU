@@ -17,6 +17,7 @@ Code:~\cite{code}.
 \begin{table*}[ht]
 \centering
 \footnotesize
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lccrrrrr}
 \toprule
 $\mathbf{n}$ & \textbf{Protocol} & $\mathbf{|\Delta|}$ & \textbf{Comm. (MB)} &
@@ -55,7 +56,8 @@ $\mathbf{n}$ & \textbf{Protocol} & $\mathbf{|\Delta|}$ & \textbf{Comm. (MB)} &
 & F-PSU (Epoch~$>$0) & 1024 & 13.9  & 0.43s  & 0.52s  & 0.55s  & 0.97s \\
 & F-PSU (Epoch~$>$0) & 4096 & 14.7  & 0.40s  & 0.53s  & 0.66s  & 2.32s \\
 \bottomrule
-\end{tabular}
+\end{tabular}%
+}
 \caption{End-to-end protocol performance. Static baselines as reported
 in~\cite{PT26} (AMD EPYC 74F3, single-threaded). F-PSU measured on Intel
 Xeon E5-2630 v4 (single-threaded, Linux, $k{=}5$, $e{=}2.0$). Epoch~0 =
