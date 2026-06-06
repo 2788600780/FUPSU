@@ -17,47 +17,45 @@ Code:~\cite{code}.
 \begin{table*}[ht]
 \centering
 \footnotesize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{lccrrrrr}
-\toprule
-$\mathbf{n}$ & \textbf{Protocol} & $\mathbf{|\Delta|}$ & \textbf{Comm. (MB)} &
+\begin{tabular}{|c|l|c|r|r|r|r|r|}
+\hline
+$n$ & \textbf{Protocol} & $|\Delta|$ & \textbf{Comm. (MB)} &
 \textbf{LAN} & \textbf{WAN 200M} & \textbf{WAN 50M} & \textbf{WAN 5M} \\
-\midrule
+\hline\noalign{\vspace{-1pt}}\hline
 \multirow{8}{*}{$2^{16}$}
 & ZCL+23 (static)    & --- & 11.1  & 87.3s  & 101.1s & 106.5s & 389.3s \\
 & Jia+24 (static)    & --- & 137   & 2.44s  & 22.3s  & 38.5s  & 1175s \\
 & Tu+25 (static)     & --- & 18.0  & 6.93s  & 11.0s  & 13.1s  & 147.4s \\
 & PT26 (static)      & --- & 29.7  & 0.17s  & 4.05s  & 7.79s  & 250.8s \\
 & F-PSU (Epoch~0)    & --- & 32.1  & 0.13s  & 1.78s  & 5.71s  & 52.9s \\
-\midrule
+\cline{2-8}
 & F-PSU (Epoch~$>$0) & 256  & 0.92  & 0.02s  & 0.10s  & 0.11s  & 0.21s \\
 & F-PSU (Epoch~$>$0) & 1024 & 1.12  & 0.02s  & 0.11s  & 0.14s  & 0.56s \\
 & F-PSU (Epoch~$>$0) & 4096 & 1.94  & 0.02s  & 0.15s  & 0.29s  & 1.94s \\
-\midrule
+\hline\noalign{\vspace{-1pt}}\hline
 \multirow{8}{*}{$2^{18}$}
 & ZCL+23 (static)    & --- & 44.7  & 296.2s & 324.5s & 345.0s & 1435s \\
 & Jia+24 (static)    & --- & 578   & 8.51s  & 55.7s  & 129.1s & 4377s \\
 & Tu+25 (static)     & --- & 69.0  & 25.6s  & 34.0s  & 40.0s  & 575.0s \\
 & PT26 (static)      & --- & 99.9  & 0.65s  & 8.33s  & 20.8s  & 841.2s \\
 & F-PSU (Epoch~0)    & --- & 128   & 0.66s  & 6.18s  & 21.9s  & 210.7s \\
-\midrule
+\cline{2-8}
 & F-PSU (Epoch~$>$0) & 256  & 3.47  & 0.07s  & 0.15s  & 0.16s  & 0.26s \\
 & F-PSU (Epoch~$>$0) & 1024 & 3.67  & 0.07s  & 0.17s  & 0.20s  & 0.61s \\
 & F-PSU (Epoch~$>$0) & 4096 & 4.49  & 0.08s  & 0.21s  & 0.35s  & 2.00s \\
-\midrule
+\hline\noalign{\vspace{-1pt}}\hline
 \multirow{8}{*}{$2^{20}$}
 & ZCL+23 (static)    & --- & 179   & 1129s  & ---    & ---    & --- \\
 & Jia+24 (static)    & --- & 2430  & 30.8s  & 214.9s & 505.4s & 20953s \\
 & Tu+25 (static)     & --- & 277   & 101.6s & 120.7s & 149.5s & 2310s \\
 & PT26 (static)      & --- & 409   & 2.95s  & 24.8s  & 72.0s  & 3252s \\
 & F-PSU (Epoch~0)    & --- & 514   & 3.93s  & 25.2s  & 88.1s  & 843.1s \\
-\midrule
+\cline{2-8}
 & F-PSU (Epoch~$>$0) & 256  & 13.7  & 0.44s  & 0.52s  & 0.53s  & 0.64s \\
 & F-PSU (Epoch~$>$0) & 1024 & 13.9  & 0.43s  & 0.52s  & 0.55s  & 0.97s \\
 & F-PSU (Epoch~$>$0) & 4096 & 14.7  & 0.40s  & 0.53s  & 0.66s  & 2.32s \\
-\bottomrule
-\end{tabular}%
-}
+\hline
+\end{tabular}
 \caption{End-to-end protocol performance. Static baselines as reported
 in~\cite{PT26} (AMD EPYC 74F3, single-threaded). F-PSU measured on Intel
 Xeon E5-2630 v4 (single-threaded, Linux, $k{=}5$, $e{=}2.0$). Epoch~0 =
