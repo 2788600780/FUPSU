@@ -220,21 +220,18 @@ Fig.~\ref{fig:f-ot}.
 \begin{center}
 \fbox{\begin{minipage}{0.95\columnwidth}
 \smallskip
-\noindent\textbf{Functionality $\cF_{\mathsf{OT}}$}
+\noindent\textbf{Parameters:} Sender $S$ and receiver $R$;
+message space $\{0,1\}^\kappa$.
 
-\noindent\textbf{Parameters:} Sender $S$ holds two messages
-$(m_0, m_1) \in \{0,1\}^\kappa$; receiver $R$ holds a choice bit
-$b \in \{0,1\}$.
+\smallskip\noindent\textbf{Input:}
+Upon receiving $(m_0, m_1)$ from $S$ and $b \in \{0,1\}$ from $R$:
+if either party sends $\bot$, output $\bot$ to both and halt.
 
-\smallskip\noindent\textbf{Behavior:}
-\begin{enumerate}
-\item Receive $(m_0, m_1)$ from $S$ and $b$ from $R$. If either party
-sends $\bot$, output $\bot$ to both and halt.
-\item Send $m_b$ to $R$ and nothing to $S$.
-\end{enumerate}
+\smallskip\noindent\textbf{Output:}
+Output $m_b$ to $R$ and nothing to $S$.
 \smallskip
 \end{minipage}}
-\captionof{figure}{The ideal 1-out-of-2 Oblivious Transfer functionality.}
+\captionof{figure}{The ideal functionality of 1-out-of-2 Oblivious Transfer.}
 \label{fig:f-ot}
 \end{center}
 
@@ -244,20 +241,18 @@ Fig.~\ref{fig:f-oprf}.
 \begin{center}
 \fbox{\begin{minipage}{0.95\columnwidth}
 \smallskip
-\noindent\textbf{Functionality $\cF_{\mathsf{OPRF}}$}
+\noindent\textbf{Parameters:} Sender $S$ and receiver $R$;
+PRF $F$ with key space $\{0,1\}^\kappa$; input domain $\U$.
 
-\noindent\textbf{Parameters:} Sender $S$ holds PRF key $k \in \{0,1\}^\kappa$;
-receiver $R$ holds input $x \in \U$.
+\smallskip\noindent\textbf{Input:}
+Upon receiving $k \in \{0,1\}^\kappa$ from $S$ and $x \in \U$ from $R$:
+if either party sends $\bot$, output $\bot$ to both and halt.
 
-\smallskip\noindent\textbf{Behavior:}
-\begin{enumerate}
-\item Receive $k$ from $S$ and $x$ from $R$. If either party sends $\bot$,
-output $\bot$ to both and halt.
-\item Compute $y \leftarrow F(k, x)$. Send $y$ to $R$ and nothing to $S$.
-\end{enumerate}
+\smallskip\noindent\textbf{Output:}
+Compute $y = F(k, x)$. Output $y$ to $R$ and nothing to $S$.
 \smallskip
 \end{minipage}}
-\captionof{figure}{The ideal Oblivious PRF functionality.}
+\captionof{figure}{The ideal functionality of Oblivious PRF.}
 \label{fig:f-oprf}
 \end{center}
 
@@ -267,19 +262,17 @@ in Fig.~\ref{fig:f-psu}.
 \begin{center}
 \fbox{\begin{minipage}{0.95\columnwidth}
 \smallskip
-\noindent\textbf{Functionality $\cF_{\mathsf{PSU}}$}
+\noindent\textbf{Parameters:} Two parties $P_0, P_1$; element domain $\U$.
 
-\noindent\textbf{Parameters:} Two parties $P_0, P_1$ with element domain $\U$.
+\smallskip\noindent\textbf{Input:}
+Upon receiving sets $X \subseteq \U$ from $P_0$ and $Y \subseteq \U$ from $P_1$:
+if either party sends $\bot$, output $\bot$ to both and halt.
 
-\smallskip\noindent\textbf{Behavior:}
-\begin{enumerate}
-\item Receive set $X$ from $P_0$ and $Y$ from $P_1$. If either is $\bot$,
-output $\bot$ to both and halt.
-\item Send $X \cup Y$ to both parties.
-\end{enumerate}
+\smallskip\noindent\textbf{Output:}
+Output $X \cup Y$ to both parties.
 \smallskip
 \end{minipage}}
-\captionof{figure}{The ideal (static) Private Set Union functionality.}
+\captionof{figure}{The ideal functionality of (static) Private Set Union.}
 \label{fig:f-psu}
 \end{center}
 
