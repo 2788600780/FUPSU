@@ -80,29 +80,26 @@ Sections~\ref{sec:ideal}--\ref{sec:complexity}.
 	\begin{center}
 	\fbox{\begin{minipage}{0.95\columnwidth}
 	\smallskip
-	\noindent\textbf{Functionality $\cF_{\mathsf{updPSU}}$}
-
 	\noindent\textbf{Parameters:} Two parties $P_0, P_1$, security parameter
 	$\kappa$, element domain $\U$, max set size $N$, and simulator $\cS$.
 	The functionality maintains set state $(X_0, X_1)$ and epoch counter $t$,
 	initially $X_0 \coloneqq X_1 \coloneqq \emptyset$ and $t \coloneqq 0$.
 
-	\smallskip\noindent\textbf{Behavior:}
-	\begin{enumerate}
-	\item Upon receiving $(\text{Update}, \Delta^+_b, \Delta^-_b)$ from $P_b$:
-	assert $\Delta^+_b \cap X_b = \emptyset$ and $\Delta^-_b \subseteq X_b$;
-	update $X_b \leftarrow (X_b \cup \Delta^+_b) \setminus \Delta^-_b$.
-	\item Once both parties have submitted their updates, set $t \leftarrow t+1$,
-	compute $X_\cup \leftarrow X_0 \cup X_1$, and output $X_\cup$ to both parties.
-	\item Upon adaptive corruption of $P_b$ at epoch $\tau$: output
-	$X_b^{(\tau)}$ to $\cS$. Historical states $\{X_b^{(t)}\}_{t < \tau}$ are
-	not revealed.
-	\end{enumerate}
-	\smallskip\noindent\textbf{Leakage:} At step~2, the simulator $\cS$ additionally learns
-	$\cL = (|\Delta^+_0|, |\Delta^-_0|, |\Delta^+_1|, |\Delta^-_1|)$.
+	\smallskip\noindent\textbf{Input:}
+	Upon receiving $(\text{Update}, \Delta^+_b, \Delta^-_b)$ from both $P_0$ and $P_1$:
+	assert $\Delta^+_b \cap X_b = \emptyset$ and $\Delta^-_b \subseteq X_b$ for $b \in \{0,1\}$;
+	update $X_b \leftarrow (X_b \cup \Delta^+_b) \setminus \Delta^-_b$;
+	set $t \leftarrow t+1$.
+
+	\smallskip\noindent\textbf{Output:}
+	Compute $X_\cup \leftarrow X_0 \cup X_1$ and output $X_\cup$ to both parties.
+
+	\smallskip\noindent Upon adaptive corruption of $P_b$ at epoch $\tau$,
+	output $X_b^{(\tau)}$ to $\cS$; historical states $\{X_b^{(t)}\}_{t < \tau}$
+	are not revealed.
 	\smallskip
 	\end{minipage}}
-\captionof{figure}{The ideal functionality $\cF_{\mathsf{updPSU}}$ for forward-private updatable Private Set Union.}
+\captionof{figure}{The ideal functionality of forward-private updatable Private Set Union.}
 \label{fig:f-fpsu}
 
 \smallskip\noindent\textbf{Remark (PSI and cardinality as a byproduct).}
