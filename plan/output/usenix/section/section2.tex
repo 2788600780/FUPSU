@@ -2,6 +2,44 @@
 \label{sec:overview}
 % ============================================================
 
+\subsection{Notation}
+
+\begin{table}[ht]
+\centering
+\footnotesize
+\caption{Summary of notation used throughout the paper.}
+\label{tab:notation}
+\begin{tabular}{l l}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+$[n]$        & Set $\{1, 2, \dots, n\}$ \\
+$\kappa$      & Computational security parameter \\
+$\U$          & Element domain (typically $\{0,1\}^\sigma$) \\
+$\sigma$      & Element bit-length \\
+$P_0, P_1$   & The two protocol parties \\
+$X, Y$       & Private input sets of $P_0, P_1$ \\
+$\Delta^+_b, \Delta^-_b$ & Elements added / deleted by $P_b$ at the current epoch \\
+$X_\cup$     & Union output $X \cup Y$ \\
+$M$          & IBLT modulus (typically $2^{64}$) \\
+$k$          & Number of IBLT hash functions \\
+$\ell$       & IBLT subtable size \\
+$m = k\ell$  & Total IBLT cells \\
+$\mathsf{prm}$ & IBLT parameters $(M, k, \ell, H)$ \\
+$\mathsf{sum}, \mathsf{cnt}$ & IBLT cell fields (value and count) \\
+$\oplus, \ominus$ & Cell-wise IBLT addition / subtraction \\
+$c_k$        & $2$-core emergence threshold ($c_4 \approx 1.295$, $c_5 \approx 1.425$) \\
+$e = m/n$    & IBLT expansion factor \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+For a variable $x$, $x \sample S$ denotes uniform sampling from set $S$.
+$\mathbf{1}[\cdot]$ denotes the indicator function.
+$\bot$ is a special failure symbol.
+
+% ============================================================
+
 \subsection{Invertible Bloom Lookup Tables}
 
 Invertible Bloom Lookup Tables (IBLTs) were introduced by Goodrich and
@@ -15,21 +53,25 @@ functions). This makes IBLTs uniquely suited for set reconciliation and private
 set union, where the goal is to recover the entire set rather than answer
 individual membership queries.
 
-An IBLT is parameterized by $\prm = (M, k, \ell, H)$: a modulus $M \in
+An IBLT is parameterized by $\mathsf{prm} = (M, k, \ell, H)$: a modulus $M \in
 \N_{\geq 2}$ (typically $2^{64}$), $k$ hash functions $H = \{h_i : \U \to
 [\ell]\}_{i \in [k]}$ each mapping to a distinct subtable of size $\ell$, and
 two $k \times \ell$ matrices $\mathsf{sum}$ (values in $\Z_M$) and
-$\mathsf{cnt}$ (non-negative integers). We write $m = k\ell$ for the total
-number of cells.
+$\mathsf{cnt}$ (non-negative integers). A cell with $\mathsf{cnt}[i][j] = 1$
+is a \emph{singleton}: its sum equals the unique element stored there.
 
-The three core operations are given in Algorithms~\ref{alg:encode}--\ref{alg:list}.
+IBLT encoding is \emph{linear}: $\Encode(A \cup B) = \Encode(A) \oplus
+\Encode(B)$ and $\Encode(A \setminus B) = \Encode(A) \ominus \Encode(B)$,
+where $\oplus$/$\ominus$ denote cell-wise modular addition/subtraction.
+The three core operations are given in
+Algorithms~\ref{alg:encode}--\ref{alg:list}.
 
 \begin{algorithm}[ht]
-\caption{$\Encode_{\prm}(X)$ --- IBLT encoding.}
+\caption{$\Encode_{\mathsf{prm}}(X)$ --- IBLT encoding.}
 \label{alg:encode}
 \begin{algorithmic}
-\STATE \textbf{Input:} $\prm = (M, k, \ell, H)$, set $X \subseteq \U$, empty IBLT $(\mathsf{sum}, \mathsf{cnt})$.
-\STATE \textbf{Output:} $\mathsf{IBLT} = (\mathsf{sum}, \mathsf{cnt}, \prm)$ containing all $x \in X$.
+\STATE \textbf{Input:} $\mathsf{prm} = (M, k, \ell, H)$, set $X \subseteq \U$, empty IBLT.
+\STATE \textbf{Output:} $\mathsf{IBLT} = (\mathsf{sum}, \mathsf{cnt}, \mathsf{prm})$ containing all $x \in X$.
 \STATE Initialize $\mathsf{sum}[i][j] \leftarrow 0$, $\mathsf{cnt}[i][j] \leftarrow 0$ for all $i \in [k], j \in [\ell]$.
 \FOR{each $x \in X$}
   \FOR{$i \in [k]$}
@@ -42,11 +84,11 @@ The three core operations are given in Algorithms~\ref{alg:encode}--\ref{alg:lis
 \end{algorithm}
 
 \begin{algorithm}[ht]
-\caption{$\DeleteSet_{\prm}(\mathsf{IBLT}, X)$ --- batch deletion.}
+\caption{$\DeleteSet_{\mathsf{prm}}(\mathsf{IBLT}, X)$ --- batch deletion.}
 \label{alg:deleteset}
 \begin{algorithmic}
-\STATE \textbf{Input:} $\mathsf{IBLT} = (\mathsf{sum}, \mathsf{cnt}, \prm)$ and set $X \subseteq \U$.
-\STATE \textbf{Output:} Updated $\mathsf{IBLT} = (\mathsf{sum}, \mathsf{cnt}, \prm)$ with all $x \in X$ removed.
+\STATE \textbf{Input:} $\mathsf{IBLT}$ and set $X \subseteq \U$.
+\STATE \textbf{Output:} Updated $\mathsf{IBLT}$ with all $x \in X$ removed.
 \FOR{each $x \in X$}
   \FOR{$i \in [k]$}
     \STATE $j \leftarrow h_i(x)$
@@ -57,24 +99,17 @@ The three core operations are given in Algorithms~\ref{alg:encode}--\ref{alg:lis
 \end{algorithmic}
 \end{algorithm}
 
-IBLT encoding is \emph{linear}: $\Encode(A \cup B) = \Encode(A) \oplus
-\Encode(B)$ and $\Encode(A \setminus B) = \Encode(A) \ominus \Encode(B)$,
-where $\oplus$/$\ominus$ denote cell-wise modular addition/subtraction.
-
-A cell with $\mathsf{cnt}[i][j] = 1$ is a \emph{singleton}: its sum equals
-the unique element stored there.
-
 \begin{algorithm}[ht]
 \caption{$\List(\mathsf{IBLT})$ --- full listing (peeling).}
 \label{alg:list}
 \begin{algorithmic}
-\STATE \textbf{Input:} $\mathsf{IBLT} = (\mathsf{sum}, \mathsf{cnt}, \prm)$.
+\STATE \textbf{Input:} $\mathsf{IBLT} = (\mathsf{sum}, \mathsf{cnt}, \mathsf{prm})$.
 \STATE \textbf{Output:} Set $V$ of all encoded elements, or $\bot$ on failure.
 \STATE $V \leftarrow \emptyset$
 \WHILE{there exists $(i,j)$ with $\mathsf{cnt}[i][j] = 1$}
   \STATE $x \leftarrow \mathsf{sum}[i][j]$
   \STATE $V \leftarrow V \cup \{x\}$
-  \STATE $\DeleteSet_{\prm}(\mathsf{IBLT}, \{x\})$
+  \STATE $\DeleteSet_{\mathsf{prm}}(\mathsf{IBLT}, \{x\})$
 \ENDWHILE
 \IF{$\mathsf{cnt}[i][j] = 0$ for all $(i,j)$}
   \STATE \textbf{output} $V$
@@ -90,10 +125,11 @@ $\Pr[\List\text{ fails}] = O(\tau^{-k+2})$. With $k = 4$, expansion
 $m/\tau \in [1.5, 4.5]$, failure $\leq 2^{-\lambda}$.
 \end{theorem}
 
-In the above, $c_k$ is the threshold constant for $2$-core emergence ($c_3
-\approx 1.222$, $c_4 \approx 1.295$, $c_5 \approx 1.425$~\cite{PT26}). If $\List$ terminates with non-singleton
-cells remaining (a $2$-core), listing has failed. The expansion factor $m/n$
-must exceed $c_k$ to guarantee an empty $2$-core with overwhelming probability.
+If $\List$ terminates with non-singleton cells remaining (a $2$-core),
+listing has failed. The expansion factor $e = m/n$ must exceed $c_k$ to
+guarantee an empty $2$-core with overwhelming probability.
+
+% ============================================================
 
 \subsection{Union Peelability}
 
@@ -101,6 +137,7 @@ Piske and Trieu~\cite{PT26} observed that the union of two IBLTs can be peeled
 without materializing the combined table. For $\mathsf{IBLT}_0 =
 \Encode(X_0)$ and $\mathsf{IBLT}_1 = \Encode(X_1)$, the virtual union is
 $\mathsf{IBLT}_\cup = \mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
+The key primitive is the \emph{union peel} function $\uPeel$, defined below.
 
 \begin{definition}[$\uPeel$~\cite{PT26}]\label{def:upeel}
 \footnotesize
@@ -116,8 +153,9 @@ $\mathsf{IBLT}_\cup = \mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
 \end{definition}
 
 Intuitively, $\uPeel$ distinguishes three cases: the peeled element is unique
-to $P_0$ (case~1), unique to $P_1$ (case~2), or shared with equal sums (case~3).
-Secure evaluation uses OT for sum retrieval and bOPRF for equality comparison.
+to $P_0$, unique to $P_1$, or shared with equal sums in both IBLTs.
+Secure evaluation of $\uPeel$ uses OT for sum retrieval and OPRF for
+equality comparison, as specified by the $\Pi_{\mathsf{UnionPeel}}$ protocol.
 
 \begin{theorem}[Union Peel Equivalence~\cite{PT26}]\label{thm:upeel}
 For union-peelable IBLTs: $\Peel(\mathsf{IBLT}_\cup, i, j) =
@@ -171,29 +209,29 @@ $P_1$ sends $V = \{(v_{i,j}, i, j)\}$ to $P_0$. Both output $V$.
 By Theorem~\ref{thm:upeel}, the non-$\bot$ elements in $V$ equal those
 recoverable from the virtual union $\mathsf{IBLT}_0 \oplus \mathsf{IBLT}_1$.
 
-
 \smallskip
 \end{minipage}}
 \captionof{figure}{The Union Peel protocol~\cite{PT26}.}
 \label{fig:unionpeel}
 \end{center}
+
 \begin{theorem}[Union Peel Security~\cite{PT26}]\label{thm:unionpeel-sec}
 $\Pi_{\mathsf{UnionPeel}}$ UC-realizes $\cF_{\mathsf{UnionPeel}}$
-(Fig.~\ref{fig:unionpeel}) in the $(\cF_{\mathsf{OPRF}},
-\cF_{\mathsf{OT}})$-hybrid model against semi-honest adversaries, achieving
-static PSU on $2^{20}$ elements in under 3~seconds.
+in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model against
+semi-honest adversaries, achieving static PSU on $2^{20}$ elements in
+under 3~seconds.
 \end{theorem}
+
+% ============================================================
 
 \subsection{Cryptographic Primitives}
 
 \textbf{Symmetric encryption.} We use a symmetric encryption scheme
-$\mathsf{SE} = (\mathsf{SE.Enc}, \mathsf{SE.Dec})$ with 256-bit keys.
-Our implementation instantiates $\mathsf{SE}$ with ChaCha20~\cite{Ber08}
-(256-bit key, 96-bit nonce, $C = M \oplus \mathsf{ChaCha20.keystream}(K, N)$).
-The IBLT ciphertexts are encrypted under per-epoch keys derived from the
-PRF chain.
+$\SE = (\SE.\Enc, \SE.\Dec)$ with 256-bit keys, instantiated with
+ChaCha20~\cite{Ber08}. The IBLT ciphertexts are encrypted under per-epoch
+keys derived from the PRF chain (Section~\ref{sec:protocol}).
 
-\textbf{HMAC-SHA256~\cite{BCK96}.} We use HMAC-SHA256 as a secure PRF:
+\textbf{PRF.} We use HMAC-SHA256~\cite{BCK96} as a secure PRF:
 $F: \{0,1\}^\kappa \times \{0,1\}^* \to \{0,1\}^\kappa$. Key evolution uses a
 fixed domain separator: $K_t \leftarrow F(K_{t-1}, \text{``evolve''})$.
 
@@ -202,20 +240,22 @@ If $F$ is a secure PRF, then for any PPT $\cA$ and fixed $c$:
 $\Pr[\cA(F(K, c)) = K : K \sample \{0,1\}^\kappa] \leq \negl(\kappa)$.
 \end{lemma}
 
-\textbf{VOLE and OT extension.} Vector Oblivious Linear Evaluation (VOLE
+\textbf{VOLE and OT extension.} Vector Oblivious Linear Evaluation (VOLE)
 enables two parties to obtain additive shares of $\Delta \cdot \vec{x}$,
 realizable from $\kappa$ base OTs with sublinear communication~\cite{RS21,RR22};
 silent VOLE~\cite{RRT23} eliminates the base OTs entirely. The VOLE state is
-reusable across all epochs, amortizing the one-time setup cost.
+reusable across all epochs.
 
 \textbf{Batched OPRF.} The KKRT16/RS21/RR22 framework~\cite{KKRT16,RS21,RR22,HKL+24}
-constructs batched OPRF from VOLE and OKVS: the receiver encodes queries into
-an OKVS $P$; VOLE shares $\Delta \cdot P$; OPRF outputs are defined as
-$F_\Delta(x) = H(\Delta \cdot \mathsf{Decode}(P, x))$.
+constructs batched OPRF from VOLE and OKVS.
 
-The ideal 1-out-of-2 OT functionality $\cF_{\mathsf{OT}}$ is defined in
-Fig.~\ref{fig:f-ot}.
+We now define the three ideal functionalities used in our protocol.
 
+The 1-out-of-2 OT functionality $\cF_{\mathsf{OT}}$ allows a receiver to
+obtain one of two messages held by a sender, without the sender learning
+which message was chosen.
+
+\smallskip
 \begin{center}
 \fbox{\begin{minipage}{0.95\columnwidth}
 \smallskip
@@ -234,8 +274,9 @@ Output $m_b$ to $R$ and nothing to $S$.
 \label{fig:f-ot}
 \end{center}
 
-The ideal OPRF functionality $\cF_{\mathsf{OPRF}}$ is defined in
-Fig.~\ref{fig:f-oprf}.
+The OPRF functionality $\cF_{\mathsf{OPRF}}$ allows a receiver to learn the
+PRF evaluation $F(k, x)$ on its input $x$, while the sender learns nothing
+beyond its key $k$.
 
 \begin{center}
 \fbox{\begin{minipage}{0.95\columnwidth}
@@ -255,8 +296,8 @@ Compute $y = F(k, x)$. Output $y$ to $R$ and nothing to $S$.
 \label{fig:f-oprf}
 \end{center}
 
-The standard (static) PSU functionality $\cF_{\mathsf{PSU}}$ is defined
-in Fig.~\ref{fig:f-psu}.
+The static PSU functionality $\cF_{\mathsf{PSU}}$ receives sets from two
+parties and outputs their union, revealing nothing beyond the union itself.
 
 \begin{center}
 \fbox{\begin{minipage}{0.95\columnwidth}
@@ -275,18 +316,16 @@ Output $X \cup Y$ to both parties.
 \label{fig:f-psu}
 \end{center}
 
+% ============================================================
+
 \subsection{UC Framework}
 
 We use the Universal Composability framework~\cite{Can01} with adaptive
 corruptions. A protocol $\Pi$ UC-realizes an ideal functionality $\cF$ if for
 every PPT adversary $\cA$ there exists a PPT simulator $\cS$ such that no PPT
 environment $\cZ$ can distinguish the real execution from the ideal execution.
-We operate in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model,
-where the protocol invokes the ideal functionalities defined in
-Figs.~\ref{fig:f-ot},~\ref{fig:f-oprf}. The standard (static) PSU
-functionality $\cF_{\mathsf{PSU}}$ (Fig.~\ref{fig:f-psu}) and the
-union-peeling functionality $\cF_{\mathsf{UnionPeel}}$
-(Fig.~\ref{fig:unionpeel}) provide the building blocks. The ideal
-functionality for our protocol, $\cF_{\mathsf{fpsu}}$, is specified in
-Section~\ref{sec:protocol} (Fig.~\ref{fig:f-fpsu}).
+We operate in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model.
+The ideal functionality for our protocol, $\cF_{\mathsf{updPSU}}$, is specified
+in Section~\ref{sec:protocol}.
 
+% ============================================================
