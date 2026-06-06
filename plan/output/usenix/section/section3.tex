@@ -330,23 +330,11 @@ component is $\approx 1000\times$ smaller than static PSU~\cite{PT26}.
 \begin{tabular}{|l|l|l|c|c|}
 \hline
 \textbf{Protocol} & \textbf{Output} & \textbf{Update} & \textbf{Communication} & \textbf{Computation} \\
-\hline
-\end{tabular}
-
-\vspace{2pt}
-
-\begin{tabular}{|l|l|l|c|c|}
-\hline
+\hline\noalign{\vspace{-1pt}}\hline
 KRT19~\cite{KRT19} & Two-Sided & --- & $O(n\sigma\kappa)$ & $O(n\log n)$ OT \\
 PT26~\cite{PT26}   & Two-Sided & --- & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash \\
 Tu+25~\cite{Tu+25} & Two-Sided & --- & $O(n\sigma)$ & $O(n)$ symm. \\
-\hline
-\end{tabular}
-
-\vspace{2pt}
-
-\begin{tabular}{|l|l|l|c|c|}
-\hline
+\hline\noalign{\vspace{-1pt}}\hline
 Ours (Epoch~0)     & Two-Sided & --- & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash \\
 Ours (Epoch $>$0)  & Two-Sided & Add \& Del & $O(d(\sigma+\kappa) + n\sigma)$ & $O(d)$ OT + $O(n)$ $\SE$ \\
 \hline
