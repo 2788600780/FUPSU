@@ -335,9 +335,10 @@ KRT19~\cite{KRT19} & Two-Sided & --- & $O(n\sigma\kappa)$ & $O(n\log n)$ OT \\
 PT26~\cite{PT26}   & Two-Sided & --- & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash \\
 Tu+25~\cite{Tu+25} & Two-Sided & --- & $O(n\sigma)$ & $O(n)$ symm. \\
 \hline\noalign{\vspace{-1pt}}\hline
-Ours (Epoch~0)     & Two-Sided & ---      & $O(n(\sigma+\kappa))$              & $O(n)$ OT + hash \\
-Ours (Epoch $>$0)  & Two-Sided & Add      & $O(|\Delta^+|(\sigma+\kappa))$     & $O(|\Delta^+|)$ OT \\
-                   &           & Del      & $O(|\Delta^-|\kappa)$              & $O(|\Delta^-|)$ OT \\
+Ours (Epoch~0)     & Two-Sided & --- & $O(n(\sigma+\kappa))$ & $O(n)$ OT + hash \\
+\hline\noalign{\vspace{-1pt}}\hline
+Ours (Epoch $>$0)  & Two-Sided & Add & $O(|\Delta^+|(\sigma+\kappa))$ & $O(|\Delta^+|)$ OT \\
+                   &           & Del & $O(|\Delta^-|\kappa)$          & $O(|\Delta^-|)$ OT \\
 \hline
 \end{tabular}
 
