@@ -4,8 +4,8 @@ private sets. While recent IBLT-based protocols achieve PSU performance
 competitive with Private Set Intersection, they are \emph{static}: computing the
 union on updated sets requires re-running the full protocol from scratch.
 
-We present \textbf{F-PSU}, the first forward-private updatable PSU protocol.
-F-PSU exploits the linearity of IBLT encoding to support incremental
+We present \textbf{FUPSU}, the first forward-private updatable PSU protocol.
+FUPSU exploits the linearity of IBLT encoding to support incremental
 (delta-based) set updates, achieving per-epoch communication and computation
 $O(|\Delta|)$. We identify and resolve a fundamental barrier to IBLT-based
 incremental updates: \emph{deletion cascade}, where removing even a few elements
@@ -25,7 +25,7 @@ We further show that a single execution of the UnionPeel sub-protocol
 simultaneously recovers the union, the intersection, and their
 cardinalities---yielding a \emph{unified} updatable private set operation
 framework (updPSO) with zero additional communication or computation.
-We implement F-PSU end-to-end in C++ and benchmark across set sizes $2^{14}$
+We implement FUPSU end-to-end in C++ and benchmark across set sizes $2^{14}$
 to $2^{20}$ with $100\%$ recovery across all configurations. All code is
 open source.
 \end{abstract}
@@ -77,7 +77,7 @@ let alone forward-private updatable PSU.
 privacy:
 
 \begin{enumerate}
-\item \textbf{The F-PSU protocol} (Section~\ref{sec:protocol}). The first
+\item \textbf{The FUPSU protocol} (Section~\ref{sec:protocol}). The first
 forward-private updatable PSU protocol. Built on three mechanisms: (i)~delta IBLT
 encoding with $O(|\Delta|)$ per-epoch cell operations;
 size $n$; (ii)~\textbf{OT-masked deletion}, which offloads deletion membership
@@ -91,11 +91,11 @@ updPSO framework.
 \emph{any} $1$-updatable PSU protocol must reveal the individual add and delete
 counts for each party---an inherent efficiency-leakage trade-off. Any protocol
 hiding these counts requires $\Omega(N\sigma)$ communication, defeating
-updatability. F-PSU's OT queries and delta IBLT sizes reveal these four counts,
+updatability. FUPSU's OT queries and delta IBLT sizes reveal these four counts,
 matching the lower bound and making it \textbf{leakage-optimal}.
 
 \item \textbf{Implementation and evaluation} (Section~\ref{sec:eval}).
-We implement F-PSU end-to-end in C++ (IBLT with $k{=}5$, OT-masked deletion,
+We implement FUPSU end-to-end in C++ (IBLT with $k{=}5$, OT-masked deletion,
 MiniPeel for additions). Benchmarks on Intel Xeon E5-2630 v4 across set sizes
 $2^{14}$--$2^{20}$ and update sizes $|\Delta|=64$--$4096$ achieve
 $29$--$23{,}756\times$ per-epoch cell scan reduction over static full
@@ -104,19 +104,19 @@ the deletion cascade barrier and quantify how OT-masking eliminates it.
 \end{enumerate}
 
 \smallskip\noindent
-On the security front, we prove F-PSU UC-realizes~\cite{Can01}
+On the security front, we prove FUPSU UC-realizes~\cite{Can01}
 $\cF_{\mathsf{updPSU}}$ in the $(\cF_{\mathsf{OPRF}},
 \cF_{\mathsf{OT}})$-hybrid model against semi-honest adaptive adversaries,
 with a modular proof that separates per-epoch PSU security from cross-epoch
 key management, enabling independent upgrades. We introduce FP-IND, a
 standalone game-based definition that cleanly captures the forward privacy
-guarantee of the PRF chain. Because PSU outputs the union, F-PSU is
+guarantee of the PRF chain. Because PSU outputs the union, FUPSU is
 structurally unaffected by adaptive input-selection attacks
 on UPSI~\cite{LMR+26}, requiring no protocol modification.
 
 \smallskip
 \noindent\textbf{Comparison with prior work.}
-Table~\ref{tab:intro-compare} situates F-PSU among prior PSU and
+Table~\ref{tab:intro-compare} situates FUPSU among prior PSU and
 updatable protocols.
 
 \begin{table*}[t]

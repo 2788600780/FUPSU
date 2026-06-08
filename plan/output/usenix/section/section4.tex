@@ -2,15 +2,15 @@
 \label{sec:security}
 % ============================================================
 
-We prove that $\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}[f_{\cup}]$
-(Fig.~\ref{fig:f-fpsu}) in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid
+We prove that $\Pi_{\mathsf{fupsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}[f_{\cup}]$
+(Fig.~\ref{fig:f-fupsu}) in the $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid
 model against PPT semi-honest adaptive adversaries, for all four output types.
 
 \subsection{UC Security}
 
 \begin{theorem}[Main Security]\label{thm:main}
 Assume $\SE$ is IND-CPA secure and HMAC-SHA256 is a secure PRF. Then
-$\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}[f_{\cup}]$ in the
+$\Pi_{\mathsf{fupsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}[f_{\cup}]$ in the
 $(\cF_{\mathsf{OPRF}}, \cF_{\mathsf{OT}})$-hybrid model against PPT semi-honest
 adaptive adversaries.
 \end{theorem}
@@ -42,7 +42,7 @@ $\mathsf{Adv}^{\mathsf{FP\text{-}IND}}(\kappa) = |\Pr[b' = b] - \tfrac{1}{2}|
 \end{definition}
 
 \begin{corollary}[Forward Privacy]\label{cor:fp}
-If $\Pi_{\mathsf{fpsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}$ with adaptive
+If $\Pi_{\mathsf{fupsu}}$ UC-realizes $\cF_{\mathsf{updPSU}}$ with adaptive
 corruptions, then $\mathsf{Adv}^{\mathsf{FP\text{-}IND}}(\kappa) \leq T \cdot
 \mathsf{Adv}^{\mathsf{PRF}}(\kappa)$.
 \end{corollary}
@@ -53,7 +53,7 @@ Liu et al.~\cite{LMR+26} recently showed that several published UPSI protocols
 are broken by \emph{adaptive input selection}: an adversary who chooses deltas
 based on prior transcripts can extract information about the honest party's
 historical inputs from the protocol's stored state (e.g., OKVS encodings). We
-show that F-PSU requires no modification to resist this class of attacks.
+show that FUPSU requires no modification to resist this class of attacks.
 
 \smallskip\noindent\textbf{Why UPSI is vulnerable.}
 In LMR+26's setting, the server stores an OKVS encoding of its set across
@@ -63,8 +63,8 @@ PSI output reveals. The root cause is that the server's \emph{state} depends
 deterministically on its historical inputs, and adaptive queries can probe
 this state.
 
-\smallskip\noindent\textbf{Why F-PSU is immune.}
-F-PSU's state has two layers of protection:
+\smallskip\noindent\textbf{Why FUPSU is immune.}
+FUPSU's state has two layers of protection:
 \begin{enumerate}
 \item \textbf{Semantic security of encryption.} The stored IBLT is encrypted
 under $\SE$ with a per-epoch key $K_t$. An adaptive adversary probing the
@@ -79,7 +79,7 @@ decrypt ciphertexts from prior epochs, even with adaptive oracle access.
 
 Consequently, the adversary's view at each epoch consists of the union output
 $X_{\cup,t}$ and the size leakage $\cL_t$, exactly as specified by the ideal
-functionality $\cF_{\mathsf{updPSU}}$ (Fig.~\ref{fig:f-fpsu}). Adaptive choice
+functionality $\cF_{\mathsf{updPSU}}$ (Fig.~\ref{fig:f-fupsu}). Adaptive choice
 of deltas changes \emph{which} elements are added or deleted, but does not
 change \emph{what the protocol leaks}: the updated union and the delta sizes.
 No additional game-based definition is required; the UC simulator in
@@ -99,7 +99,7 @@ that historical data remains inaccessible regardless of input strategy.
 \subsection{Security of OT-Masked Deletion}
 
 \begin{lemma}[OT-Masked Deletion]\label{lem:otmask}
-The OT-based membership check in Step~4 of $\Pi_{\mathsf{fpsu}}$ (Fig.~\ref{fig:protocol})
+The OT-based membership check in Step~4 of $\Pi_{\mathsf{fupsu}}$ (Fig.~\ref{fig:protocol})
 reveals no information beyond (i)~the per-party deletion counts $|\Delta^-_C|, |\Delta^-_S|$, and
 (ii)~for each queried element $x \in \Delta^-_C$, whether $x$ belongs to $Y_{t-1}$
 and $x \in \Delta^-_S$. Both are implied by the final union output $X_{\cup,t}$.
@@ -123,7 +123,7 @@ $|\Delta^-| \cdot \mathsf{Adv}^{\mathsf{PRF}}(\kappa) \leq \negl(\kappa)$.
 
 This lemma ensures that OT-masked deletion inherits the security of the
 underlying UnionPeel protocol without introducing new attack surface. Combined
-with the per-epoch UC proof (Theorem~\ref{thm:main}), the full F-PSU protocol
+with the per-epoch UC proof (Theorem~\ref{thm:main}), the full FUPSU protocol
 with OT-masked deletion UC-realizes $\cF_{\mathsf{updPSU}}[f_{\cup}]$.
 
 % ============================================================

@@ -21,7 +21,7 @@ performance gap via IBLT union peelability, achieving PSU on $2^{20}$ elements
 in under 3 seconds. Pu et al.~\cite{PuGT26} (Eurocrypt'26) extended this to
 malicious security. All prior PSU protocols---including the IBLT-based
 constructions---are \emph{static}: they re-encode the entire set each epoch,
-costing $O(n)$ per computation. \textbf{F-PSU is the first updatable PSU.}
+costing $O(n)$ per computation. \textbf{FUPSU is the first updatable PSU.}
 
 \subsection{Updatable PSI Protocols}
  (PSI only). BMX22~\cite{BMX22} initiated updatable
@@ -55,15 +55,15 @@ orthogonal to these directions.
 \section{Conclusion}
 % ============================================================
 
-This work proposes F-PSU, the first forward-private updatable PSU protocol.
-F-PSU achieves per-epoch cell scanning $29$--$23{,}756\times$ smaller than the
+This work proposes FUPSU, the first forward-private updatable PSU protocol.
+FUPSU achieves per-epoch cell scanning $29$--$23{,}756\times$ smaller than the
 static full-scan baseline via OT-masked deletion, with formal UC security against
 semi-honest adaptive adversaries. The protocol builds on four ideas---delta IBLT
 encoding exploiting IBLT linearity, OT-masked deletion that eliminates the
 cascade barrier, split-path incremental peeling, and a PRF-based key evolution
 chain for forward privacy with negligible overhead. We further prove a leakage lower
 bound establishing that any $1$-updatable PSU protocol must leak individual
-update counts, and show that F-PSU matches this bound. A natural byproduct
+update counts, and show that FUPSU matches this bound. A natural byproduct
 of the UnionPeel sub-protocol yields a unified updatable private set
 operation framework (updPSU), simultaneously recovering the union,
 intersection, and cardinalities at zero additional cost.
@@ -74,7 +74,7 @@ settings (\cite{Dong+25,GNT24,CGS24}), and post-quantum security
 extension (Appendix~\ref{sec:selfheal}) demonstrates how PSU's inherent
 output entropy enables post-compromise security without additional
 communication. We believe updatable PSU will become a standard primitive
-in the secure computation toolbox, and that F-PSU provides a solid
+in the secure computation toolbox, and that FUPSU provides a solid
 foundation for this line of work. All code is open source~\cite{code}.
 
 % ============================================================
@@ -220,7 +220,7 @@ A.~K\"{u}p\c{c}\"{u}, C.~Malek, M.~\"{O}nen.
 \newblock Revisiting OKVS-based OPRF and PSI. \emph{Asiacrypt}, 2024.
 
 \bibitem{code} Anonymous.
-\newblock F-PSU Prototype Implementation. \url{https://github.com/} (released upon publication).
+\newblock FUPSU Prototype Implementation. \url{https://github.com/} (released upon publication).
 
 \bibitem{Jia+24} Y.~Jia, S.-F.~Sun, H.-S.~Zhou, D.~Gu.
 \newblock Scalable Private Set Union, with Stronger Security. \emph{USENIX Security}, 2024.
@@ -287,7 +287,7 @@ $|\Delta^+ Y|$, $|\Delta^- X|$, $|\Delta^- Y|$.
 
 \subsection{Design Decisions and Alternatives}
 
-We document design alternatives considered during the development of F-PSU
+We document design alternatives considered during the development of FUPSU
 and the rationale for the final design choices.
 
 \smallskip\noindent\textbf{Why deferred addition merge?}
@@ -315,7 +315,7 @@ keeping the addition and deletion paths algebraically clean.
 \smallskip\noindent\textbf{Why PRF chain over DH ratchet?}
 Signal's double ratchet~\cite{Signal} achieves both forward secrecy and
 post-compromise security via ephemeral Diffie-Hellman key exchange. We choose
-the PRF chain for F-PSU's main construction because: (i)~it adds zero
+the PRF chain for FUPSU's main construction because: (i)~it adds zero
 communication (DH requires an extra round per epoch); (ii)~it adds negligible
 computation (one HMAC-SHA256 vs.\ one X25519 scalar multiplication);
 (iii)~forward privacy alone is sufficient for many deployment scenarios where
@@ -452,14 +452,14 @@ under $5$~ms, negligible relative to network latency in all profiles.
 \centering
 \includegraphics[width=0.8\columnwidth]{png/fig_delta_sweep.pdf}
 \caption{Epoch time vs.\ delta ratio ($n = 2^{16}$, LAN). Break-even occurs at
-$|\Delta|/n \approx 50\%$; below this threshold, F-PSU provides savings.}
+$|\Delta|/n \approx 50\%$; below this threshold, FUPSU provides savings.}
 \label{fig:delta}
 \end{figure}
 
 Fig.~\ref{fig:delta} shows epoch time as a function of the delta ratio
 $|\Delta|/n$, at fixed $n = 2^{16}$ under LAN. The break-even point where
 delta IBLT outperforms full re-encoding occurs at $|\Delta|/n \approx 50\%$;
-below this threshold, F-PSU provides communication savings.
+below this threshold, FUPSU provides communication savings.
 
 % ============================================================
 \section{Full UC Security Proofs}
@@ -476,7 +476,7 @@ all hybrid transitions, and establish the composition theorem.
 \subsection{Complete Simulator Construction}
 
 \begin{framed}
-\noindent\textbf{Simulator $\cS$ for $\Pi_{\mathsf{fpsu}}$}
+\noindent\textbf{Simulator $\cS$ for $\Pi_{\mathsf{fupsu}}$}
 
 \smallskip\noindent\textbf{Input:} Access to $\cF_{\mathsf{updPSU}}$ and
 $\cA$ (corrupting $P_0$ at epoch $\tau$).
@@ -670,7 +670,7 @@ cryptographic assumptions.
 \label{sec:selfheal}
 % ============================================================
 
-F-PSU achieves forward security but not post-compromise security. We present
+FUPSU achieves forward security but not post-compromise security. We present
 a protocol extension achieving \emph{self-healing} with \textbf{zero additional
 communication}, protecting against single-party compromise.
 
@@ -751,16 +751,16 @@ that the delta elements are essentially isolated in the IBLT hypergraph.
 \subsection{Deployment Considerations}
 \label{sec:deployment}
 
-F-PSU is most beneficial when: (i)~sets evolve incrementally with
+FUPSU is most beneficial when: (i)~sets evolve incrementally with
 $|\Delta| \ll n$ (the update ratio is small); (ii)~frequent
 recomputation of the union is required (low-latency requirements);
 (iii)~sensitive historical data must be protected against key compromise
 (regulatory compliance); (iv)~network bandwidth is constrained (WAN or
-low-bandwidth links). In these scenarios, F-PSU provides substantial
+low-bandwidth links). In these scenarios, FUPSU provides substantial
 communication savings ($1{,}856\times$ at $|\Delta|=2^{10}$ at $0.1\%$ update ratio on $n=2^{20}$) and forward
 privacy with negligible overhead.
 
-F-PSU provides limited benefit when: (i)~the update ratio is high
+FUPSU provides limited benefit when: (i)~the update ratio is high
 ($|\Delta|/n > 50\%$, see Fig.~\ref{fig:delta}); (ii)~the
 deployment is on a high-bandwidth LAN where IBLT peeling computation
 dominates; (iii)~forward privacy is not required and a static protocol
@@ -768,6 +768,6 @@ suffices.
 
 \smallskip\noindent\textbf{Scalability.}
 For $n > 2^{20}$, rateless IBLTs~\cite{YGA24}, sharding, and
-multi-threading compose naturally with F-PSU's linear delta mechanism.
+multi-threading compose naturally with FUPSU's linear delta mechanism.
 
 \end{document}

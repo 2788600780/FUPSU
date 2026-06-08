@@ -2,7 +2,7 @@
 \label{sec:eval}
 % ============================================================
 
-We validate F-PSU via an end-to-end C++ implementation on an Intel Xeon
+We validate FUPSU via an end-to-end C++ implementation on an Intel Xeon
 E5-2630 v4 (Linux, single-threaded). IBLT parameters: $k = 5$ hash
 functions, expansion factor $e = 3.0$ (matching PT26~\cite{PT26}),
 $\sigma = 64$~bit elements. The protocol is tested across set sizes
@@ -27,37 +27,37 @@ $n$ & \textbf{Protocol} & $|\Delta|$ & \textbf{Comm. (MB)} &
 & Jia+24 (static)    & --- & 137   & 2.44s  & 22.3s  & 38.5s  & 1175s \\
 & Tu+25 (static)     & --- & 18.0  & 6.93s  & 11.0s  & 13.1s  & 147.4s \\
 & PT26 (static)      & --- & 29.7  & 0.17s  & 4.05s  & 7.79s  & 250.8s \\
-& F-PSU (Epoch~0)    & --- & 32.1  & 0.13s  & 1.78s  & 5.71s  & 52.9s \\
+& FUPSU (Epoch~0)    & --- & 32.1  & 0.13s  & 1.78s  & 5.71s  & 52.9s \\
 \cline{2-8}
-& F-PSU (Epoch~$>$0) & 256  & 0.92  & 0.02s  & 0.10s  & 0.11s  & 0.21s \\
-& F-PSU (Epoch~$>$0) & 1024 & 1.12  & 0.02s  & 0.11s  & 0.14s  & 0.56s \\
-& F-PSU (Epoch~$>$0) & 4096 & 1.94  & 0.02s  & 0.15s  & 0.29s  & 1.94s \\
+& FUPSU (Epoch~$>$0) & 256  & 0.92  & 0.02s  & 0.10s  & 0.11s  & 0.21s \\
+& FUPSU (Epoch~$>$0) & 1024 & 1.12  & 0.02s  & 0.11s  & 0.14s  & 0.56s \\
+& FUPSU (Epoch~$>$0) & 4096 & 1.94  & 0.02s  & 0.15s  & 0.29s  & 1.94s \\
 \hline\noalign{\vspace{-1pt}}\hline
 \multirow{8}{*}{$2^{18}$}
 & ZCL+23 (static)    & --- & 44.7  & 296.2s & 324.5s & 345.0s & 1435s \\
 & Jia+24 (static)    & --- & 578   & 8.51s  & 55.7s  & 129.1s & 4377s \\
 & Tu+25 (static)     & --- & 69.0  & 25.6s  & 34.0s  & 40.0s  & 575.0s \\
 & PT26 (static)      & --- & 99.9  & 0.65s  & 8.33s  & 20.8s  & 841.2s \\
-& F-PSU (Epoch~0)    & --- & 128   & 0.66s  & 6.18s  & 21.9s  & 210.7s \\
+& FUPSU (Epoch~0)    & --- & 128   & 0.66s  & 6.18s  & 21.9s  & 210.7s \\
 \cline{2-8}
-& F-PSU (Epoch~$>$0) & 256  & 3.47  & 0.07s  & 0.15s  & 0.16s  & 0.26s \\
-& F-PSU (Epoch~$>$0) & 1024 & 3.67  & 0.07s  & 0.17s  & 0.20s  & 0.61s \\
-& F-PSU (Epoch~$>$0) & 4096 & 4.49  & 0.08s  & 0.21s  & 0.35s  & 2.00s \\
+& FUPSU (Epoch~$>$0) & 256  & 3.47  & 0.07s  & 0.15s  & 0.16s  & 0.26s \\
+& FUPSU (Epoch~$>$0) & 1024 & 3.67  & 0.07s  & 0.17s  & 0.20s  & 0.61s \\
+& FUPSU (Epoch~$>$0) & 4096 & 4.49  & 0.08s  & 0.21s  & 0.35s  & 2.00s \\
 \hline\noalign{\vspace{-1pt}}\hline
 \multirow{8}{*}{$2^{20}$}
 & ZCL+23 (static)    & --- & 179   & 1129s  & ---    & ---    & --- \\
 & Jia+24 (static)    & --- & 2430  & 30.8s  & 214.9s & 505.4s & 20953s \\
 & Tu+25 (static)     & --- & 277   & 101.6s & 120.7s & 149.5s & 2310s \\
 & PT26 (static)      & --- & 409   & 2.95s  & 24.8s  & 72.0s  & 3252s \\
-& F-PSU (Epoch~0)    & --- & 514   & 3.93s  & 25.2s  & 88.1s  & 843.1s \\
+& FUPSU (Epoch~0)    & --- & 514   & 3.93s  & 25.2s  & 88.1s  & 843.1s \\
 \cline{2-8}
-& F-PSU (Epoch~$>$0) & 256  & 13.7  & 0.44s  & 0.52s  & 0.53s  & 0.64s \\
-& F-PSU (Epoch~$>$0) & 1024 & 13.9  & 0.43s  & 0.52s  & 0.55s  & 0.97s \\
-& F-PSU (Epoch~$>$0) & 4096 & 14.7  & 0.40s  & 0.53s  & 0.66s  & 2.32s \\
+& FUPSU (Epoch~$>$0) & 256  & 13.7  & 0.44s  & 0.52s  & 0.53s  & 0.64s \\
+& FUPSU (Epoch~$>$0) & 1024 & 13.9  & 0.43s  & 0.52s  & 0.55s  & 0.97s \\
+& FUPSU (Epoch~$>$0) & 4096 & 14.7  & 0.40s  & 0.53s  & 0.66s  & 2.32s \\
 \hline
 \end{tabular}
 \caption{End-to-end protocol performance. Static baselines as reported
-in~\cite{PT26} (AMD EPYC 74F3, single-threaded). F-PSU measured on Intel
+in~\cite{PT26} (AMD EPYC 74F3, single-threaded). FUPSU measured on Intel
 Xeon E5-2630 v4 (single-threaded, Linux, $k{=}5$, $e{=}2.0$). Epoch~0 =
 static PSU (full IBLT scan); Epoch~$>$0 = incremental with OT-masked
 deletion at update size $|\Delta|$. Communication = OT~+~OPRF traffic +
@@ -66,10 +66,10 @@ union output. $100\%$ recovery across all configurations.}
 \end{table*}
 
 \smallskip\noindent
-At $|\Delta| = 2^{10}$, F-PSU epoch~$>$0 communication is constant at
+At $|\Delta| = 2^{10}$, FUPSU epoch~$>$0 communication is constant at
 $\approx$0.5--15~KB across all set sizes ($29\times$ to $23{,}756\times$ reduction
 vs.\ epoch~0), with total runtime under $0.6$~s even on WAN 50M.
-F-PSU is the only protocol supporting updatable execution with forward
+FUPSU is the only protocol supporting updatable execution with forward
 privacy. The epoch~$>$0 cell scan count is $29$--$23{,}756\times$ lower
 than epoch~0, consistent with incremental peeling examining a subset
 of the full IBLT cells.
@@ -103,7 +103,7 @@ $<1$~ms in all configurations.
 
 \subsection{Feature Comparison}
 
-Table~I in the Introduction situates F-PSU among prior PSU and updatable
+Table~I in the Introduction situates FUPSU among prior PSU and updatable
 protocols. No prior work simultaneously achieves updatability, forward
 privacy, adaptive resistance, and the PSI/CA byproduct. OT-masked deletion
 (Section~\ref{sec:protocol}) is the key enabler for $O(|\Delta|)$ per-epoch
@@ -113,7 +113,7 @@ cost.
 
 To ground these numbers: in threat-intelligence sharing with $n = 2^{20}
 \approx 10^6$ IoCs and $0.1\%$ daily churn ($\approx$1,000 new/retired
-indicators per day), F-PSU exchanges $\approx$0.5~KB of IBLT data per daily
+indicators per day), FUPSU exchanges $\approx$0.5~KB of IBLT data per daily
 epoch vs.\ $\approx$36~MB for static. Over a year: $\approx$0.1~GB saved per
 party pair. In federated learning with 100~clients and $n = 10^6$ features,
 daily PSU-based feature alignment would save several terabytes per year. The
