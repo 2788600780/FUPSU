@@ -272,8 +272,7 @@ b_1 = 1,\; b_2 = 0   & \text{(Case~2) shared, peer retains --- } P_b \text{ subt
 b_1 = 1,\; b_2 = 1   & \text{(Case~3) both delete --- each subtracts } \Encode(\{x\}) \text{ and records cells to } Q_{\mathsf{del}}.
 \end{cases}
 \]
-The symmetric check runs for $P_{1-b}$'s deletions. Most are Case~1 or Case~2;
-only Case~3 triggers cascade.
+The symmetric check runs for $P_{1-b}$'s deletions.
 
 \item \textbf{[Resolve Case~3 deletions.]}
 If $Q_{\mathsf{del}} \neq \emptyset$, $P_0$ and $P_1$ run $\Pi_{\mathsf{UnionPeel}}$ on $Q_{\mathsf{del}}$
